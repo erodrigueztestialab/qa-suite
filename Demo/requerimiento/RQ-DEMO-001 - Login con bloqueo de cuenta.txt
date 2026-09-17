@@ -1,0 +1,98 @@
+DESARROLLO
+Inicio de sesión con bloqueo de cuenta por intentos fallidos
+
+Proyecto: Portal Corporativo Aurora
+Módulo: Autenticación
+Solicitado por: Gerencia de Operaciones
+Prioridad: Alta
+
+CONTEXTO
+Actualmente el Portal Corporativo Aurora permite a los usuarios iniciar sesión
+con usuario y contraseña sin ningún límite de intentos, lo cual representa un
+riesgo de seguridad (ataques de fuerza bruta contra cuentas de empleados). Se
+solicita implementar un mecanismo de autenticación con bloqueo temporal de
+cuenta tras varios intentos fallidos consecutivos.
+
+HISTORIA DE USUARIO
+Como usuario registrado del Portal Corporativo Aurora, quiero iniciar sesión
+con mi usuario y contraseña para acceder a mi panel de trabajo, y quiero que el
+sistema proteja mi cuenta bloqueándola temporalmente si detecta varios intentos
+fallidos consecutivos, de forma que un tercero no pueda intentar adivinar mi
+contraseña indefinidamente.
+
+DESCRIPCIÓN FUNCIONAL
+La pantalla de inicio de sesión solicita usuario (correo corporativo) y
+contraseña. Al enviar el formulario:
+
+1. Si las credenciales son correctas, el sistema debe iniciar sesión y
+   redirigir al usuario a su Dashboard principal, mostrando su nombre en la
+   esquina superior derecha como confirmación visual de que la sesión inició
+   correctamente.
+
+2. Si las credenciales son incorrectas (usuario no existe o contraseña no
+   coincide), el sistema debe mostrar un mensaje de error genérico
+   "Usuario o contraseña incorrectos" y permanecer en la pantalla de login.
+   Por seguridad, el mensaje NUNCA debe indicar cuál de los dos campos es el
+   incorrecto (para no facilitar enumeración de usuarios válidos).
+
+3. El sistema debe contar los intentos fallidos consecutivos por cuenta. Al
+   llegar al TERCER intento fallido consecutivo, la cuenta debe bloquearse
+   automáticamente durante 15 minutos. Mientras la cuenta esté bloqueada, el
+   sistema debe mostrar un mensaje explícito indicando el bloqueo y el tiempo
+   de espera, por ejemplo: "Cuenta bloqueada temporalmente por seguridad.
+   Intenta de nuevo en 15 minutos.", incluso si en ese momento se ingresa la
+   contraseña correcta (mientras dure el bloqueo, ningún intento debe dejar
+   entrar, ni siquiera con la contraseña correcta).
+
+4. Un inicio de sesión exitoso reinicia el contador de intentos fallidos de
+   esa cuenta a cero.
+
+5. Transcurridos los 15 minutos de bloqueo, la cuenta debe volver a aceptar
+   intentos de login normalmente, y el contador de intentos fallidos vuelve a
+   empezar desde cero.
+
+CRITERIOS DE ACEPTACIÓN
+- Con usuario y contraseña correctos, el sistema inicia sesión y redirige al
+  Dashboard mostrando el nombre del usuario autenticado.
+- Con credenciales incorrectas, el sistema muestra el mensaje genérico
+  "Usuario o contraseña incorrectos" sin especificar cuál campo falló, y no
+  permite el acceso.
+- Al tercer intento fallido consecutivo sobre la misma cuenta, el sistema
+  bloquea la cuenta y muestra un mensaje explícito de bloqueo con la duración
+  de la espera (15 minutos).
+- Mientras la cuenta está bloqueada, ningún intento de login debe ser
+  aceptado, aunque la contraseña ingresada sea la correcta.
+- Un login exitoso reinicia el contador de intentos fallidos a cero.
+- Pasados los 15 minutos, la cuenta vuelve a aceptar intentos normalmente.
+
+REGLAS DE NEGOCIO
+- El límite de intentos fallidos antes del bloqueo es de 3 intentos
+  consecutivos.
+- La duración del bloqueo temporal es de 15 minutos.
+- El contador de intentos fallidos es por cuenta, no por dispositivo/IP.
+- El mensaje de error de credenciales inválidas debe ser siempre genérico,
+  nunca debe distinguir si el usuario existe o no.
+- Un login exitoso siempre reinicia el contador de intentos fallidos de esa
+  cuenta.
+
+RIESGOS
+- Si el bloqueo no se aplica correctamente al tercer intento, la cuenta queda
+  expuesta a ataques de fuerza bruta indefinidos, incumpliendo el objetivo de
+  seguridad principal de este requerimiento.
+- Si el mensaje de error revela cuál campo es incorrecto, se facilita la
+  enumeración de usuarios válidos del sistema.
+- Un bloqueo que no se libera correctamente pasados los 15 minutos afectaría
+  la operación normal de usuarios legítimos (falso positivo de seguridad).
+
+IMPACTOS
+- Módulo de Autenticación (pantalla de login, validación de credenciales).
+- Gestión de sesión de usuario (Dashboard, mensaje de bienvenida).
+- No impacta otros módulos del Portal Corporativo Aurora.
+
+ESCENARIOS DE PRUEBA SUGERIDOS
+- Login exitoso con credenciales válidas.
+- Login fallido con contraseña incorrecta (usuario válido).
+- Login fallido con usuario inexistente.
+- Bloqueo de cuenta tras 3 intentos fallidos consecutivos.
+- Intento de login con contraseña correcta mientras la cuenta está bloqueada.
+- Reinicio del contador de intentos tras un login exitoso.

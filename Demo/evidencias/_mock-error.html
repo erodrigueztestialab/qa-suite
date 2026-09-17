@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Portal Corporativo Aurora - Iniciar sesión</title>
+<style>
+  * { box-sizing: border-box; margin:0; padding:0; font-family: 'Segoe UI', Arial, sans-serif; }
+  body { background:#0b3d63; min-height:100vh; display:flex; align-items:flex-start; justify-content:center; padding-top:18px; }
+  .card {
+    width:420px; background:#fff; border-radius:10px; padding:22px 26px; box-shadow:0 8px 24px rgba(0,0,0,.25);
+  }
+  .brand { font-weight:700; font-size:14px; color:#0b3d63; letter-spacing:.3px; margin-bottom:10px; }
+  h1 { font-size:17px; color:#14263b; margin-bottom:10px; }
+  label { display:block; font-size:11px; color:#5b6b7d; margin-bottom:3px; font-weight:600; }
+  .field { margin-bottom:9px; }
+  input {
+    width:100%; padding:7px 10px; border:1px solid #cdd7e1; border-radius:6px; font-size:13px; color:#14263b;
+  }
+  .btn {
+    width:100%; padding:8px; background:#0b3d63; color:#fff; border:none; border-radius:6px;
+    font-size:13px; font-weight:700; margin-top:4px; cursor:pointer;
+  }
+  .error-box {
+    background:#fdecec; border:1px solid #f3b7b7; color:#a32222; font-size:12px;
+    padding:7px 10px; border-radius:6px; margin-bottom:9px;
+  }
+  .log {
+    margin-top:14px; border-top:1px solid #e5e9ef; padding-top:10px;
+  }
+  .log h2 { font-size:10px; color:#8492a3; text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px; }
+  .log-row {
+    display:flex; justify-content:space-between; font-size:12px; color:#5b6b7d;
+    padding:4px 0; border-bottom:1px dashed #eef1f5;
+  }
+  .log-row .msg { color:#a32222; }
+  .log-row:last-child { border-bottom:none; }
+  .qa-panel {
+    margin-top:14px; background:#fff7e6; border:1px dashed #e0b84a; border-radius:6px; padding:10px 12px;
+  }
+  .qa-panel h2 { font-size:10px; color:#9a7414; text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px; }
+  .qa-row { display:flex; justify-content:space-between; font-size:12px; color:#5b6b7d; padding:2px 0; }
+  .qa-row b { color:#14263b; }
+  .qa-bad { color:#a32222; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">PORTAL CORPORATIVO AURORA</div>
+    <h1>Iniciar sesión</h1>
+    <div class="error-box">Usuario o contraseña incorrectos</div>
+    <div class="field">
+      <label>Correo corporativo</label>
+      <input type="text" value="usuario.valido@aurora.com" readonly>
+    </div>
+    <div class="field">
+      <label>Contraseña</label>
+      <input type="password" value="••••••••">
+    </div>
+    <button class="btn">Iniciar sesión</button>
+
+    <div class="log">
+      <h2>Historial de intentos recientes - esta cuenta</h2>
+      <div class="log-row"><span>Intento 1 - 09:52:03</span><span class="msg">Usuario o contraseña incorrectos</span></div>
+      <div class="log-row"><span>Intento 2 - 09:52:19</span><span class="msg">Usuario o contraseña incorrectos</span></div>
+      <div class="log-row"><span>Intento 3 - 09:52:31</span><span class="msg">Usuario o contraseña incorrectos</span></div>
+    </div>
+
+    <div class="qa-panel">
+      <h2>Panel de QA (solo entorno de pruebas)</h2>
+      <div class="qa-row"><span>Contador de intentos fallidos (reiniciado a 0 antes de esta prueba)</span><b>3</b></div>
+      <div class="qa-row"><span>Estado de la cuenta</span><b class="qa-bad">ACTIVA (sin bloqueo)</b></div>
+    </div>
+  </div>
+</body>
+</html>
