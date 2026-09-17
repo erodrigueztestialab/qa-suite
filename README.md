@@ -6,7 +6,7 @@
 ![Motores IA](https://img.shields.io/badge/IA-Claude%20%7C%20Gemini-blue)
 ![Plataforma](https://img.shields.io/badge/plataforma-Windows-lightgrey)
 
-**Copiloto de QA potenciado por IA que acompaña todo el ciclo de pruebas de software** — desde que llega un requerimiento hasta la certificación final de calidad — generando en el camino los documentos reales que hoy el equipo de QA de TestIALab produce a mano: Historia de Usuario, Plan de Pruebas, Casos de Prueba, Informe de Avance, Bug Tracker y Certificación de Calidad.
+**Copiloto de QA potenciado por IA que acompaña todo el ciclo de pruebas de software** — desde que llega un requerimiento hasta la certificación final de calidad — generando en el camino los documentos reales que hoy el equipo de QA de TestIALab producía a mano: Historia de Usuario, Plan de Pruebas, Casos de Prueba, Informe de Avance, Bug Tracker y Certificación de Calidad.
 
 ---
 
