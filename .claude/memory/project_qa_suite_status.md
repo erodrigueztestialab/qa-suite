@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: a2b2d1f1-2b3d-40f6-ab0e-532d818ce455
-  modified: 2026-09-22T14:15:03.826Z
+  modified: 2026-09-22T14:48:42.394Z
 ---
 
 TestIALab QA Suite IA (repo at `C:\TestiAlab\QA-Suite`, files `qa-suite.html` + `proxy.js`, run with `node proxy.js` → `http://localhost:3001`). Two big sessions happened on 2026-08-19 — see also [[project-qa-suite-status]] history in git if needed, but this memory supersedes the first-session one for current state.
@@ -526,3 +526,12 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 - **Aun sin mergear** al cierre de esta sesion -- el usuario lo revisa/mergea manualmente en GitHub.
 
 **How to apply:** antes de cualquier `gh pr create`/`gh` action en este repo, correr `gh auth status` y confirmar que la cuenta activa sea `erodrigueztestialab` (puede volver a quedar `kaironyxLabs` activa si se usa `gh` para otro proyecto en la misma maquina -- usar `gh auth switch -u erodrigueztestialab` si hace falta).
+
+**Cierre de la Sesion 14 (mismo dia, tras varias rondas de PR):**
+- **PR #1 mergeado** (`feature/claude-memory` -> `develop`) por el usuario en GitHub.
+- **Atribucion automatica de Claude Code desactivada para este repo:** nuevo `.claude/settings.json` (committeado, no `.local.json`) con `{"attribution":{"commit":"","pr":""}}` -- ya no aparece "Co-Authored-By: Claude" en commits ni "🤖 Generated with Claude Code" en PRs de este repo. Ademas, a partir de esta sesion el propio Claude recibio instruccion explicita de no agregar esas lineas en ningun commit/PR de aqui en adelante (via system-reminder), independiente del setting.
+- **PR #2** (`feature/memory-sync-attribution` -> `develop`, incluye lo anterior + el pendiente de sincronizar `project_git_identity.md`/`project_qa_suite_status.md` que habia quedado sin pushear) -- mergeado por el usuario.
+- **Incidente: `develop` se borro por error en GitHub** al mergear el PR #3 (`develop` -> `main`, para sincronizar ambas ramas). Confirmado que `delete_branch_on_merge:false` a nivel de repo (no fue automatico) -- causa mas probable: clic manual en el boton "Delete branch" de GitHub, el mismo que se usa correctamente para borrar `feature/*` ya fusionadas, aplicado por error a `develop` (que es permanente). Resuelto de inmediato con `git push -u origin develop` desde la copia local (identica a `main` en ese momento, sin perdida de nada). Regla nueva registrada en [[project_git_workflow]]: nunca usar ese boton en un PR de `develop`/`main`.
+- **PR #4** (`feature/develop-branch-incident` -> `develop`, documenta el incidente anterior en memoria) -- mergeado por el usuario.
+- **Estado de sincronizacion al cierre:** `main` = `b306fc8` (recibio PR #3: memoria espejada + settings de atribucion + fix de README). `develop` = `c0d0111`, 1 commit adelante de `main` (el commit de documentacion del incidente, PR #4) -- **pendiente un PR develop->main mas** para dejarlas igualadas de nuevo; no se abrio a cierre de sesion porque el usuario no lo pidio explicitamente todavia.
+- Limpieza local: todas las ramas `feature/*` usadas esta sesion (`claude-memory`, `memory-sync-attribution`, `develop-branch-incident`) se borraron localmente tras confirmar el merge remoto -- solo quedan `main`/`develop` localmente, igual que en GitHub.

@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: a542f78b-8a08-473d-a212-b135817135a2
-  modified: 2026-09-17T21:48:51.142Z
+  modified: 2026-09-22T14:35:27.399Z
 ---
 
 Repo: `https://github.com/erodrigueztestialab/qa-suite.git` (publico). Ver [[project_git_identity]] para la identidad de autor obligatoria.
@@ -22,5 +22,7 @@ Repo: `https://github.com/erodrigueztestialab/qa-suite.git` (publico). Ver [[pro
 **A partir de la PROXIMA tarea:** toda tarea nueva nace en `feature/<nombre-corto>` desde `develop` actualizado, se prueba en el navegador real (ver [[feedback_test_before_claiming_done]]), se sube, y se abre PR hacia `develop` con `gh pr create --base develop`. Pendiente resolver la autenticacion de `gh` CLI como `erodrigueztestialab` antes del primer PR real (ver [[project_git_identity]]).
 
 **How to apply:** nunca comitear directo a `main` ni a `develop` para trabajo nuevo -- siempre crear una rama `feature/` primero. Si el usuario pide un cambio, el primer paso tecnico (despues de confirmar el entendimiento del pedido) es `git checkout develop && git pull && git checkout -b feature/...`.
+
+**Incidente (2026-09-22): `develop` se borro por error en GitHub al mergear un PR develop->main.** El repo tiene `delete_branch_on_merge: false` (confirmado via `gh api repos/.../qa-suite`), asi que NO fue automatico -- lo mas probable es que se diera clic manual en el boton "Delete branch" que GitHub ofrece tras mergear, el mismo que se usa (correctamente) para borrar `feature/*` una vez fusionadas. `develop` se reconstruyo de inmediato con `git push -u origin develop` (la local nunca se perdio, estaba identica a `main` en ese punto). **How to apply: al mergear un PR develop->main, NUNCA usar el boton "Delete branch" de GitHub -- ese boton solo aplica a ramas `feature/*` una vez fusionadas a `develop`.** `develop` y `main` son permanentes y nunca se borran.
 
 **Excepcion registrada (2026-09-17, tarea del README):** el usuario pidio explicitamente saltarse el PR "por esta unica vez" para mergear `feature/readme` directo a `develop` (merge local + push, sin abrir PR en GitHub). Acto seguido pidio tambien subir `develop` a `main` -- se le pregunto explicitamente PR vs. push directo (dado que develop->main es la regla mas estricta) y eligio push directo de nuevo. Ambas fueron excepciones puntuales pedidas por el usuario, no un cambio de la regla -- seguir exigiendo PR por defecto en la proxima tarea salvo que lo pida de nuevo explicitamente. `main` y `develop` quedaron sincronizados en el mismo commit (`78eac51`, README completo) al cierre de esta tarea.
