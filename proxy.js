@@ -610,6 +610,167 @@ function htmlToPlainText(html) {
     .trim();
 }
 
+// ── Import de Plan de Pruebas desde .docx (espejo estructural de
+// buildPlanPruebasDocxBuffer) ───────────────────────────────────────────────
+// Los encabezados "N. Titulo" usan HeadingLevel.HEADING_1 (mammoth los
+// convierte a <h1> reales); los subtitulos "N.N Titulo" son parrafos en
+// negrita sin heading real (mammoth los deja como <p><strong>...) -- por eso
+// el reconocimiento aca es por TEXTO LITERAL exacto, no por tag. Alcance y
+// Responsables usan listas numeradas manuales (texto "N. algo" dentro de un
+// <p>, no <ol> real), Supuestos/Riesgos/Criterios y los items de Tipos/Niveles
+// SI usan bullet nativo (<ul><li>).
+var PLAN_SECTION_MARKERS = [
+  '1. Objetivo', '2. Alcance', '2.1 Dentro del Alcance', '2.2 Fuera del Alcance',
+  '3. Supuestos', '4. Riesgos', '4.1 Riesgos Funcionales', '4.2 Riesgos de Negocio',
+  '5. Estrategia de Pruebas', '6. Tipos y Niveles de Pruebas', '6.1 Tipos de Pruebas',
+  '6.2 Niveles de Pruebas', '7. Criterios de Entrada y de Salida',
+  '7.1 Criterios de Entrada', '7.2 Criterios de Salida', '8. Responsables',
+];
+function extractTopLevelBlocks(html) {
+  return html.match(/<(h1|h2|h3|p|ul|ol|table)[^>]*>[\s\S]*?<\/\1>/gi) || [];
+}
+function blockTag(block) {
+  var m = /^<(\w+)/.exec(block);
+  return m ? m[1].toLowerCase() : '';
+}
+function blockText(block) {
+  return htmlToPlainText(block).replace(/\s+/g, ' ').trim();
+}
+function extractListItems(block) {
+  var items = [];
+  var re = /<li[^>]*>([\s\S]*?)<\/li>/gi, m;
+  while ((m = re.exec(block))) items.push(htmlToPlainText(m[1]).trim());
+  return items.filter(Boolean);
+}
+function extractTableRows(block) {
+  var rows = [];
+  var trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi, trM;
+  while ((trM = trRe.exec(block))) {
+    var cells = [], tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi, tdM;
+    while ((tdM = tdRe.exec(trM[1]))) cells.push(htmlToPlainText(tdM[1]).trim());
+    rows.push(cells);
+  }
+  return rows;
+}
+function stripLeadingNumber(text) {
+  return text.replace(/^\s*\d+\.\s*/, '').trim();
+}
+
+function parsePlanDocxHtml(html) {
+  var blocks = extractTopLevelBlocks(html);
+  var out = {
+    objetivo: '', alcanceDentro: [], alcanceFuera: [], supuestos: [],
+    riesgosFuncionales: [], riesgosNegocio: [], estrategia: '',
+    tiposPrueba: [], nivelesPrueba: [], criteriosEntrada: [], criteriosSalida: [],
+    responsables: [],
+  };
+  var marker = null;
+  var namedItemsTarget = null; // 'tiposPrueba' | 'nivelesPrueba' mientras esa subseccion esta activa
+  var currentNamedEntry = null;
+
+  blocks.forEach(function(block){
+    var tag = blockTag(block);
+    var text = tag !== 'ul' && tag !== 'ol' && tag !== 'table' ? blockText(block) : '';
+
+    if (PLAN_SECTION_MARKERS.indexOf(text) !== -1) {
+      marker = text;
+      namedItemsTarget = (marker === '6.1 Tipos de Pruebas') ? 'tiposPrueba' : (marker === '6.2 Niveles de Pruebas') ? 'nivelesPrueba' : null;
+      currentNamedEntry = null;
+      return;
+    }
+
+    switch (marker) {
+      case '1. Objetivo': if (text) out.objetivo = (out.objetivo ? out.objetivo + '\n' : '') + text; break;
+      case '2.1 Dentro del Alcance': if (text) out.alcanceDentro.push(stripLeadingNumber(text)); break;
+      case '2.2 Fuera del Alcance': if (text) out.alcanceFuera.push(stripLeadingNumber(text)); break;
+      case '3. Supuestos': if (tag === 'ul' || tag === 'ol') out.supuestos = out.supuestos.concat(extractListItems(block)); break;
+      case '4.1 Riesgos Funcionales': if (tag === 'ul' || tag === 'ol') out.riesgosFuncionales = out.riesgosFuncionales.concat(extractListItems(block)); break;
+      case '4.2 Riesgos de Negocio': if (tag === 'ul' || tag === 'ol') out.riesgosNegocio = out.riesgosNegocio.concat(extractListItems(block)); break;
+      case '5. Estrategia de Pruebas': if (text) out.estrategia = (out.estrategia ? out.estrategia + '\n' : '') + text; break;
+      case '6.1 Tipos de Pruebas':
+      case '6.2 Niveles de Pruebas':
+        if (namedItemsTarget) {
+          if (tag === 'ul' || tag === 'ol') {
+            if (currentNamedEntry) currentNamedEntry.items = currentNamedEntry.items.concat(extractListItems(block));
+          } else if (text) {
+            currentNamedEntry = { nombre: stripLeadingNumber(text), items: [] };
+            out[namedItemsTarget].push(currentNamedEntry);
+          }
+        }
+        break;
+      case '7.1 Criterios de Entrada': if (tag === 'ul' || tag === 'ol') out.criteriosEntrada = out.criteriosEntrada.concat(extractListItems(block)); break;
+      case '7.2 Criterios de Salida': if (tag === 'ul' || tag === 'ol') out.criteriosSalida = out.criteriosSalida.concat(extractListItems(block)); break;
+      case '8. Responsables':
+        if (tag === 'table') {
+          var rows = extractTableRows(block).slice(1); // salta el header
+          out.responsables = rows.filter(function(r){ return r.length >= 3; }).map(function(r){
+            return { equipo: r[0]||'', cargo: r[1]||'', contacto: r[2]||'' };
+          });
+        }
+        break;
+    }
+  });
+  return out;
+}
+
+// ── Import de Historia de Usuario desde .docx (espejo de buildHUDocxBuffer) ──
+// A diferencia del Plan de Pruebas, la HU no tiene un S.xxx propio -- toda la
+// app (M2-M6) depende de _analysis, el string crudo "---TAG---" que devuelve
+// /api/analyze. Por eso este parser no devuelve un objeto de campos sueltos,
+// sino que RECONSTRUYE ese mismo formato de texto, para que el cliente lo
+// trate exactamente como una respuesta real de analisis (mismo renderAnalysis,
+// mismo reset de todo lo demas que ya ocurre en un analisis nuevo).
+var HU_LABELED_SECTIONS = [
+  { marker: '3. Criterios de Aceptación', tag: 'CRITERIOS_DE_ACEPTACION' },
+  { marker: '4. Reglas de Negocio', tag: 'REGLAS_DE_NEGOCIO' },
+  { marker: '5. Riesgos', tag: 'RIESGOS' },
+  { marker: '6. Impactos', tag: 'IMPACTOS' },
+  { marker: '7. Escenarios QA Sugeridos', tag: 'ESCENARIOS_QA' },
+];
+function labeledBulletsToRawLines(items) {
+  return items.map(function(text){
+    var m = /^([A-Z_0-9]+):\s*(.*)/.exec(text);
+    return m ? (m[1] + ' | ' + m[2]) : text;
+  }).join('\n');
+}
+function parseHUDocxHtml(html) {
+  var blocks = extractTopLevelBlocks(html);
+  var out = { como:'', quiero:'', para:'', nivel:'', justificacion:'', sections: {} };
+  HU_LABELED_SECTIONS.forEach(function(s){ out.sections[s.tag] = []; });
+  var marker = null; // '1'|'2'|tag de HU_LABELED_SECTIONS|null
+  var nivelHeadingRe = /^2\.\s*Nivel de Riesgo Global:\s*(.*)$/i;
+
+  blocks.forEach(function(block){
+    var tag = blockTag(block);
+    var text = (tag === 'ul' || tag === 'ol' || tag === 'table') ? '' : blockText(block);
+
+    if (tag === 'h1' && text === '1. Historia de Usuario') { marker = '1'; return; }
+    var nivelM = tag === 'h1' ? nivelHeadingRe.exec(text) : null;
+    if (nivelM) { out.nivel = nivelM[1].trim(); marker = '2'; return; }
+    var labeled = HU_LABELED_SECTIONS.find(function(s){ return tag === 'h1' && text === s.marker; });
+    if (labeled) { marker = labeled.tag; return; }
+
+    if (marker === '1') {
+      var m = /^(Como|Quiero|Para):\s*(.*)/i.exec(text);
+      if (m) out[m[1].toLowerCase()] = m[2].trim();
+    } else if (marker === '2') {
+      if (text) out.justificacion = (out.justificacion ? out.justificacion + '\n' : '') + text;
+    } else if (marker && out.sections[marker] !== undefined && (tag === 'ul' || tag === 'ol')) {
+      out.sections[marker] = out.sections[marker].concat(extractListItems(block));
+    }
+  });
+
+  var paraLimpio = (out.para||'---').replace(/\.\s*$/, '');
+  var huLine = 'Como ' + (out.como||'---') + ', quiero ' + (out.quiero||'---') + ', para ' + paraLimpio + '.';
+  var raw = '---HISTORIA_DE_USUARIO---\n' + huLine + '\n' +
+    '---NIVEL_RIESGO_GLOBAL---\n' + (out.nivel||'MEDIO') + '\n' +
+    '---JUSTIFICACION_RIESGO---\n' + (out.justificacion||'---') + '\n';
+  HU_LABELED_SECTIONS.forEach(function(s){
+    raw += '---' + s.tag + '---\n' + labeledBulletsToRawLines(out.sections[s.tag]) + '\n';
+  });
+  return raw;
+}
+
 async function extractDocx(docxPath) {
   var imgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'docx-img-'));
   var imagePaths = [];
@@ -1774,6 +1935,15 @@ function emitDone(reqId) {
   });
 }
 
+// multer/busboy en Windows decodifica el header Content-Disposition (de donde
+// sale originalname) como latin1, no utf8 -- un nombre real en UTF-8 como
+// "Integración" llega aca como "IntegraciÃ³n". Re-interpretar los bytes como
+// latin1 y decodificarlos de nuevo como utf8 revierte la corrupcion. Para un
+// nombre ya puramente ASCII esta operacion es un no-op (round-trip identico).
+function fixMojibake(name) {
+  return Buffer.from(name, 'latin1').toString('utf8');
+}
+
 // Mismo patron de extraccion que extractDesarrolloTitle() en qa-suite.html --
 // duplicado aca (no hay bundler que comparta codigo cliente/servidor) porque
 // solo el servidor puede extraer texto de un PDF (mammoth/pdf-parse corren en
@@ -1799,7 +1969,7 @@ app.post('/api/upload', upload.single('file'), async function(req, res) {
 
   var ext      = path.extname(req.file.originalname).toLowerCase();
   var tmpPath  = req.file.path;
-  var filename = req.file.originalname;
+  var filename = fixMojibake(req.file.originalname);
 
   try {
     if (ext === '.pdf') {
@@ -2171,6 +2341,38 @@ app.post('/api/export-plan-docx', async function(req, res) {
   }
 });
 
+app.post('/api/import-plan-docx', upload.single('file'), async function(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'No se recibio ningun archivo.' });
+  var docxPath = req.file.path + '.docx';
+  try {
+    fs.renameSync(req.file.path, docxPath);
+    var result = await mammoth.convertToHtml({ path: docxPath });
+    var parsed = parsePlanDocxHtml(result.value);
+    return res.json(parsed);
+  } catch (err) {
+    console.error('[/api/import-plan-docx]', err.message);
+    return res.status(500).json({ error: 'No se pudo leer el documento: ' + err.message });
+  } finally {
+    fs.unlink(docxPath, function(){});
+  }
+});
+
+app.post('/api/import-hu-docx', upload.single('file'), async function(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'No se recibio ningun archivo.' });
+  var docxPath = req.file.path + '.docx';
+  try {
+    fs.renameSync(req.file.path, docxPath);
+    var result = await mammoth.convertToHtml({ path: docxPath });
+    var raw = parseHUDocxHtml(result.value);
+    return res.json({ raw: raw, filename: fixMojibake(req.file.originalname) });
+  } catch (err) {
+    console.error('[/api/import-hu-docx]', err.message);
+    return res.status(500).json({ error: 'No se pudo leer el documento: ' + err.message });
+  } finally {
+    fs.unlink(docxPath, function(){});
+  }
+});
+
 app.post('/api/export-bug-docx', async function(req, res) {
   try {
     var buffer = await buildBugDocxBuffer(req.body || {});
@@ -2369,6 +2571,7 @@ app.post('/api/verify-evidence', upload.array('evidence', 6), async function(req
   try {
     for (var i = 0; i < req.files.length; i++) {
       var f = req.files[i];
+      f.originalname = fixMojibake(f.originalname);
       var ext = path.extname(f.originalname).toLowerCase();
       if (ext === '.docx') {
         var docxPath = f.path + ext;
