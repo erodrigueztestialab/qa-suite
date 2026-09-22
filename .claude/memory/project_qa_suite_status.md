@@ -1,11 +1,11 @@
 ---
 name: project-qa-suite-status
-description: "Current build status of TestIALab QA Suite IA. Ultimo estado real: Sesion 12 (2026-09-16) -- se agrego flag real --effort medium (CLI v2.1.270) a M1/M2/M3 (antes solo model:'sonnet' sin esfuerzo explicito), verificado con llamada real al CLI. Pendiente: primer commit real de git (sigue sin hacerse desde Sesion 10 parte 2), reiniciar proxy y probar M1/M2/M3 en vivo con el flag nuevo, y decision de producto sobre los 4 casos de ruido recurrente de M4 (Sesion 11, no bloqueante). Ver seccion final (Sesion 12) para el detalle completo."
+description: "Current build status of TestIALab QA Suite IA. Ultimo estado real: Sesion 14 (2026-09-22) -- memoria del proyecto espejada en .claude/memory/ del repo, gh autenticado como erodrigueztestialab, primer PR real abierto (#1, feature/claude-memory -> develop, aun sin mergear). Ver seccion final (Sesion 14) para el detalle completo."
 metadata: 
   node_type: memory
   type: project
   originSessionId: a2b2d1f1-2b3d-40f6-ab0e-532d818ce455
-  modified: 2026-09-17T21:49:36.193Z
+  modified: 2026-09-22T14:15:03.826Z
 ---
 
 TestIALab QA Suite IA (repo at `C:\TestiAlab\QA-Suite`, files `qa-suite.html` + `proxy.js`, run with `node proxy.js` → `http://localhost:3001`). Two big sessions happened on 2026-08-19 — see also [[project-qa-suite-status]] history in git if needed, but this memory supersedes the first-session one for current state.
@@ -509,3 +509,20 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 **Pendiente para la proxima sesion:** (a) autenticar `gh` CLI como `erodrigueztestialab` antes de abrir el primer Pull Request real (hoy sigue logueado como `kaironyxLabs` para otros usos) -- esto sigue sin resolverse porque las 2 tareas de hoy que llegaron a main/develop se subieron por excepcion sin PR, todavia no hubo un PR real; (b) a partir de la proxima tarea, volver al flujo por defecto: arrancar en `feature/<nombre>` desde `develop`, PR hacia `develop`, y despues PR de `develop` hacia `main` -- las excepciones de hoy fueron puntuales, no un cambio de regla (ver [[project_git_workflow]]).
 
 **Sesion pausada el 2026-09-17 a peticion del usuario ("guarda en memoria para continuar mañana").**
+
+---
+
+## Sesion 14 (2026-09-22) -- memoria del proyecto espejada en el repo + primer PR real (pendiente de la Sesion 13 resuelto)
+
+**Pedido del usuario:** subio el repo a otra maquina y no tenia ningun contexto previo de Claude sobre el proyecto -- pidio crear una carpeta dentro del repo con la memoria del proyecto, versionada, para que cualquier clon la tenga disponible.
+
+**Implementado:**
+- Nueva carpeta `.claude/memory/` en el repo con copia fiel de todos los archivos de memoria de este proyecto (`MEMORY.md` + los `feedback_*`/`project_*` individuales) + un `README.md` propio explicando el proposito y como mantenerla sincronizada. Nueva memoria [[project_memory_mirrored_to_repo]] deja anotado el convenio: de ahora en adelante, toda memoria nueva de tipo project/feedback relevante a QA-Suite se replica tambien ahi.
+- Se siguio el flujo de [[project_git_workflow]]: `feature/claude-memory` desde `develop` actualizado, commit con identidad testialab correcta, push (confirmado explicitamente por el usuario, bloqueado primero por el clasificador de auto-mode como "Out-of-Place Publication").
+
+**Pendiente de la Sesion 13 resuelto -- autenticacion de `gh` como `erodrigueztestialab`:**
+- `gh auth login --web` (device code flow) agrego la cuenta `erodrigueztestialab` SIN quitar `kaironyxLabs` -- ambas conviven ahora en el keychain de `gh` en esta maquina, `erodrigueztestialab` quedo activa. Detalle tecnico y regla de verificacion futura en [[project_git_identity]] (seccion actualizada).
+- **Primer PR real del proyecto abierto:** `feature/claude-memory` -> `develop`, PR #1 (`https://github.com/erodrigueztestialab/qa-suite/pull/1`), creado con `gh pr create` ya con la cuenta correcta activa, confirmado explicitamente por el usuario (bloqueado primero por el mismo clasificador de auto-mode). Con esto el flujo de PRs por defecto de [[project_git_workflow]] queda operativo de verdad por primera vez (las 2 excepciones de la Sesion 13 fueron sin PR).
+- **Aun sin mergear** al cierre de esta sesion -- el usuario lo revisa/mergea manualmente en GitHub.
+
+**How to apply:** antes de cualquier `gh pr create`/`gh` action en este repo, correr `gh auth status` y confirmar que la cuenta activa sea `erodrigueztestialab` (puede volver a quedar `kaironyxLabs` activa si se usa `gh` para otro proyecto en la misma maquina -- usar `gh auth switch -u erodrigueztestialab` si hace falta).
