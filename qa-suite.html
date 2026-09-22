@@ -1170,13 +1170,15 @@ function renderFilePreview() {
   }).join('');
 }
 // Nombre del requerimiento: se toma del primer archivo que produzca un titulo real
-// (linea "DESARROLLO" en el texto extraido, PDF nativo no aplica), o si ninguno lo
-// tiene, del nombre del primer archivo subido -- se recalcula sobre el set completo
-// cada vez que la lista de archivos cambia (agregar o quitar).
+// (linea "DESARROLLO" en el texto extraido -- DOCX/TXT via extractDesarrolloTitle()
+// en el cliente, PDF via extractDesarrolloTitleFromText() en el servidor durante
+// /api/upload, expuesto como f.desarrolloTitle), o si ninguno lo tiene, del nombre
+// del primer archivo subido -- se recalcula sobre el set completo cada vez que la
+// lista de archivos cambia (agregar o quitar).
 function recomputeReqDocName() {
   var files = window._uploadedFiles || [];
   if (!files.length) { return; }
-  var titled = files.map(function(f){ return f.text ? extractDesarrolloTitle(f.text) : null; }).filter(Boolean)[0];
+  var titled = files.map(function(f){ return (f.text ? extractDesarrolloTitle(f.text) : '') || f.desarrolloTitle || null; }).filter(Boolean)[0];
   S.reqDocName = titled || (files[0].filename||'').replace(/\.[^.]+$/, '');
 }
 async function handleFileUpload(input) {
@@ -1942,7 +1944,7 @@ async function exportHU_Word() {
     if (!r.ok) { var d = await r.json().catch(function(){return {};}); throw new Error(d.error || 'Error generando el Word'); }
     var blob = await r.blob();
     var url = URL.createObjectURL(blob);
-    var a = document.createElement('a'); a.href=url; a.download=reqFileSlug()+' - HU.docx'; a.click();
+    var a = document.createElement('a'); a.href=url; a.download=reqFileSlug()+' - Historia de usuario.docx'; a.click();
     URL.revokeObjectURL(url);
     toast('Word exportado','ok');
   } catch(e) {
@@ -1957,7 +1959,7 @@ async function exportHU_PDF() {
     if (!r.ok) { var d = await r.json().catch(function(){return {};}); throw new Error(d.error || 'Error generando el PDF'); }
     var blob = await r.blob();
     var url = URL.createObjectURL(blob);
-    var a = document.createElement('a'); a.href=url; a.download=reqFileSlug()+' - HU.pdf'; a.click();
+    var a = document.createElement('a'); a.href=url; a.download=reqFileSlug()+' - Historia de usuario.pdf'; a.click();
     URL.revokeObjectURL(url);
     toast('PDF exportado','ok');
   } catch(e) {
@@ -2662,7 +2664,8 @@ function exportCasos_Excel() {
     // caso, asi que la separacion correcta es por linea, no por columna nueva.
     var pasos = steps.map(function(s,i){ return (i+1)+'. '+s.paso; }).join('\n');
     var resultados = steps.map(function(s,i){ return (i+1)+'. '+s.resultado; }).join('\n');
-    return [c.id,c.requisito,c.tipo,c.escenario,c.caso,c.objetivo,pasos,resultados];
+    var tipoExcel = c.tipo === 'Funcional' ? 'Func' : c.tipo;
+    return [c.id,c.requisito,tipoExcel,c.escenario,c.caso,c.objetivo,pasos,resultados];
   });
   var ws = XLSX.utils.aoa_to_sheet([headers].concat(rows));
   ws['!cols'] = headers.map(function(){ return {wch:18}; });

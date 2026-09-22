@@ -29,6 +29,7 @@ const express  = require('express');
 const cors     = require('cors');
 const multer   = require('multer');
 const mammoth  = require('mammoth');
+const { PDFParse } = require('pdf-parse');
 const { spawn, execFile } = require('child_process');
 const crossSpawn = require('cross-spawn');
 const path     = require('path');
@@ -1773,6 +1774,25 @@ function emitDone(reqId) {
   });
 }
 
+// Mismo patron de extraccion que extractDesarrolloTitle() en qa-suite.html --
+// duplicado aca (no hay bundler que comparta codigo cliente/servidor) porque
+// solo el servidor puede extraer texto de un PDF (mammoth/pdf-parse corren en
+// Node). Si se ajusta el regex de un lado, ajustar tambien el otro.
+function extractDesarrolloTitleFromText(text) {
+  if (!text) return '';
+  var lines = text.split('\n').map(function(l){ return l.trim(); });
+  for (var i = 0; i < lines.length; i++) {
+    var m = /^DESARROLLO\b[\s:.\-]*(.*)$/i.exec(lines[i]);
+    if (m) {
+      if (m[1]) return m[1].trim().slice(0,120);
+      for (var j = i+1; j < lines.length; j++) {
+        if (lines[j]) return lines[j].slice(0,120);
+      }
+    }
+  }
+  return '';
+}
+
 // ── Upload ────────────────────────────────────────────────────────────────────
 app.post('/api/upload', upload.single('file'), async function(req, res) {
   if (!req.file) return res.status(400).json({ error: 'No se recibio ningun archivo.' });
@@ -1786,12 +1806,26 @@ app.post('/api/upload', upload.single('file'), async function(req, res) {
       // Native vision mode — keep PDF in /tmp with .pdf extension
       var pdfPath = tmpPath + '.pdf';
       fs.renameSync(tmpPath, pdfPath);
+      // Extraccion de texto SOLO para detectar el titulo real ("DESARROLLO...")
+      // para el nombre del requerimiento -- el analisis de IA sigue yendo 100%
+      // por vision nativa sobre el PDF (mode:'native' no cambia). Best-effort:
+      // si pdf-parse falla (PDF escaneado/protegido/corrupto), no rompe la subida,
+      // solo se pierde la deteccion automatica del titulo para ese archivo.
+      var desarrolloTitle = '';
+      try {
+        var pdfBuffer = fs.readFileSync(pdfPath);
+        var parser = new PDFParse({ data: pdfBuffer });
+        var pdfText = (await parser.getText()).text;
+        await parser.destroy();
+        desarrolloTitle = extractDesarrolloTitleFromText(pdfText);
+      } catch (e) { /* best-effort, ver comentario arriba */ }
       // Store path for later use in analyze
       return res.json({
-        filename : filename,
-        mode     : 'native',
-        filePath : pdfPath,
-        chars    : 0,
+        filename        : filename,
+        mode            : 'native',
+        filePath        : pdfPath,
+        chars           : 0,
+        desarrolloTitle : desarrolloTitle,
       });
     }
 
