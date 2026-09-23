@@ -45,11 +45,63 @@ const app  = express();
 const PORT = 3001;
 const ENGINE_DEFAULT = 'claude'; // 'gemini' | 'claude' -- Gemini/Antigravity tiene cuota semanal ajustada, no debe ser el default silencioso
 
-// ── Chatbot QA: carpeta de conocimiento (transcripciones de negocio) ──────────
-// PoC: apunta a ./knowledge dentro del repo con 2 documentos de prueba. Para
-// la carpeta real (sincronizada via OneDrive/Drive), definir KNOWLEDGE_DIR
-// antes de arrancar el proxy, igual patron que CLAUDE_CLI_PATH.
+// ── Chatbot QA: carpeta de conocimiento local (legado, ya no es la fuente activa) ──
+// Reemplazado por Confluence (ver mas abajo) -- se deja sin borrar por si hace
+// falta revertir rapido, pero /api/chat-qa ya no lo usa.
 var KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || 'C:\\Esteban\\1.TESTIALAB-TODO\\Capacitaciones';
+
+// ── Chatbot QA: base de conocimiento = Confluence Cloud ────────────────────────
+// Mismo patron de config que CLAUDE_CLI_PATH/AGY_CLI_PATH -- variables de entorno
+// simples seteadas antes de arrancar el proxy, sin agregar dotenv como dependencia
+// nueva. El token se genera en id.atlassian.com/manage-profile/security/api-tokens
+// -- NUNCA hardcodear un valor real aca, solo leerlo de process.env.
+var CONFLUENCE_BASE_URL     = process.env.CONFLUENCE_BASE_URL || '';
+var CONFLUENCE_EMAIL        = process.env.CONFLUENCE_EMAIL || '';
+var CONFLUENCE_API_TOKEN    = process.env.CONFLUENCE_API_TOKEN || '';
+var CONFLUENCE_FOLDER_ID    = process.env.CONFLUENCE_FOLDER_ID || '';
+var CONFLUENCE_SYNC_MINUTES = parseFloat(process.env.CONFLUENCE_SYNC_MINUTES || '20');
+
+function confluenceConfigured() {
+  return !!(CONFLUENCE_BASE_URL && CONFLUENCE_EMAIL && CONFLUENCE_API_TOKEN && CONFLUENCE_FOLDER_ID);
+}
+
+// Pegarle a la API de Confluence en CADA pregunta seria lento/innecesario (a
+// diferencia de leer una carpeta local, que es casi gratis) -- se cachea el
+// resultado y solo se vuelve a llamar a la API si paso mas de
+// CONFLUENCE_SYNC_MINUTES desde el ultimo fetch exitoso.
+var _confluenceCache = { fetchedAtMs: 0, pages: [] };
+
+function confluenceAuthHeader() {
+  return 'Basic ' + Buffer.from(CONFLUENCE_EMAIL + ':' + CONFLUENCE_API_TOKEN).toString('base64');
+}
+
+// Devuelve [{relPath, content}] -- misma forma exacta que readKnowledgeTextFiles(),
+// asi ensureKnowledgeIndex() no necesita saber que la fuente cambio. `relPath` es
+// el titulo de la pagina (para citar la fuente en la respuesta del chatbot, igual
+// que antes se citaba el nombre del archivo).
+async function fetchConfluencePages() {
+  var ageMs = Date.now() - _confluenceCache.fetchedAtMs;
+  if (_confluenceCache.fetchedAtMs && ageMs < CONFLUENCE_SYNC_MINUTES * 60000) {
+    return _confluenceCache.pages;
+  }
+  var pages = [];
+  var url = CONFLUENCE_BASE_URL + '/wiki/rest/api/content/' + CONFLUENCE_FOLDER_ID + '/descendant/page?expand=body.storage&limit=50';
+  while (url) {
+    var resp = await fetch(url, { headers: { 'Authorization': confluenceAuthHeader(), 'Accept': 'application/json' } });
+    if (!resp.ok) {
+      var errText = await resp.text().catch(function(){ return ''; });
+      throw new Error('Confluence API respondio ' + resp.status + ': ' + errText.slice(0, 300));
+    }
+    var data = await resp.json();
+    (data.results || []).forEach(function(page){
+      var html = (page.body && page.body.storage && page.body.storage.value) || '';
+      pages.push({ relPath: page.title, content: htmlToPlainText(html) });
+    });
+    url = (data._links && data._links.next) ? (CONFLUENCE_BASE_URL + data._links.next) : null;
+  }
+  _confluenceCache = { fetchedAtMs: Date.now(), pages: pages };
+  return pages;
+}
 
 // Las transcripciones reales vienen como .docx (a veces junto a un .mp4 de la
 // grabacion, que no se procesa -- fuera de alcance sin pipeline de transcripcion).
@@ -175,8 +227,8 @@ var _knowledgeIndex = { signature: null, chunks: [] };
 function knowledgeSignature(files) {
   return files.map(function(f){ return f.relPath + ':' + f.content.length; }).join('|');
 }
-async function ensureKnowledgeIndex(dir) {
-  var files = readKnowledgeTextFiles(dir);
+async function ensureKnowledgeIndex() {
+  var files = await fetchConfluencePages();
   var sig = knowledgeSignature(files);
   if (_knowledgeIndex.signature === sig) return _knowledgeIndex;
   var chunks = [];
@@ -2674,17 +2726,16 @@ app.post('/api/chat-qa', async function(req, res) {
   var history  = req.body.history || [];
   var reqId    = req.body.reqId || '';
   if (!question) return res.status(400).json({ error: 'Se requiere una pregunta.' });
-  if (!fs.existsSync(KNOWLEDGE_DIR)) {
-    return res.status(500).json({ error: 'No se encontro la carpeta de conocimiento en ' + KNOWLEDGE_DIR + '. Define KNOWLEDGE_DIR si vive en otra ruta.' });
+  if (!confluenceConfigured()) {
+    return res.status(500).json({ error: 'Confluence no esta configurado. Define CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, CONFLUENCE_API_TOKEN y CONFLUENCE_FOLDER_ID antes de arrancar el proxy.' });
   }
   try {
-    emitProgress(reqId, 8, 'Preparando transcripciones (.docx -> .txt)...');
-    await ensureKnowledgeTextCache(KNOWLEDGE_DIR);
+    emitProgress(reqId, 8, 'Sincronizando base de conocimiento desde Confluence...');
     // El servidor precarga el modelo de embeddings al arrancar (ver app.listen), pero
     // si esta es la primera pregunta y ese precalentamiento todavia no termino, se
     // avisa explicitamente en vez de dejar "Indexando..." colgado sin explicacion.
     emitProgress(reqId, 15, _embedderPromise ? 'Indexando base de conocimiento (embeddings locales)...' : 'Cargando modelo de embeddings (primera vez en este servidor, puede tardar)...');
-    var index = await ensureKnowledgeIndex(KNOWLEDGE_DIR);
+    var index = await ensureKnowledgeIndex();
     emitProgress(reqId, 45, 'Buscando fragmentos relevantes...');
     var chunks = await retrieveRelevantChunks(question, index);
     var prompt = buildChatQaPrompt(question, history, chunks);
