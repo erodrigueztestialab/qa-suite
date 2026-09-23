@@ -69,13 +69,23 @@ El diseño de casos (M4) usa el modelo de razonamiento más alto disponible en c
 
 ---
 
-## 💬 Chatbot QA — banco de conocimiento (RAG local)
+## 💬 Chatbot QA — banco de conocimiento (RAG contra Confluence)
 
-Módulo adicional para resolver dudas de proceso sin tener que ir a leer manuales: indexa una carpeta de documentación de capacitación (`.docx`/`.txt`) con **embeddings 100% locales** (`@huggingface/transformers`, modelo `all-MiniLM-L6-v2`, sin costo de API externa) y responde citando la fuente exacta.
+Módulo adicional para resolver dudas de proceso sin tener que ir a leer manuales: indexa un folder de Confluence Cloud con **embeddings 100% locales** (`@huggingface/transformers`, modelo `all-MiniLM-L6-v2`, sin costo de API externa) y responde citando la página exacta.
 
-Solo se le envían al modelo los fragmentos relevantes a cada pregunta (búsqueda por similitud semántica), no el banco completo — esto reduce drásticamente el tamaño del prompt en carpetas de conocimiento grandes.
+Solo se le envían al modelo los fragmentos relevantes a cada pregunta (búsqueda por similitud semántica), no el banco completo — esto reduce drásticamente el tamaño del prompt en bases de conocimiento grandes.
 
-La carpeta a indexar se configura con la variable de entorno `KNOWLEDGE_DIR` (por defecto usa `knowledge/`, incluida en este repo como ejemplo sintético).
+La fuente se configura con variables de entorno (mismo patrón que `CLAUDE_CLI_PATH`/`AGY_CLI_PATH`), a definir antes de arrancar el proxy:
+
+| Variable | Descripción |
+|---|---|
+| `CONFLUENCE_BASE_URL` | URL base del sitio, ej. `https://tuempresa.atlassian.net` |
+| `CONFLUENCE_EMAIL` | Correo de la cuenta que autentica contra la API |
+| `CONFLUENCE_API_TOKEN` | Token generado en `id.atlassian.com/manage-profile/security/api-tokens` — nunca lo subas al repo |
+| `CONFLUENCE_FOLDER_ID` | ID del folder/página raíz cuyas páginas descendientes se indexan (se ve en la URL de Confluence) |
+| `CONFLUENCE_SYNC_MINUTES` | Opcional, cada cuántos minutos se vuelve a consultar la API (default `20`) — el índice se cachea entre preguntas para no pegarle a la API en cada mensaje |
+
+Si estas variables no están definidas, el módulo responde con un error explícito en vez de fallar en silencio.
 
 ---
 
