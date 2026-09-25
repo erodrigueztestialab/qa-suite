@@ -567,6 +567,11 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
           <!-- El texto de este boton se actualiza dinamicamente segun el motor elegido (ver checkHealth/onEngineChange) -->
           <button class="btn btn-ghost" onclick="clearAll()">Limpiar</button>
         </div>
+        <div class="req-footer" style="border-top:1px solid var(--border)">
+          <span style="font-size:11px;color:var(--text2)">¿Ya tienes una Historia de Usuario exportada de este QA Suite?</span>
+          <button class="btn btn-ghost" style="font-size:12px" onclick="document.getElementById('hu-import-input').click()">&#8593; Importar HU desde Word</button>
+          <input type="file" id="hu-import-input" accept=".docx" style="display:none" onchange="importHUDocx(this)">
+        </div>
       </div>
 
       <!-- Progress -->
@@ -683,6 +688,11 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
       <div class="page-tag">HISTORICO</div>
       <h1 class="page-title">Historico de Sesiones</h1>
       <p class="page-sub">Cada requerimiento analizado queda guardado con TODO su avance (casos, ejecucion, bugs, plan, certificacion) -- no solo el analisis. Se guarda automaticamente en este navegador (IndexedDB), asi que si cerras todo o apagas el equipo, al volver podes retomar exactamente donde quedaste. Elegi una sesion para cargarla como la sesion activa.</p>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <button class="btn btn-ghost" style="font-size:12px" onclick="exportHistoricoJSON()">Exportar Historico (.json)</button>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="document.getElementById('hist-import-input').click()">Importar Historico (.json)</button>
+        <input type="file" id="hist-import-input" accept=".json" style="display:none" onchange="importHistoricoJSON(this)">
+      </div>
       <div id="mhist-body"></div>
     </div>
   </div>
@@ -1130,6 +1140,28 @@ function unlockUI() {
 // usar "Limpiar" o quitar el archivo con la X) pero el boton de analizar se
 // queda inhabilitado — no tiene sentido re-analizar el mismo archivo de nuevo
 // hasta que el QA decida limpiar y subir otro.
+async function importHUDocx(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (_analysis && !confirm('Esto reemplaza el analisis actual (M1) y reinicia Casos/Plan/Bugs/Certificacion, igual que analizar un documento nuevo. ¿Continuar?')) return;
+  toast('Leyendo documento...','ok');
+  try {
+    var fd = new FormData(); fd.append('file', file);
+    var r = await fetch(API+'/api/import-hu-docx', { method:'POST', body: fd });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error leyendo el documento');
+    S.reqDocName = (d.filename||'').replace(/\.[^.]+$/, '') || 'Requerimiento';
+    renderAnalysis(d.raw);
+    addToHistory(d.raw);
+    markAnalyzed();
+    toast('Historia de Usuario importada desde Word','ok');
+  } catch(e) {
+    console.error('[importHUDocx]', e);
+    toast('No se pudo importar: '+e.message,'err');
+  }
+}
+
 function markAnalyzed() {
   _isWorking = false;
   document.getElementById('upload-card').classList.remove('disabled');
@@ -1170,13 +1202,15 @@ function renderFilePreview() {
   }).join('');
 }
 // Nombre del requerimiento: se toma del primer archivo que produzca un titulo real
-// (linea "DESARROLLO" en el texto extraido, PDF nativo no aplica), o si ninguno lo
-// tiene, del nombre del primer archivo subido -- se recalcula sobre el set completo
-// cada vez que la lista de archivos cambia (agregar o quitar).
+// (linea "DESARROLLO" en el texto extraido -- DOCX/TXT via extractDesarrolloTitle()
+// en el cliente, PDF via extractDesarrolloTitleFromText() en el servidor durante
+// /api/upload, expuesto como f.desarrolloTitle), o si ninguno lo tiene, del nombre
+// del primer archivo subido -- se recalcula sobre el set completo cada vez que la
+// lista de archivos cambia (agregar o quitar).
 function recomputeReqDocName() {
   var files = window._uploadedFiles || [];
   if (!files.length) { return; }
-  var titled = files.map(function(f){ return f.text ? extractDesarrolloTitle(f.text) : null; }).filter(Boolean)[0];
+  var titled = files.map(function(f){ return (f.text ? extractDesarrolloTitle(f.text) : '') || f.desarrolloTitle || null; }).filter(Boolean)[0];
   S.reqDocName = titled || (files[0].filename||'').replace(/\.[^.]+$/, '');
 }
 async function handleFileUpload(input) {
@@ -1785,12 +1819,12 @@ function renderHistorico() {
     return;
   }
   body.innerHTML = _history.map(function(item){
-    var cls = item.nivel==='ALTO'?'hist-alto':item.nivel==='MEDIO'?'hist-medio':'hist-bajo';
     var isCurrent = item.id === _currentHistoryId;
+    var nombre = (item.snapshot && item.snapshot.S && (item.snapshot.S.reqDocName || item.snapshot.S.huSummary)) || 'Requerimiento';
     return '<div class="m2-card"'+(isCurrent?' style="border-color:var(--teal)"':'')+'>' +
       '<div class="case-card-hdr" style="border-bottom:none;padding:12px 14px 4px">' +
-        '<span class="hist-badge '+cls+'">'+item.nivel+'</span>' +
-        '<span class="case-card-title">'+esc((item.hu.como||'').slice(0,90))+((item.hu.como||'').length>90?'...':'')+'</span>' +
+        '<span class="case-card-title">'+esc(nombre)+'</span>' +
+        '<button class="btn btn-ghost" style="padding:2px 6px;font-size:11px" title="Renombrar" onclick="renameHistorySession(\''+item.id+'\')">&#9998;</button>' +
         (isCurrent ? '<span class="badge b-green" style="font-size:10px">Sesion activa</span>' : '') +
       '</div>' +
       '<div class="case-card-body" style="padding-top:0">' +
@@ -1802,6 +1836,45 @@ function renderHistorico() {
       '</div>' +
     '</div>';
   }).join('');
+}
+
+function renameHistorySession(id) {
+  var item = _history.find(function(h){ return h.id === id; });
+  if (!item || !item.snapshot || !item.snapshot.S) return;
+  var actual = item.snapshot.S.reqDocName || item.snapshot.S.huSummary || '';
+  var nuevo = prompt('Nombre de la sesion:', actual);
+  if (nuevo === null || !nuevo.trim()) return;
+  item.snapshot.S.reqDocName = nuevo.trim();
+  dbPutHistory(item).then(renderHistorico).catch(function(e){ console.error('[renameHistorySession]', e); toast('No se pudo guardar el nuevo nombre.','err'); });
+}
+
+function exportHistoricoJSON() {
+  if (!_history.length) { toast('No hay sesiones guardadas para exportar.','err'); return; }
+  var blob = new Blob([JSON.stringify(_history, null, 2)], {type:'application/json'});
+  var url = URL.createObjectURL(blob);
+  var fecha = new Date().toISOString().slice(0,10);
+  var a = document.createElement('a'); a.href=url; a.download='Historico-QA-Suite-'+fecha+'.json'; a.click();
+  URL.revokeObjectURL(url);
+  toast('Historico exportado ('+_history.length+' sesion(es))','ok');
+}
+
+async function importHistoricoJSON(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    var text = await file.text();
+    var rows = JSON.parse(text);
+    if (!Array.isArray(rows)) throw new Error('El archivo no tiene el formato esperado (se esperaba una lista de sesiones).');
+    for (var i = 0; i < rows.length; i++) { await dbPutHistory(rows[i]); }
+    _history = await dbGetAllHistory();
+    _history.sort(function(a,b){ return (b.savedAtMs||0) - (a.savedAtMs||0); });
+    renderHistorico();
+    toast(rows.length+' sesion(es) importada(s) al Historico','ok');
+  } catch(e) {
+    console.error('[importHistoricoJSON]', e);
+    toast('No se pudo importar: '+e.message,'err');
+  }
 }
 
 function loadHistorySession(id) {
@@ -1942,7 +2015,7 @@ async function exportHU_Word() {
     if (!r.ok) { var d = await r.json().catch(function(){return {};}); throw new Error(d.error || 'Error generando el Word'); }
     var blob = await r.blob();
     var url = URL.createObjectURL(blob);
-    var a = document.createElement('a'); a.href=url; a.download=reqFileSlug()+' - HU.docx'; a.click();
+    var a = document.createElement('a'); a.href=url; a.download=reqFileSlug()+' - Historia de usuario.docx'; a.click();
     URL.revokeObjectURL(url);
     toast('Word exportado','ok');
   } catch(e) {
@@ -1957,7 +2030,7 @@ async function exportHU_PDF() {
     if (!r.ok) { var d = await r.json().catch(function(){return {};}); throw new Error(d.error || 'Error generando el PDF'); }
     var blob = await r.blob();
     var url = URL.createObjectURL(blob);
-    var a = document.createElement('a'); a.href=url; a.download=reqFileSlug()+' - HU.pdf'; a.click();
+    var a = document.createElement('a'); a.href=url; a.download=reqFileSlug()+' - Historia de usuario.pdf'; a.click();
     URL.revokeObjectURL(url);
     toast('PDF exportado','ok');
   } catch(e) {
@@ -2296,6 +2369,8 @@ function renderM3() {
     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">' +
       '<button class="btn btn-ghost" onclick="renumberCases()">&#8635; Renumerar</button>' +
       '<button class="btn btn-ghost" onclick="addManualCase()">+ Agregar caso manual</button>' +
+      '<button class="btn btn-ghost" onclick="document.getElementById(\'casos-import-input\').click()">&#8593; Importar desde Excel</button>' +
+      '<input type="file" id="casos-import-input" accept=".xlsx" style="display:none" onchange="importCasosExcel(this)">' +
       '<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);margin-left:10px">' +
         '<input type="checkbox" '+(allSelected?'checked':'')+' onchange="toggleCaseSelectAll(this.checked)"> Seleccionar todos' +
       '</label>' +
@@ -2662,7 +2737,8 @@ function exportCasos_Excel() {
     // caso, asi que la separacion correcta es por linea, no por columna nueva.
     var pasos = steps.map(function(s,i){ return (i+1)+'. '+s.paso; }).join('\n');
     var resultados = steps.map(function(s,i){ return (i+1)+'. '+s.resultado; }).join('\n');
-    return [c.id,c.requisito,c.tipo,c.escenario,c.caso,c.objetivo,pasos,resultados];
+    var tipoExcel = c.tipo === 'Funcional' ? 'Func' : c.tipo;
+    return [c.id,c.requisito,tipoExcel,c.escenario,c.caso,c.objetivo,pasos,resultados];
   });
   var ws = XLSX.utils.aoa_to_sheet([headers].concat(rows));
   ws['!cols'] = headers.map(function(){ return {wch:18}; });
@@ -2681,6 +2757,57 @@ function exportCasos_Excel() {
   S.casesExcelExported = true;
   toast('Excel exportado','ok');
   renderM3();
+}
+
+var CASOS_EXCEL_HEADERS = ['ID','Requisito Funcional','Tipo','Escenario','Caso','Objetivo','Paso a Paso','Resultado Esperado'];
+
+// Reconstruye steps[] a partir de las columnas "Paso a Paso"/"Resultado Esperado"
+// tal como las escribe exportCasos_Excel() -- cada paso en su propia linea,
+// prefijado "N. ". Empareja por indice de linea (misma cantidad de lineas en
+// ambas columnas, ya que se generaron 1:1 al exportar).
+function parseStepsFromExcelCells(pasosCell, resultadosCell) {
+  var stripNum = function(l){ return l.replace(/^\s*\d+\.\s*/, '').trim(); };
+  var pasos = String(pasosCell||'').split('\n').map(stripNum).filter(Boolean);
+  var resultados = String(resultadosCell||'').split('\n').map(stripNum).filter(Boolean);
+  var n = Math.max(pasos.length, resultados.length);
+  var steps = [];
+  for (var i = 0; i < n; i++) steps.push({ paso: pasos[i]||'', resultado: resultados[i]||'' });
+  return steps;
+}
+
+async function importCasosExcel(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    var buf = await file.arrayBuffer();
+    var wb = XLSX.read(buf, {type:'array'});
+    var ws = wb.Sheets[wb.SheetNames[0]];
+    var rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    if (!rows.length) throw new Error('El archivo esta vacio.');
+    var header = rows[0].map(function(h){ return String(h||'').trim(); });
+    var headerOk = CASOS_EXCEL_HEADERS.every(function(h,i){ return header[i] === h; });
+    if (!headerOk) throw new Error('Este archivo no tiene el formato esperado. Exporta uno nuevo desde "Excel" en Casos QA y compara la estructura de encabezados.');
+    if (S.cases.length > 0 && !confirm('Esto reemplaza TODOS los '+S.cases.length+' caso(s) actuales por los del archivo. ¿Continuar?')) return;
+    var nuevos = rows.slice(1).filter(function(r){ return r.some(function(v){ return String(v||'').trim(); }); }).map(function(r){
+      var tipo = r[2] === 'Func' ? 'Funcional' : r[2];
+      return {
+        id: r[0], requisito: r[1], tipo: tipo, escenario: r[3], caso: r[4], objetivo: r[5],
+        steps: parseStepsFromExcelCells(r[6], r[7]),
+        complejidadEjecucion: 'Medio', status: 'todo', evidenceNames: [], verdict: null, verdictNote: null
+      };
+    });
+    if (!nuevos.length) throw new Error('No se encontro ningun caso en el archivo.');
+    S.cases = nuevos;
+    S.coverageVerified = null;
+    S.casesExcelExported = false;
+    _selectedCaseIds = {};
+    toast(nuevos.length+' caso(s) importado(s) desde Excel','ok');
+    renderM3();
+  } catch(e) {
+    console.error('[importCasosExcel]', e);
+    toast('No se pudo importar: '+e.message,'err');
+  }
 }
 
 function continueToM4() {
@@ -2803,7 +2930,9 @@ function renderPP() {
         '<div class="placeholder-ttl">Aun no se genera el Plan de Pruebas</div>' +
         '<div class="placeholder-sub">Se redacta con base en el analisis de M1 y la configuracion de M2, antes de disenar los casos.</div>' +
         genBtnHtml +
-      '</div>';
+        '<button class="btn btn-ghost" style="margin-top:10px;margin-left:8px" onclick="document.getElementById(\'plan-import-input\').click()">&#8593; Importar Plan desde Word</button>' +
+      '</div>' +
+      '<input type="file" id="plan-import-input" accept=".docx" style="display:none" onchange="importPlanDocx(this)">';
     return;
   }
   // Compat con sesiones viejas: si ya habia un plan generado antes de que
@@ -2825,6 +2954,10 @@ function renderPP() {
         '<button class="exp-btn exp-pdf" onclick="exportPlanPruebas_PDF()">PDF</button>' +
         '<button class="exp-btn exp-word" onclick="exportPlanPruebas_Word()">Word</button>' +
       '</div>' +
+    '</div>' +
+    '<div style="margin-top:10px">' +
+      '<button class="btn btn-ghost" style="font-size:12px" onclick="document.getElementById(\'plan-import-input\').click()">&#8593; Importar desde Word (reemplaza lo de arriba)</button>' +
+      '<input type="file" id="plan-import-input" accept=".docx" style="display:none" onchange="importPlanDocx(this)">' +
     '</div>' +
     '<div class="advance-box">' +
       '<div><div class="advance-ttl">&#191;Plan de Pruebas listo?</div>' +
@@ -2923,6 +3056,27 @@ async function exportPlanPruebas_Word() {
     toast(e.message,'err');
   }
 }
+async function importPlanDocx(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (S.planPruebasRaw && !confirm('Esto reemplaza el Plan de Pruebas actual (incluidas las ediciones que hayas hecho en pantalla). ¿Continuar?')) return;
+  toast('Leyendo documento...','ok');
+  try {
+    var fd = new FormData(); fd.append('file', file);
+    var r = await fetch(API+'/api/import-plan-docx', { method:'POST', body: fd });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error leyendo el documento');
+    S.planSections = d;
+    S.planPruebasRaw = '(importado desde Word)';
+    toast('Plan de Pruebas importado desde Word','ok');
+    renderPP();
+  } catch(e) {
+    console.error('[importPlanDocx]', e);
+    toast('No se pudo importar: '+e.message,'err');
+  }
+}
+
 // PDF generado por el backend a partir del MISMO .docx real (via Word, ver
 // /api/export-plan-pdf en proxy.js) -- ya no un layout jsPDF aparte que nunca
 // terminaba de quedar igual al Word. "Tal cual el Word" queda garantizado por

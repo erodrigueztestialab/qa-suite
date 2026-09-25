@@ -29,6 +29,7 @@ const express  = require('express');
 const cors     = require('cors');
 const multer   = require('multer');
 const mammoth  = require('mammoth');
+const { PDFParse } = require('pdf-parse');
 const { spawn, execFile } = require('child_process');
 const crossSpawn = require('cross-spawn');
 const path     = require('path');
@@ -44,11 +45,63 @@ const app  = express();
 const PORT = 3001;
 const ENGINE_DEFAULT = 'claude'; // 'gemini' | 'claude' -- Gemini/Antigravity tiene cuota semanal ajustada, no debe ser el default silencioso
 
-// ── Chatbot QA: carpeta de conocimiento (transcripciones de negocio) ──────────
-// PoC: apunta a ./knowledge dentro del repo con 2 documentos de prueba. Para
-// la carpeta real (sincronizada via OneDrive/Drive), definir KNOWLEDGE_DIR
-// antes de arrancar el proxy, igual patron que CLAUDE_CLI_PATH.
+// ── Chatbot QA: carpeta de conocimiento local (legado, ya no es la fuente activa) ──
+// Reemplazado por Confluence (ver mas abajo) -- se deja sin borrar por si hace
+// falta revertir rapido, pero /api/chat-qa ya no lo usa.
 var KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || 'C:\\Esteban\\1.TESTIALAB-TODO\\Capacitaciones';
+
+// ── Chatbot QA: base de conocimiento = Confluence Cloud ────────────────────────
+// Mismo patron de config que CLAUDE_CLI_PATH/AGY_CLI_PATH -- variables de entorno
+// simples seteadas antes de arrancar el proxy, sin agregar dotenv como dependencia
+// nueva. El token se genera en id.atlassian.com/manage-profile/security/api-tokens
+// -- NUNCA hardcodear un valor real aca, solo leerlo de process.env.
+var CONFLUENCE_BASE_URL     = process.env.CONFLUENCE_BASE_URL || '';
+var CONFLUENCE_EMAIL        = process.env.CONFLUENCE_EMAIL || '';
+var CONFLUENCE_API_TOKEN    = process.env.CONFLUENCE_API_TOKEN || '';
+var CONFLUENCE_FOLDER_ID    = process.env.CONFLUENCE_FOLDER_ID || '';
+var CONFLUENCE_SYNC_MINUTES = parseFloat(process.env.CONFLUENCE_SYNC_MINUTES || '20');
+
+function confluenceConfigured() {
+  return !!(CONFLUENCE_BASE_URL && CONFLUENCE_EMAIL && CONFLUENCE_API_TOKEN && CONFLUENCE_FOLDER_ID);
+}
+
+// Pegarle a la API de Confluence en CADA pregunta seria lento/innecesario (a
+// diferencia de leer una carpeta local, que es casi gratis) -- se cachea el
+// resultado y solo se vuelve a llamar a la API si paso mas de
+// CONFLUENCE_SYNC_MINUTES desde el ultimo fetch exitoso.
+var _confluenceCache = { fetchedAtMs: 0, pages: [] };
+
+function confluenceAuthHeader() {
+  return 'Basic ' + Buffer.from(CONFLUENCE_EMAIL + ':' + CONFLUENCE_API_TOKEN).toString('base64');
+}
+
+// Devuelve [{relPath, content}] -- misma forma exacta que readKnowledgeTextFiles(),
+// asi ensureKnowledgeIndex() no necesita saber que la fuente cambio. `relPath` es
+// el titulo de la pagina (para citar la fuente en la respuesta del chatbot, igual
+// que antes se citaba el nombre del archivo).
+async function fetchConfluencePages() {
+  var ageMs = Date.now() - _confluenceCache.fetchedAtMs;
+  if (_confluenceCache.fetchedAtMs && ageMs < CONFLUENCE_SYNC_MINUTES * 60000) {
+    return _confluenceCache.pages;
+  }
+  var pages = [];
+  var url = CONFLUENCE_BASE_URL + '/wiki/rest/api/content/' + CONFLUENCE_FOLDER_ID + '/descendant/page?expand=body.storage&limit=50';
+  while (url) {
+    var resp = await fetch(url, { headers: { 'Authorization': confluenceAuthHeader(), 'Accept': 'application/json' } });
+    if (!resp.ok) {
+      var errText = await resp.text().catch(function(){ return ''; });
+      throw new Error('Confluence API respondio ' + resp.status + ': ' + errText.slice(0, 300));
+    }
+    var data = await resp.json();
+    (data.results || []).forEach(function(page){
+      var html = (page.body && page.body.storage && page.body.storage.value) || '';
+      pages.push({ relPath: page.title, content: htmlToPlainText(html) });
+    });
+    url = (data._links && data._links.next) ? (CONFLUENCE_BASE_URL + data._links.next) : null;
+  }
+  _confluenceCache = { fetchedAtMs: Date.now(), pages: pages };
+  return pages;
+}
 
 // Las transcripciones reales vienen como .docx (a veces junto a un .mp4 de la
 // grabacion, que no se procesa -- fuera de alcance sin pipeline de transcripcion).
@@ -174,8 +227,8 @@ var _knowledgeIndex = { signature: null, chunks: [] };
 function knowledgeSignature(files) {
   return files.map(function(f){ return f.relPath + ':' + f.content.length; }).join('|');
 }
-async function ensureKnowledgeIndex(dir) {
-  var files = readKnowledgeTextFiles(dir);
+async function ensureKnowledgeIndex() {
+  var files = await fetchConfluencePages();
   var sig = knowledgeSignature(files);
   if (_knowledgeIndex.signature === sig) return _knowledgeIndex;
   var chunks = [];
@@ -609,6 +662,167 @@ function htmlToPlainText(html) {
     .trim();
 }
 
+// ── Import de Plan de Pruebas desde .docx (espejo estructural de
+// buildPlanPruebasDocxBuffer) ───────────────────────────────────────────────
+// Los encabezados "N. Titulo" usan HeadingLevel.HEADING_1 (mammoth los
+// convierte a <h1> reales); los subtitulos "N.N Titulo" son parrafos en
+// negrita sin heading real (mammoth los deja como <p><strong>...) -- por eso
+// el reconocimiento aca es por TEXTO LITERAL exacto, no por tag. Alcance y
+// Responsables usan listas numeradas manuales (texto "N. algo" dentro de un
+// <p>, no <ol> real), Supuestos/Riesgos/Criterios y los items de Tipos/Niveles
+// SI usan bullet nativo (<ul><li>).
+var PLAN_SECTION_MARKERS = [
+  '1. Objetivo', '2. Alcance', '2.1 Dentro del Alcance', '2.2 Fuera del Alcance',
+  '3. Supuestos', '4. Riesgos', '4.1 Riesgos Funcionales', '4.2 Riesgos de Negocio',
+  '5. Estrategia de Pruebas', '6. Tipos y Niveles de Pruebas', '6.1 Tipos de Pruebas',
+  '6.2 Niveles de Pruebas', '7. Criterios de Entrada y de Salida',
+  '7.1 Criterios de Entrada', '7.2 Criterios de Salida', '8. Responsables',
+];
+function extractTopLevelBlocks(html) {
+  return html.match(/<(h1|h2|h3|p|ul|ol|table)[^>]*>[\s\S]*?<\/\1>/gi) || [];
+}
+function blockTag(block) {
+  var m = /^<(\w+)/.exec(block);
+  return m ? m[1].toLowerCase() : '';
+}
+function blockText(block) {
+  return htmlToPlainText(block).replace(/\s+/g, ' ').trim();
+}
+function extractListItems(block) {
+  var items = [];
+  var re = /<li[^>]*>([\s\S]*?)<\/li>/gi, m;
+  while ((m = re.exec(block))) items.push(htmlToPlainText(m[1]).trim());
+  return items.filter(Boolean);
+}
+function extractTableRows(block) {
+  var rows = [];
+  var trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi, trM;
+  while ((trM = trRe.exec(block))) {
+    var cells = [], tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi, tdM;
+    while ((tdM = tdRe.exec(trM[1]))) cells.push(htmlToPlainText(tdM[1]).trim());
+    rows.push(cells);
+  }
+  return rows;
+}
+function stripLeadingNumber(text) {
+  return text.replace(/^\s*\d+\.\s*/, '').trim();
+}
+
+function parsePlanDocxHtml(html) {
+  var blocks = extractTopLevelBlocks(html);
+  var out = {
+    objetivo: '', alcanceDentro: [], alcanceFuera: [], supuestos: [],
+    riesgosFuncionales: [], riesgosNegocio: [], estrategia: '',
+    tiposPrueba: [], nivelesPrueba: [], criteriosEntrada: [], criteriosSalida: [],
+    responsables: [],
+  };
+  var marker = null;
+  var namedItemsTarget = null; // 'tiposPrueba' | 'nivelesPrueba' mientras esa subseccion esta activa
+  var currentNamedEntry = null;
+
+  blocks.forEach(function(block){
+    var tag = blockTag(block);
+    var text = tag !== 'ul' && tag !== 'ol' && tag !== 'table' ? blockText(block) : '';
+
+    if (PLAN_SECTION_MARKERS.indexOf(text) !== -1) {
+      marker = text;
+      namedItemsTarget = (marker === '6.1 Tipos de Pruebas') ? 'tiposPrueba' : (marker === '6.2 Niveles de Pruebas') ? 'nivelesPrueba' : null;
+      currentNamedEntry = null;
+      return;
+    }
+
+    switch (marker) {
+      case '1. Objetivo': if (text) out.objetivo = (out.objetivo ? out.objetivo + '\n' : '') + text; break;
+      case '2.1 Dentro del Alcance': if (text) out.alcanceDentro.push(stripLeadingNumber(text)); break;
+      case '2.2 Fuera del Alcance': if (text) out.alcanceFuera.push(stripLeadingNumber(text)); break;
+      case '3. Supuestos': if (tag === 'ul' || tag === 'ol') out.supuestos = out.supuestos.concat(extractListItems(block)); break;
+      case '4.1 Riesgos Funcionales': if (tag === 'ul' || tag === 'ol') out.riesgosFuncionales = out.riesgosFuncionales.concat(extractListItems(block)); break;
+      case '4.2 Riesgos de Negocio': if (tag === 'ul' || tag === 'ol') out.riesgosNegocio = out.riesgosNegocio.concat(extractListItems(block)); break;
+      case '5. Estrategia de Pruebas': if (text) out.estrategia = (out.estrategia ? out.estrategia + '\n' : '') + text; break;
+      case '6.1 Tipos de Pruebas':
+      case '6.2 Niveles de Pruebas':
+        if (namedItemsTarget) {
+          if (tag === 'ul' || tag === 'ol') {
+            if (currentNamedEntry) currentNamedEntry.items = currentNamedEntry.items.concat(extractListItems(block));
+          } else if (text) {
+            currentNamedEntry = { nombre: stripLeadingNumber(text), items: [] };
+            out[namedItemsTarget].push(currentNamedEntry);
+          }
+        }
+        break;
+      case '7.1 Criterios de Entrada': if (tag === 'ul' || tag === 'ol') out.criteriosEntrada = out.criteriosEntrada.concat(extractListItems(block)); break;
+      case '7.2 Criterios de Salida': if (tag === 'ul' || tag === 'ol') out.criteriosSalida = out.criteriosSalida.concat(extractListItems(block)); break;
+      case '8. Responsables':
+        if (tag === 'table') {
+          var rows = extractTableRows(block).slice(1); // salta el header
+          out.responsables = rows.filter(function(r){ return r.length >= 3; }).map(function(r){
+            return { equipo: r[0]||'', cargo: r[1]||'', contacto: r[2]||'' };
+          });
+        }
+        break;
+    }
+  });
+  return out;
+}
+
+// ── Import de Historia de Usuario desde .docx (espejo de buildHUDocxBuffer) ──
+// A diferencia del Plan de Pruebas, la HU no tiene un S.xxx propio -- toda la
+// app (M2-M6) depende de _analysis, el string crudo "---TAG---" que devuelve
+// /api/analyze. Por eso este parser no devuelve un objeto de campos sueltos,
+// sino que RECONSTRUYE ese mismo formato de texto, para que el cliente lo
+// trate exactamente como una respuesta real de analisis (mismo renderAnalysis,
+// mismo reset de todo lo demas que ya ocurre en un analisis nuevo).
+var HU_LABELED_SECTIONS = [
+  { marker: '3. Criterios de Aceptación', tag: 'CRITERIOS_DE_ACEPTACION' },
+  { marker: '4. Reglas de Negocio', tag: 'REGLAS_DE_NEGOCIO' },
+  { marker: '5. Riesgos', tag: 'RIESGOS' },
+  { marker: '6. Impactos', tag: 'IMPACTOS' },
+  { marker: '7. Escenarios QA Sugeridos', tag: 'ESCENARIOS_QA' },
+];
+function labeledBulletsToRawLines(items) {
+  return items.map(function(text){
+    var m = /^([A-Z_0-9]+):\s*(.*)/.exec(text);
+    return m ? (m[1] + ' | ' + m[2]) : text;
+  }).join('\n');
+}
+function parseHUDocxHtml(html) {
+  var blocks = extractTopLevelBlocks(html);
+  var out = { como:'', quiero:'', para:'', nivel:'', justificacion:'', sections: {} };
+  HU_LABELED_SECTIONS.forEach(function(s){ out.sections[s.tag] = []; });
+  var marker = null; // '1'|'2'|tag de HU_LABELED_SECTIONS|null
+  var nivelHeadingRe = /^2\.\s*Nivel de Riesgo Global:\s*(.*)$/i;
+
+  blocks.forEach(function(block){
+    var tag = blockTag(block);
+    var text = (tag === 'ul' || tag === 'ol' || tag === 'table') ? '' : blockText(block);
+
+    if (tag === 'h1' && text === '1. Historia de Usuario') { marker = '1'; return; }
+    var nivelM = tag === 'h1' ? nivelHeadingRe.exec(text) : null;
+    if (nivelM) { out.nivel = nivelM[1].trim(); marker = '2'; return; }
+    var labeled = HU_LABELED_SECTIONS.find(function(s){ return tag === 'h1' && text === s.marker; });
+    if (labeled) { marker = labeled.tag; return; }
+
+    if (marker === '1') {
+      var m = /^(Como|Quiero|Para):\s*(.*)/i.exec(text);
+      if (m) out[m[1].toLowerCase()] = m[2].trim();
+    } else if (marker === '2') {
+      if (text) out.justificacion = (out.justificacion ? out.justificacion + '\n' : '') + text;
+    } else if (marker && out.sections[marker] !== undefined && (tag === 'ul' || tag === 'ol')) {
+      out.sections[marker] = out.sections[marker].concat(extractListItems(block));
+    }
+  });
+
+  var paraLimpio = (out.para||'---').replace(/\.\s*$/, '');
+  var huLine = 'Como ' + (out.como||'---') + ', quiero ' + (out.quiero||'---') + ', para ' + paraLimpio + '.';
+  var raw = '---HISTORIA_DE_USUARIO---\n' + huLine + '\n' +
+    '---NIVEL_RIESGO_GLOBAL---\n' + (out.nivel||'MEDIO') + '\n' +
+    '---JUSTIFICACION_RIESGO---\n' + (out.justificacion||'---') + '\n';
+  HU_LABELED_SECTIONS.forEach(function(s){
+    raw += '---' + s.tag + '---\n' + labeledBulletsToRawLines(out.sections[s.tag]) + '\n';
+  });
+  return raw;
+}
+
 async function extractDocx(docxPath) {
   var imgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'docx-img-'));
   var imagePaths = [];
@@ -806,14 +1020,18 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '5. Cada paso a paso debe ser ejecutable por un QA sin conocimiento previo del sistema.',
     '6. El resultado esperado debe ser verificable, no ambiguo.',
     '7. NO inventes datos de negocio que no esten en el analisis. Esto aplica en especial a VALORES concretos (correos,',
-    '   nombres, IDs, montos, fechas puntuales): si el analisis no especifica un valor exacto para un campo, describe la',
-    '   ACCION de forma generica orientada a la funcionalidad, no un dato inventado. MAL: "Ingresar pepitoperez@correo.com',
-    '   y la clave Clave123". BIEN: "Ingresar un correo corporativo valido y la contrasena correcta en los campos',
-    '   respectivos". Usa un valor literal UNICAMENTE cuando (a) el analisis lo menciona explicitamente, o (b) el objetivo',
-    '   del caso es validar ese dato exacto (ej: "el campo debe rechazar un correo con formato invalido", "el sistema debe',
-    '   truncar el ID a 10 caracteres") -- ahi si el dato especifico ES la funcionalidad bajo prueba. Esto no debe bajar la',
-    '   calidad del caso: sigue siendo tan detallado y ejecutable como antes, solo evita fabricar datos que despues no',
-    '   coincidiran con la evidencia real que suba el QA.',
+    '   nombres, IDs, montos, fechas puntuales, cantidades/valores numericos de campos del sistema en formulas o calculos):',
+    '   si el analisis no especifica un valor exacto para un campo, describe la ACCION de forma generica orientada a la',
+    '   funcionalidad, no un dato inventado. MAL: "Ingresar pepitoperez@correo.com y la clave Clave123". BIEN: "Ingresar un',
+    '   correo corporativo valido y la contrasena correcta en los campos respectivos". MAL (formulas/calculos de negocio):',
+    '   "Verificar una reserva con Asignacion=2200 y Facturado=1024, y confirmar que el disponible es 1176". BIEN:',
+    '   "Verificar una reserva vigente con Asignacion mayor a Facturado, y confirmar que el disponible calculado es',
+    '   exactamente Asignacion menos Facturado". Usa un valor literal UNICAMENTE cuando (a) el analisis lo menciona',
+    '   explicitamente, o (b) el objetivo del caso es validar ese dato exacto (ej: "el campo debe rechazar un correo con',
+    '   formato invalido", "el sistema debe truncar el ID a 10 caracteres") -- ahi si el dato especifico ES la',
+    '   funcionalidad bajo prueba. Esto no debe bajar la calidad del caso: sigue siendo tan detallado y ejecutable como',
+    '   antes (el paso debe seguir indicando QUE relacion/condicion entre los valores se necesita, solo sin fijar el',
+    '   numero exacto), solo evita fabricar datos que despues no coincidiran con la evidencia real que suba el QA.',
     '8. Antes de responder, verifica internamente TODO lo siguiente y corrige lo que falte:',
     '   (a) Cada CA_N y RN_N del analisis aparece citado en al menos un caso -- si falta alguno, agrega el caso que lo cubra.',
     '   (b) Cada escenario QA de tipo Negativo o Borde del analisis quedo convertido en al menos un caso -- si falta alguno, agregalo.',
@@ -938,12 +1156,17 @@ function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, en
     '4. Cada paso a paso debe ser ejecutable por un QA sin conocimiento previo del sistema, con resultado esperado',
     '   verificable.',
     '5. NO inventes datos de negocio que no esten en el analisis. Esto aplica en especial a VALORES concretos (correos,',
-    '   nombres, IDs, montos, fechas puntuales): si el analisis no especifica un valor exacto para un campo, describe la',
-    '   ACCION de forma generica orientada a la funcionalidad, no un dato inventado. MAL: "Ingresar pepitoperez@correo.com',
-    '   y la clave Clave123". BIEN: "Ingresar un correo corporativo valido y la contrasena correcta en los campos',
-    '   respectivos". Usa un valor literal UNICAMENTE cuando (a) el analisis lo menciona explicitamente, o (b) el objetivo',
-    '   del caso es validar ese dato exacto -- ahi si el dato especifico ES la funcionalidad bajo prueba. Esto no debe',
-    '   bajar la calidad del caso, solo evitar fabricar datos que despues no coincidiran con la evidencia real.',
+    '   nombres, IDs, montos, fechas puntuales, cantidades/valores numericos de campos del sistema en formulas o calculos):',
+    '   si el analisis no especifica un valor exacto para un campo, describe la ACCION de forma generica orientada a la',
+    '   funcionalidad, no un dato inventado. MAL: "Ingresar pepitoperez@correo.com y la clave Clave123". BIEN: "Ingresar un',
+    '   correo corporativo valido y la contrasena correcta en los campos respectivos". MAL (formulas/calculos de negocio):',
+    '   "Verificar una reserva con Asignacion=2200 y Facturado=1024, y confirmar que el disponible es 1176". BIEN:',
+    '   "Verificar una reserva vigente con Asignacion mayor a Facturado, y confirmar que el disponible calculado es',
+    '   exactamente Asignacion menos Facturado". Usa un valor literal UNICAMENTE cuando (a) el analisis lo menciona',
+    '   explicitamente, o (b) el objetivo del caso es validar ese dato exacto -- ahi si el dato especifico ES la',
+    '   funcionalidad bajo prueba. Esto no debe bajar la calidad del caso (el paso debe seguir indicando QUE relacion/',
+    '   condicion entre los valores se necesita, solo sin fijar el numero exacto), solo evitar fabricar datos que',
+    '   despues no coincidiran con la evidencia real.',
     '6. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
     '',
     '---CASOS_DE_PRUEBA---',
@@ -1773,25 +1996,67 @@ function emitDone(reqId) {
   });
 }
 
+// multer/busboy en Windows decodifica el header Content-Disposition (de donde
+// sale originalname) como latin1, no utf8 -- un nombre real en UTF-8 como
+// "Integración" llega aca como "IntegraciÃ³n". Re-interpretar los bytes como
+// latin1 y decodificarlos de nuevo como utf8 revierte la corrupcion. Para un
+// nombre ya puramente ASCII esta operacion es un no-op (round-trip identico).
+function fixMojibake(name) {
+  return Buffer.from(name, 'latin1').toString('utf8');
+}
+
+// Mismo patron de extraccion que extractDesarrolloTitle() en qa-suite.html --
+// duplicado aca (no hay bundler que comparta codigo cliente/servidor) porque
+// solo el servidor puede extraer texto de un PDF (mammoth/pdf-parse corren en
+// Node). Si se ajusta el regex de un lado, ajustar tambien el otro.
+function extractDesarrolloTitleFromText(text) {
+  if (!text) return '';
+  var lines = text.split('\n').map(function(l){ return l.trim(); });
+  for (var i = 0; i < lines.length; i++) {
+    var m = /^DESARROLLO\b[\s:.\-]*(.*)$/i.exec(lines[i]);
+    if (m) {
+      if (m[1]) return m[1].trim().slice(0,120);
+      for (var j = i+1; j < lines.length; j++) {
+        if (lines[j]) return lines[j].slice(0,120);
+      }
+    }
+  }
+  return '';
+}
+
 // ── Upload ────────────────────────────────────────────────────────────────────
 app.post('/api/upload', upload.single('file'), async function(req, res) {
   if (!req.file) return res.status(400).json({ error: 'No se recibio ningun archivo.' });
 
   var ext      = path.extname(req.file.originalname).toLowerCase();
   var tmpPath  = req.file.path;
-  var filename = req.file.originalname;
+  var filename = fixMojibake(req.file.originalname);
 
   try {
     if (ext === '.pdf') {
       // Native vision mode — keep PDF in /tmp with .pdf extension
       var pdfPath = tmpPath + '.pdf';
       fs.renameSync(tmpPath, pdfPath);
+      // Extraccion de texto SOLO para detectar el titulo real ("DESARROLLO...")
+      // para el nombre del requerimiento -- el analisis de IA sigue yendo 100%
+      // por vision nativa sobre el PDF (mode:'native' no cambia). Best-effort:
+      // si pdf-parse falla (PDF escaneado/protegido/corrupto), no rompe la subida,
+      // solo se pierde la deteccion automatica del titulo para ese archivo.
+      var desarrolloTitle = '';
+      try {
+        var pdfBuffer = fs.readFileSync(pdfPath);
+        var parser = new PDFParse({ data: pdfBuffer });
+        var pdfText = (await parser.getText()).text;
+        await parser.destroy();
+        desarrolloTitle = extractDesarrolloTitleFromText(pdfText);
+      } catch (e) { /* best-effort, ver comentario arriba */ }
       // Store path for later use in analyze
       return res.json({
-        filename : filename,
-        mode     : 'native',
-        filePath : pdfPath,
-        chars    : 0,
+        filename        : filename,
+        mode            : 'native',
+        filePath        : pdfPath,
+        chars           : 0,
+        desarrolloTitle : desarrolloTitle,
       });
     }
 
@@ -2137,6 +2402,38 @@ app.post('/api/export-plan-docx', async function(req, res) {
   }
 });
 
+app.post('/api/import-plan-docx', upload.single('file'), async function(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'No se recibio ningun archivo.' });
+  var docxPath = req.file.path + '.docx';
+  try {
+    fs.renameSync(req.file.path, docxPath);
+    var result = await mammoth.convertToHtml({ path: docxPath });
+    var parsed = parsePlanDocxHtml(result.value);
+    return res.json(parsed);
+  } catch (err) {
+    console.error('[/api/import-plan-docx]', err.message);
+    return res.status(500).json({ error: 'No se pudo leer el documento: ' + err.message });
+  } finally {
+    fs.unlink(docxPath, function(){});
+  }
+});
+
+app.post('/api/import-hu-docx', upload.single('file'), async function(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'No se recibio ningun archivo.' });
+  var docxPath = req.file.path + '.docx';
+  try {
+    fs.renameSync(req.file.path, docxPath);
+    var result = await mammoth.convertToHtml({ path: docxPath });
+    var raw = parseHUDocxHtml(result.value);
+    return res.json({ raw: raw, filename: fixMojibake(req.file.originalname) });
+  } catch (err) {
+    console.error('[/api/import-hu-docx]', err.message);
+    return res.status(500).json({ error: 'No se pudo leer el documento: ' + err.message });
+  } finally {
+    fs.unlink(docxPath, function(){});
+  }
+});
+
 app.post('/api/export-bug-docx', async function(req, res) {
   try {
     var buffer = await buildBugDocxBuffer(req.body || {});
@@ -2335,6 +2632,7 @@ app.post('/api/verify-evidence', upload.array('evidence', 6), async function(req
   try {
     for (var i = 0; i < req.files.length; i++) {
       var f = req.files[i];
+      f.originalname = fixMojibake(f.originalname);
       var ext = path.extname(f.originalname).toLowerCase();
       if (ext === '.docx') {
         var docxPath = f.path + ext;
@@ -2437,17 +2735,16 @@ app.post('/api/chat-qa', async function(req, res) {
   var history  = req.body.history || [];
   var reqId    = req.body.reqId || '';
   if (!question) return res.status(400).json({ error: 'Se requiere una pregunta.' });
-  if (!fs.existsSync(KNOWLEDGE_DIR)) {
-    return res.status(500).json({ error: 'No se encontro la carpeta de conocimiento en ' + KNOWLEDGE_DIR + '. Define KNOWLEDGE_DIR si vive en otra ruta.' });
+  if (!confluenceConfigured()) {
+    return res.status(500).json({ error: 'Confluence no esta configurado. Define CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, CONFLUENCE_API_TOKEN y CONFLUENCE_FOLDER_ID antes de arrancar el proxy.' });
   }
   try {
-    emitProgress(reqId, 8, 'Preparando transcripciones (.docx -> .txt)...');
-    await ensureKnowledgeTextCache(KNOWLEDGE_DIR);
+    emitProgress(reqId, 8, 'Sincronizando base de conocimiento desde Confluence...');
     // El servidor precarga el modelo de embeddings al arrancar (ver app.listen), pero
     // si esta es la primera pregunta y ese precalentamiento todavia no termino, se
     // avisa explicitamente en vez de dejar "Indexando..." colgado sin explicacion.
     emitProgress(reqId, 15, _embedderPromise ? 'Indexando base de conocimiento (embeddings locales)...' : 'Cargando modelo de embeddings (primera vez en este servidor, puede tardar)...');
-    var index = await ensureKnowledgeIndex(KNOWLEDGE_DIR);
+    var index = await ensureKnowledgeIndex();
     emitProgress(reqId, 45, 'Buscando fragmentos relevantes...');
     var chunks = await retrieveRelevantChunks(question, index);
     var prompt = buildChatQaPrompt(question, history, chunks);
