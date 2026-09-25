@@ -570,3 +570,14 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 **~~Pendiente heredado de la Sesion 14~~ -- RESUELTO 2026-09-25:** PR #10 (`develop`->`main`) mergeado; `main` (`a500fd3`) quedo con contenido identico a `develop` (`7c166d6`), `git diff` vacio. `main` solo tiene de mas los commits de merge (#3, #6, #10), normal con este flujo. PR abierto a mano por el usuario (sin `gh` en esta maquina y claude-in-chrome no pudo leer ninguna pagina de GitHub: timeouts de `document_idle`). Para verificar estado de PRs sin `gh`, sirve la API publica: `Invoke-RestMethod https://api.github.com/repos/erodrigueztestialab/qa-suite/pulls?state=all`.
 
 **How to apply:** (a) el patron de import (Excel via `XLSX.read()` ya cargado en cliente; Word via `mammoth.convertToHtml()` sin aplanar + parser que camina headings/subtitulos literales fijos que el propio builder genera) es reusable si se pide importar Certificacion/Bug tambien (no se hizo esta ronda, no fue pedido); (b) el patron de "reemplazar la fuente de un RAG sin tocar el pipeline" (Confluence) es reusable si en el futuro se agrega OTRA fuente (ej. SharePoint) -- el contrato es siempre `[{relPath, content}]`; (c) si el usuario reporta de nuevo datos concretos/literales en casos generados en un dominio DISTINTO al de formulas de calculo (ej. fechas, IDs de otro tipo), diagnosticar primero con reproduccion real igual que esta vez antes de tocar el prompt a ciegas -- no asumir que el mismo fix generaliza a todos los dominios.
+
+---
+
+## Sesion 16 (2026-09-25, viernes) -- sesion corta de mantenimiento git, sin cambios de codigo
+
+1. Repaso del estado (Sesion 15) y verificacion de `main` vs `develop`: `develop` tenia 8 commits de contenido (#7/#8/#9) que no estaban en `main`.
+2. PR #10 (`develop`->`main`) creado a mano por el usuario (claude-in-chrome conectado pero sin poder leer ninguna pagina de GitHub: timeouts de `document_idle` en 2 pestanas y 2 paginas distintas; sin `gh` en esta maquina). El primer "listo" del usuario no era un merge real: el PR seguia abierto (le faltaba "Confirm merge"). Se detecto con la API publica y despues se confirmo el merge real: `main` `a500fd3` == `develop` `7c166d6` en contenido. **Leccion:** despues de un "ya lo mergee", verificar siempre con `git fetch` + diff (o la API) antes de dar por cerrado.
+3. Se guardo en memoria la preferencia de tuteo (ver [[feedback-spanish-colombian]]).
+4. Rama `feature/memoria-sesion-16` (commit `cadc5d5` + este registro) con push hecho; **PR hacia `develop` PENDIENTE de que el usuario lo abra/mergee** (link: `compare/develop...feature/memoria-sesion-16`).
+
+**Para el lunes (2026-09-28):** (a) confirmar si el PR de `feature/memoria-sesion-16` quedo mergeado en `develop` (API publica o `git fetch`); si si: `git checkout develop && git pull`, borrar la rama local+remota; (b) preguntar al usuario la proxima tarea (ideas sin pedir: import de Certificacion/Bugs con el mismo patron de la Sesion 15).
