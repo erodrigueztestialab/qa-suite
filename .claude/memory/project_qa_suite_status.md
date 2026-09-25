@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: a2b2d1f1-2b3d-40f6-ab0e-532d818ce455
-  modified: 2026-09-23T00:00:00.000Z
+  modified: 2026-09-25T17:50:13.181Z
 ---
 
 TestIALab QA Suite IA (repo at `C:\TestiAlab\QA-Suite`, files `qa-suite.html` + `proxy.js`, run with `node proxy.js` → `http://localhost:3001`). Two big sessions happened on 2026-08-19 — see also [[project-qa-suite-status]] history in git if needed, but this memory supersedes the first-session one for current state.
@@ -567,6 +567,6 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 
 **Cierre de sesion:** ambos PRs (#7 y #8) mergeados a `develop` por el usuario en GitHub; `develop` local actualizado (`git pull`) y ramas `feature/*` de esta sesion borradas (remota+local) tras confirmar el merge. Memoria de esta sesion sincronizada a esta maquina (que arranco con la carpeta `.claude/memory/` local vacia, aunque el repo ya la traia) y replicada de vuelta al repo.
 
-**Pendiente heredado de la Sesion 14, no resuelto en esta sesion (no era el foco):** sigue faltando un PR `develop`->`main` para igualar ambas ramas (quedaron desincronizadas desde el incidente de la Sesion 14) -- si se retoma, confirmar el estado real de ambas ramas primero, no asumir que sigue igual que como quedo documentado arriba.
+**~~Pendiente heredado de la Sesion 14~~ -- RESUELTO 2026-09-25:** PR #10 (`develop`->`main`) mergeado; `main` (`a500fd3`) quedo con contenido identico a `develop` (`7c166d6`), `git diff` vacio. `main` solo tiene de mas los commits de merge (#3, #6, #10), normal con este flujo. PR abierto a mano por el usuario (sin `gh` en esta maquina y claude-in-chrome no pudo leer ninguna pagina de GitHub: timeouts de `document_idle`). Para verificar estado de PRs sin `gh`, sirve la API publica: `Invoke-RestMethod https://api.github.com/repos/erodrigueztestialab/qa-suite/pulls?state=all`.
 
 **How to apply:** (a) el patron de import (Excel via `XLSX.read()` ya cargado en cliente; Word via `mammoth.convertToHtml()` sin aplanar + parser que camina headings/subtitulos literales fijos que el propio builder genera) es reusable si se pide importar Certificacion/Bug tambien (no se hizo esta ronda, no fue pedido); (b) el patron de "reemplazar la fuente de un RAG sin tocar el pipeline" (Confluence) es reusable si en el futuro se agrega OTRA fuente (ej. SharePoint) -- el contrato es siempre `[{relPath, content}]`; (c) si el usuario reporta de nuevo datos concretos/literales en casos generados en un dominio DISTINTO al de formulas de calculo (ej. fechas, IDs de otro tipo), diagnosticar primero con reproduccion real igual que esta vez antes de tocar el prompt a ciegas -- no asumir que el mismo fix generaliza a todos los dominios.
