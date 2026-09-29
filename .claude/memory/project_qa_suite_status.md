@@ -591,3 +591,14 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 3. **GitHub CLI instalado** con `winget install --id GitHub.cli -e` (v2.101.0, `C:\Program Files\GitHub CLI\gh.exe`; la sesion de Claude Code no tenia el PATH refrescado -> usar ruta completa). **Aun SIN login:** el `! gh auth login --web` desde el chat fallo (`context deadline exceeded`) porque en modo `!` el comando pasa a segundo plano a los 120s y el usuario no ve el codigo de dispositivo a tiempo. Ojo: `!` corre en **bash**, no PowerShell (sintaxis `& "..."` falla).
 
 **Para el martes (2026-09-29):** (a) que el usuario haga `gh auth login` en una **ventana PowerShell aparte** (`& "C:\Program Files\GitHub CLI\gh.exe" auth login --hostname github.com --git-protocol https --web`) con la cuenta **erodrigueztestialab** (ver [[project-git-identity]]); verificar con `gh auth status`; (b) crear yo el PR `feature/memoria-sesion-16` -> `develop` con `gh pr create`, que el usuario lo mergee, verificar con `git fetch` y borrar la rama; (c) preguntar la proxima tarea.
+
+---
+
+## Sesion 18 (2026-09-29, martes) -- sin cambios de codigo, cierre de pendientes git/GitHub
+
+1. `gh auth login` hecho por el usuario en PowerShell aparte -> `gh` autenticado como **erodrigueztestialab** (scopes repo/workflow). Sigue sin estar en el PATH de la sesion: usar `"/c/Program Files/GitHub CLI/gh.exe"`.
+2. **PR #11** (`feature/memoria-sesion-16` -> `develop`) creado con `gh pr create` y mergeado por el usuario (merge `54c15c0`). Rama borrada local y remota.
+3. Limpieza automatica de ramas configurada: `delete_branch_on_merge: true` + ruleset 24174776 que impide borrar `main`/`develop` + permisos locales para `git branch -d feature/*` y `git push origin --delete feature/*`. Detalle en [[project-git-workflow]].
+4. Esta memoria subida en `feature/memoria-sesion-18` -> PR a `develop`.
+
+**Proximo:** confirmar merge del PR de memoria-sesion-18 y preguntar la proxima tarea (nueva `feature/` desde `develop`).
