@@ -591,8 +591,17 @@ function callAI(prompt, opts) {
 // mammoth lee el .docx directamente (es un ZIP con XML adentro) y expone un callback
 // por cada imagen incrustada; la escribimos a disco para poder pasarla luego como
 // input multimodal a Gemini/Claude, igual que se hace con las capturas de M4.
+// Las tablas se aplanan como filas "| celda | celda |": sin esto las celdas de una
+// misma fila quedaban pegadas ("NombreTexto50Si") o sueltas una por linea, y el
+// modelo no podia leer bien los cuadros de campos/longitudes/obligatoriedad.
 function htmlToPlainText(html) {
   return html
+    .replace(/<table[^>]*>[\s\S]*?<\/table>/gi, function(table){
+      var rows = extractTableRows(table).map(function(cells){
+        return '| ' + cells.map(function(c){ return c.replace(/\s*\n\s*/g, ' '); }).join(' | ') + ' |';
+      });
+      return '\n\n' + rows.join('\n') + '\n\n';
+    })
     .replace(/<\/(p|h[1-6]|li|tr|div)>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, '')
@@ -875,11 +884,27 @@ function buildMultiFileAnalysisPrompt(files, engine) {
     '   contiene, no un numero comodo. No agrupes dos aserciones verificables distintas bajo un mismo ID (CA_N/RN_N/R_N/ESC_N)',
     '   solo para reducir la cantidad total -- cada ID debe quedar centrado en UNA sola condicion verificable. Solo evita',
     '   duplicar literalmente la misma asercion dos veces.',
+    '6. CUADROS Y TABLAS DE CAMPOS: si el documento trae cuadros/tablas que describen campos (diccionario de datos, campos',
+    '   de un formulario, pantalla, archivo o reporte, con columnas como tipo, longitud, obligatoriedad, formato, valores',
+    '   permitidos, etc.), analizalos fila por fila, sin resumirlos ni agruparlos. En el texto las tablas llegan como filas',
+    '   "| celda | celda |" (la primera fila suele ser el encabezado); tambien pueden venir dentro de imagenes o del PDF.',
+    '   Genera UNA regla de negocio por CADA campo, con TODOS los atributos que el cuadro documenta para ese campo: tipo de',
+    '   dato, longitud minima/maxima, obligatoriedad, formato o mascara, valores permitidos, valor por defecto, si es',
+    '   editable o de solo lectura, validaciones y mensajes de error. Ejemplo: RN_12 | Campo "Razon social" (pantalla Alta',
+    '   de proveedor): texto, maximo 100 caracteres, obligatorio, admite letras, numeros y espacios. NO inventes atributos',
+    '   que el cuadro no trae, y no omitas ningun campo del cuadro.',
+    '7. REDACCION: escribe los criterios, reglas, riesgos y escenarios como hechos sobre el comportamiento del sistema, en',
+    '   lenguaje claro y natural. NUNCA cites ni atribuyas la fuente de la informacion: prohibido escribir cosas como "en la',
+    '   reunion se dijo", "segun la transcripcion", "el documento indica", "el cliente menciono", "se acordo que", ni',
+    '   nombres de personas o de archivos. MAL: "Segun lo conversado en la reunion, el NIT es obligatorio". BIEN: "El NIT',
+    '   es obligatorio para registrar el proveedor".',
     multi
-      ? '6. Si dos archivos se contradicen entre si, prioriza el mas especifico o mas reciente (ej: una transcripcion de reunion ' +
-        'posterior prevalece sobre el documento inicial) y menciona la discrepancia en la justificacion de riesgo si es relevante.'
+      ? '8. Si dos archivos se contradicen entre si, prioriza el mas especifico o mas reciente (ej: una transcripcion de reunion ' +
+        'posterior prevalece sobre el documento inicial) y deja en los CA/RN solo la version que prevalece, redactada como ' +
+        'hecho (regla 7). Si la discrepancia es relevante, mencionala solo en la justificacion de riesgo, sin atribuirla a ' +
+        'personas ni a reuniones.'
       : null,
-    (multi ? '7' : '6') + '. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
+    (multi ? '9' : '8') + '. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
     '',
     refBlock,
     '',
@@ -900,7 +925,8 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
         '',
         'TRANSCRIPCIONES ADICIONALES (reuniones posteriores al analisis inicial -- el requerimiento pudo',
         'cambiar desde la primera reunion de contextualizacion; si algo aqui contradice o amplia el analisis',
-        'de arriba, esta informacion mas reciente tiene prioridad):',
+        'de arriba, esta informacion mas reciente tiene prioridad). Usalas solo como contexto para entender el',
+        'requerimiento: los casos NUNCA deben mencionar la reunion, la transcripcion ni a quien dijo que (ver regla 8):',
         transcripts.map(function(t){ return '--- ' + t.filename + ' ---\n' + t.text; }).join('\n\n'),
       ].join('\n')
     : '';
@@ -945,6 +971,19 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '   caso para uno de ellos NO cubre al otro -- genera el caso de conjunto exacto y/o el de auditoria campo por campo',
     '   PARA CADA flujo/modulo que lo requiera, de forma simetrica. No asumas que aplicar la regla una vez ya la satisface',
     '   para el resto del requerimiento.',
+    '   (d) VALIDACION DE CAMPOS: por CADA RN_N que especifique un campo con sus atributos (tipo, longitud, obligatoriedad,',
+    '   formato, valores permitidos, etc.), genera UN caso dedicado a ese campo, con un paso por cada validacion que el',
+    '   RN_N documente, segun aplique: dejarlo vacio si es obligatorio (se rechaza con el mensaje correspondiente),',
+    '   ingresar exactamente la longitud maxima permitida (se acepta), superar la longitud maxima en un caracter (se',
+    '   rechaza o se trunca, segun lo que diga el requerimiento), ingresar un tipo o formato invalido (se rechaza), elegir',
+    '   o ingresar un valor fuera de la lista permitida (se rechaza), y un valor valido (se acepta). Solo las validaciones',
+    '   que el RN_N documenta -- no inventes restricciones. Un caso por campo: no juntes varios campos en un mismo caso.',
+    '   Ese caso por campo ABSORBE todas las validaciones de ese campo: en "Requisito" cita el RN_N del campo MAS todos los',
+    '   CA_N (y RN_N) cuyo unico objetivo es una restriccion de ese mismo campo (vacio, longitud, formato, tipo, valores',
+    '   permitidos), y NO generes casos aparte para esos CA_N -- serian redundantes con los pasos del caso del campo. Esto',
+    '   tambien reemplaza, para esos campos, el caso "campo obligatorio vacio" de la regla (b). Los CA_N que involucran',
+    '   varios campos o un comportamiento distinto (ej: formulario completo vacio, dato duplicado, que no se notifique si',
+    '   falla una validacion) si van en su propio caso.',
     '4. COBERTURA SIN COMPACTAR: no hay numero minimo ni maximo de casos -- la cantidad la determina unicamente lo que el',
     '   analisis necesita cubrir, no un objetivo de "ser breve". NO fusiones validaciones distintas en un solo caso grande',
     '   solo para reducir la cantidad total; cada caso debe seguir centrado en UN objetivo de prueba claro. Variantes',
@@ -957,6 +996,8 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '   separar. Fusionar 3 o mas IDs en un solo caso solo se justifica cuando son literalmente inseparables en una unica',
     '   ejecucion (ej: dos validaciones que ocurren en el mismo paso y no pueden probarse por separado sin repetir todo el',
     '   flujo). Si tienes duda, separa -- el costo de un caso de mas es menor que el de perder trazabilidad clara.',
+    '   EXCEPCION: el caso de validacion de un campo de la regla 3(d) agrupa a proposito todas las validaciones de ese',
+    '   campo en pasos distintos -- no lo separes aunque cite 3 o mas IDs, siempre que todos sean del mismo campo.',
     '5. Cada paso a paso debe ser ejecutable por un QA sin conocimiento previo del sistema.',
     '6. El resultado esperado debe ser verificable, no ambiguo.',
     '7. NO inventes datos de negocio que no esten en el analisis. Esto aplica en especial a VALORES concretos (correos,',
@@ -972,12 +1013,22 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '   funcionalidad bajo prueba. Esto no debe bajar la calidad del caso: sigue siendo tan detallado y ejecutable como',
     '   antes (el paso debe seguir indicando QUE relacion/condicion entre los valores se necesita, solo sin fijar el',
     '   numero exacto), solo evita fabricar datos que despues no coincidiran con la evidencia real que suba el QA.',
-    '8. Antes de responder, verifica internamente TODO lo siguiente y corrige lo que falte:',
+    '8. REDACCION NATURAL: escribe cada caso como lo escribiria un analista QA con experiencia para que otra persona del',
+    '   equipo lo ejecute: frases completas y claras, en imperativo ("Ingresar", "Seleccionar", "Verificar"), con el',
+    '   vocabulario del negocio y de la pantalla, sin tono telegrafico ni jerga interna. NUNCA cites ni atribuyas la',
+    '   fuente: prohibido escribir "en la reunion dijeron", "segun la transcripcion", "el documento indica", "el cliente',
+    '   menciono", "segun el analisis", ni nombres de personas o de archivos -- el caso describe que hacer y que debe pasar,',
+    '   no de donde salio. Los IDs (CA_N, RN_N) van SOLO en el campo "Requisito", nunca dentro del titulo, el objetivo ni',
+    '   los pasos. MAL: "Validar RN_3 segun lo que dijo el cliente en la reunion: campo NIT obligatorio >> Error". BIEN:',
+    '   "Dejar vacio el campo NIT y dar clic en Guardar >> El sistema no guarda el proveedor y muestra el mensaje de',
+    '   campos obligatorios".',
+    '9. Antes de responder, verifica internamente TODO lo siguiente y corrige lo que falte:',
     '   (a) Cada CA_N y RN_N del analisis aparece citado en al menos un caso -- si falta alguno, agrega el caso que lo cubra.',
     '   (b) Cada escenario QA de tipo Negativo o Borde del analisis quedo convertido en al menos un caso -- si falta alguno, agregalo.',
     '   (c) Cada filtro/parametro de ejecucion y cada campo obligatorio mencionado en el analisis tiene su caso negativo/borde',
     '   correspondiente (sin diligenciar, sin resultados, vacio) segun aplique -- si falta, agregalo.',
-    '   (d) Ningun caso quedo citando 3 o mas IDs sin que sea una inseparabilidad real -- si encuentras uno, separalo en 2-3 casos.',
+    '   (d) Ningun caso quedo citando 3 o mas IDs sin que sea una inseparabilidad real -- si encuentras uno, separalo en 2-3 casos',
+    '   (salvo el caso de validacion de un campo, regla 3(d)).',
     '   (e) No hay dos casos redundantes entre si (misma validacion exacta) -- si los hay, fusionalos.',
     '   (f) Cada CA_N/RN_N que define un conjunto configurable de elementos tiene su caso de "conjunto exacto" (ni de mas ni',
     '   de menos) -- si hay VARIOS flujos/modulos distintos que cada uno define su propio conjunto, cada uno tiene el suyo,',
@@ -985,7 +1036,12 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '   (g) Cada CA_N/RN_N que describe un remapeo/herencia de campos entre documentos tiene su caso de auditoria campo por',
     '   campo contra el origen -- si hay VARIOS flujos/modulos distintos que cada uno hace su propio remapeo (ej: venta Y',
     '   transferencia), cada uno tiene el suyo, no solo el primero -- si falta alguno, agregalo.',
-    '9. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
+    '   (h) Cada RN_N que especifica un campo con sus atributos tiene su caso de validacion de ese campo -- si falta, agregalo.',
+    '   Y ninguna validacion de un solo campo quedo duplicada en un caso aparte fuera del caso de ese campo -- si la hay,',
+    '   quitala y cita su CA_N en el caso del campo.',
+    '   (i) Ningun caso menciona reuniones, transcripciones, documentos o personas como fuente, ni trae IDs fuera del campo',
+    '   "Requisito" -- si encuentras alguno, reescribelo.',
+    '10. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
     '',
     '---CASOS_DE_PRUEBA---',
     'Minimo 8 casos. Formato EXACTO -- un bloque por caso, cada campo en su propia linea. NINGUN campo es opcional,',
@@ -1107,7 +1163,21 @@ function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, en
     '   funcionalidad bajo prueba. Esto no debe bajar la calidad del caso (el paso debe seguir indicando QUE relacion/',
     '   condicion entre los valores se necesita, solo sin fijar el numero exacto), solo evitar fabricar datos que',
     '   despues no coincidiran con la evidencia real.',
-    '6. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
+    '6. Si un item faltante es un RN_N que especifica un campo con sus atributos (tipo, longitud, obligatoriedad, formato,',
+    '   valores permitidos), genera UN caso dedicado a ese campo con un paso por cada validacion que el RN_N documente',
+    '   (vacio si es obligatorio, longitud maxima exacta, longitud excedida, tipo/formato invalido, valor fuera de la',
+    '   lista, valor valido). Solo las validaciones documentadas; no juntes varios campos en un mismo caso. Si entre los',
+    '   faltantes hay CA_N cuyo unico objetivo es una restriccion de ese mismo campo, cubrelos dentro de ese caso (citalos',
+    '   en "Requisito") en vez de crear un caso aparte para cada uno.',
+    '7. REDACCION NATURAL: escribe cada caso como lo escribiria un analista QA con experiencia para que otra persona del',
+    '   equipo lo ejecute: frases completas y claras, en imperativo, con el vocabulario del negocio y de la pantalla, sin',
+    '   tono telegrafico ni jerga interna. NUNCA cites ni atribuyas la fuente: prohibido escribir "en la reunion dijeron",',
+    '   "segun la transcripcion", "el documento indica", "el cliente menciono", "segun el analisis", ni nombres de personas',
+    '   o de archivos. Los IDs (CA_N, RN_N) van SOLO en el campo "Requisito", nunca dentro del titulo, el objetivo ni los',
+    '   pasos. MAL: "Validar RN_3 segun lo que dijo el cliente en la reunion: campo NIT obligatorio >> Error". BIEN:',
+    '   "Dejar vacio el campo NIT y dar clic en Guardar >> El sistema no guarda el proveedor y muestra el mensaje de',
+    '   campos obligatorios".',
+    '8. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
     '',
     '---CASOS_DE_PRUEBA---',
     'Formato EXACTO -- un bloque por caso, cada campo en su propia linea. Tipo y Complejidad SIEMPRE van presentes',
