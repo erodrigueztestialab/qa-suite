@@ -669,14 +669,13 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
 
   </div><!-- /m1-layout -->
 
-  <!-- Chatbot QA (banco de conocimiento) -- prueba de concepto: busca con
-       Grep/Glob/Read en KNOWLEDGE_DIR (por defecto ./knowledge del repo, con 2
-       documentos de ejemplo), siempre cita la fuente. -->
+  <!-- Chatbot QA (banco de conocimiento) -- RAG sobre un folder de Confluence
+       Cloud (ver CONFLUENCE_* en proxy.js), siempre cita la pagina fuente. -->
   <div class="module" id="mchat" style="display:none">
     <div class="content wide">
       <div class="page-tag">CHATBOT QA</div>
       <h1 class="page-title">Chatbot QA</h1>
-      <p class="page-sub">Preguntale dudas de negocio de nivel 1 (reglas, flujos, politicas) -- busca en la carpeta de transcripciones y SIEMPRE cita el archivo fuente, o te dice si no encontro nada, sin inventar. Prueba de concepto con documentos de ejemplo; para la base real, apunta la variable KNOWLEDGE_DIR a la carpeta sincronizada.</p>
+      <p class="page-sub">Preguntale dudas de negocio de nivel 1 (reglas, flujos, politicas) -- busca en la base de conocimiento de Confluence y SIEMPRE cita la pagina fuente, o te dice si no encontro nada, sin inventar.</p>
       <div id="mchat-body"></div>
     </div>
   </div>
