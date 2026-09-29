@@ -10,3 +10,4 @@
 - [Revisar todas las aristas de un fix](feedback_check_all_edges.md) — al corregir un bug, buscar el mismo patrón en TODO el archivo (ambos motores, endpoints copiados), no solo el sitio reportado.
 - [Memoria espejada en el repo](project_memory_mirrored_to_repo.md) — copia versionada en `.claude/memory/` del repo; replicar ahí cada memoria nueva de project/feedback.
 - [Descripciones de PR detalladas](feedback_pr_descriptions.md) — PRs ultra detallados: contexto, causa raíz, cambios por función, tabla de verificación, riesgos, commits; nunca bullets cortos.
+- [Estrategia QA real de TestIALab](project_testialab_qa_strategy.md) — una sola entrega completa, todos los casos, re-test de bugs + regresión focalizada; nunca ciclos/sprints/entregas parciales.
