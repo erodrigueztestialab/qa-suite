@@ -601,4 +601,10 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 3. Limpieza automatica de ramas configurada: `delete_branch_on_merge: true` + ruleset 24174776 que impide borrar `main`/`develop` + permisos locales para `git branch -d feature/*` y `git push origin --delete feature/*`. Detalle en [[project-git-workflow]].
 4. Esta memoria subida en `feature/memoria-sesion-18` -> PR a `develop`.
 
-**Proximo:** confirmar merge del PR de memoria-sesion-18 y preguntar la proxima tarea (nueva `feature/` desde `develop`).
+5. PR #12 (memoria) mergeado -- rama borrada SOLA por GitHub (auto-borrado probado). PR #13 (`develop`->`main`) mergeado: `develop` sobrevivio gracias al ruleset, `main` == `develop` en contenido. Nota: el clasificador del modo auto fallo varias veces seguidas ("no verdict") -- se destrabo pasando a modo normal con Shift+Tab.
+6. Backlog revisado con el usuario. Descartado explicitamente: import de Certificacion/Bugs ("no espero importar certificacion ni bugs"). Hecho en `feature/effort-medium-y-limpieza-knowledge`:
+   - `effort:'medium'` en Certificacion, Evidencias (M5) y Chatbot -- ver [[project-qa-suite-model-policy]].
+   - Limpieza del legado de carpeta local del Chatbot: borrados `KNOWLEDGE_DIR`, `ensureKnowledgeTextCache()`, `readKnowledgeTextFiles()` (proxy.js), la carpeta `knowledge/` del repo (2 .md sinteticos), la linea del README y el texto de la UI que pedia configurar KNOWLEDGE_DIR (ahora dice Confluence). Verificado: proxy arranca, `/api/chat-qa` responde (error esperado de Confluence sin configurar), la pagina sirve el texto nuevo.
+   - Siguen abiertos: decision de producto de los 4 casos recurrentes de M4 (EAN aparte); Gemini en 2 pasadas (exploratorio).
+
+**Proximo:** confirmar merge del PR de `feature/effort-medium-y-limpieza-knowledge` y preguntar la proxima tarea.
