@@ -45,11 +45,6 @@ const app  = express();
 const PORT = 3001;
 const ENGINE_DEFAULT = 'claude'; // 'gemini' | 'claude' -- Gemini/Antigravity tiene cuota semanal ajustada, no debe ser el default silencioso
 
-// ── Chatbot QA: carpeta de conocimiento local (legado, ya no es la fuente activa) ──
-// Reemplazado por Confluence (ver mas abajo) -- se deja sin borrar por si hace
-// falta revertir rapido, pero /api/chat-qa ya no lo usa.
-var KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || 'C:\\Esteban\\1.TESTIALAB-TODO\\Capacitaciones';
-
 // ── Chatbot QA: base de conocimiento = Confluence Cloud ────────────────────────
 // Mismo patron de config que CLAUDE_CLI_PATH/AGY_CLI_PATH -- variables de entorno
 // simples seteadas antes de arrancar el proxy, sin agregar dotenv como dependencia
@@ -75,10 +70,9 @@ function confluenceAuthHeader() {
   return 'Basic ' + Buffer.from(CONFLUENCE_EMAIL + ':' + CONFLUENCE_API_TOKEN).toString('base64');
 }
 
-// Devuelve [{relPath, content}] -- misma forma exacta que readKnowledgeTextFiles(),
-// asi ensureKnowledgeIndex() no necesita saber que la fuente cambio. `relPath` es
-// el titulo de la pagina (para citar la fuente en la respuesta del chatbot, igual
-// que antes se citaba el nombre del archivo).
+// Devuelve [{relPath, content}] -- la forma que espera ensureKnowledgeIndex().
+// `relPath` es el titulo de la pagina (para citar la fuente en la respuesta del
+// chatbot).
 async function fetchConfluencePages() {
   var ageMs = Date.now() - _confluenceCache.fetchedAtMs;
   if (_confluenceCache.fetchedAtMs && ageMs < CONFLUENCE_SYNC_MINUTES * 60000) {
@@ -101,60 +95,6 @@ async function fetchConfluencePages() {
   }
   _confluenceCache = { fetchedAtMs: Date.now(), pages: pages };
   return pages;
-}
-
-// Las transcripciones reales vienen como .docx (a veces junto a un .mp4 de la
-// grabacion, que no se procesa -- fuera de alcance sin pipeline de transcripcion).
-// Claude Code CLI no extrae texto de .docx de forma confiable con su herramienta
-// Read (es un binario ZIP) -- por eso, antes de cada consulta, se genera un .txt
-// hermano (mismo nombre) con mammoth, y el Chatbot QA busca sobre esos .txt.
-async function ensureKnowledgeTextCache(dir) {
-  var entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
-  for (var i = 0; i < entries.length; i++) {
-    var entry = entries[i];
-    var full = path.join(dir, entry.name);
-    if (entry.isDirectory()) { await ensureKnowledgeTextCache(full); continue; }
-    if (!/\.docx$/i.test(entry.name)) continue;
-    var txtPath = full.replace(/\.docx$/i, '.txt');
-    try {
-      var needsExtract = !fs.existsSync(txtPath) || fs.statSync(full).mtimeMs > fs.statSync(txtPath).mtimeMs;
-      if (!needsExtract) continue;
-      var result = await mammoth.extractRawText({ path: full });
-      fs.writeFileSync(txtPath, result.value, 'utf-8');
-    } catch (e) {
-      console.warn('[knowledge] no se pudo extraer texto de', full, '-', e.message);
-    }
-  }
-}
-
-// Lee todos los .txt de la base de conocimiento y los devuelve para incrustar
-// en el prompt. Se probo darle a Claude CLI acceso directo a la carpeta via
-// --add-dir/Glob/Grep (asi funciona igual en M1 con PDFs), pero al spawnear el
-// CLI desde este proceso Node en Windows la herramienta Glob queda bloqueada
-// por el permission-checker del CLI (permission_denials en el JSON de salida)
-// incluso con --permission-mode bypassPermissions -- reproducible y consistente
-// via node, pese a que invocando el mismo comando a mano desde una shell si
-// funciona. Como la base de conocimiento es chica (transcripciones de reunion,
-// no video), es mas simple y confiable incrustar el texto directo en el prompt.
-function readKnowledgeTextFiles(dir, baseDir) {
-  baseDir = baseDir || dir;
-  var out = [];
-  var entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return out; }
-  for (var i = 0; i < entries.length; i++) {
-    var entry = entries[i];
-    var full = path.join(dir, entry.name);
-    if (entry.isDirectory()) { out = out.concat(readKnowledgeTextFiles(full, baseDir)); continue; }
-    if (!/\.txt$/i.test(entry.name)) continue;
-    try {
-      var content = fs.readFileSync(full, 'utf-8');
-      out.push({ relPath: path.relative(baseDir, full), content: content });
-    } catch (e) {
-      console.warn('[knowledge] no se pudo leer', full, '-', e.message);
-    }
-  }
-  return out;
 }
 
 // ── Chatbot QA: RAG con embeddings locales ─────────────────────────────────────
@@ -2664,7 +2604,7 @@ app.post('/api/verify-evidence', upload.array('evidence', 6), async function(req
       if (stageIdx < stages.length) { emitProgress(reqId, stages[stageIdx][0], stages[stageIdx][1]); stageIdx++; }
     }, 8000);
     var text = await callAI(prompt, {
-      engine: engine, imagePaths: visionPaths, model: 'sonnet',
+      engine: engine, imagePaths: visionPaths, model: 'sonnet', effort: 'medium',
       onProcess: function(p){ childProc = p; },
     });
     clearInterval(stageTimer);
@@ -2750,7 +2690,7 @@ app.post('/api/chat-qa', async function(req, res) {
     var prompt = buildChatQaPrompt(question, history, chunks);
     emitProgress(reqId, 60, 'Enviando a Claude CLI...');
     var text = await callAI(prompt, {
-      engine: 'claude', model: 'sonnet',
+      engine: 'claude', model: 'sonnet', effort: 'medium',
       systemPrompt: buildChatQaSystemPrompt(),
     });
     emitProgress(reqId, 98, 'Redactando respuesta...');
@@ -2789,7 +2729,7 @@ app.post('/api/generate-certification', async function(req, res) {
   }, 8000);
 
   try {
-    var text = await callAI(prompt, { engine: engine, model: 'sonnet' });
+    var text = await callAI(prompt, { engine: engine, model: 'sonnet', effort: 'medium' });
     clearInterval(stageTimer);
     emitProgress(reqId, 98, 'Procesando respuesta...');
     emitDone(reqId);
