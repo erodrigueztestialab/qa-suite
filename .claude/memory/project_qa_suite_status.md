@@ -1,11 +1,11 @@
 ---
 name: project-qa-suite-status
-description: "Current build status of TestIALab QA Suite IA. Ultimo estado real: Sesion 15 (2026-09-22/23, maquina nueva -- clon del repo) -- migracion de Historico entre equipos, PR #7 (fixes Excel/nombre-PDF/HU) y PR #8 (Historico export/import/rename, imports M1/M3/M4, Chatbot QA sobre Confluence, fix de datos abstractos en M4), ambos mergeados a develop. Ver seccion final (Sesion 15) para el detalle completo."
+description: "Current build status of TestIALab QA Suite IA. Ultimo contenido de codigo: Sesion 15 (PR #7/#8). Ultima sesion: 17 (2026-09-28) -- sin codigo; PR de feature/memoria-sesion-16 NUNCA se abrio, gh instalado pero SIN login (pendiente para 2026-09-29). Ver seccion final (Sesion 17)."
 metadata: 
   node_type: memory
   type: project
   originSessionId: a2b2d1f1-2b3d-40f6-ab0e-532d818ce455
-  modified: 2026-09-23T00:00:00.000Z
+  modified: 2026-09-28T23:11:57.213Z
 ---
 
 TestIALab QA Suite IA (repo at `C:\TestiAlab\QA-Suite`, files `qa-suite.html` + `proxy.js`, run with `node proxy.js` → `http://localhost:3001`). Two big sessions happened on 2026-08-19 — see also [[project-qa-suite-status]] history in git if needed, but this memory supersedes the first-session one for current state.
@@ -567,6 +567,38 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 
 **Cierre de sesion:** ambos PRs (#7 y #8) mergeados a `develop` por el usuario en GitHub; `develop` local actualizado (`git pull`) y ramas `feature/*` de esta sesion borradas (remota+local) tras confirmar el merge. Memoria de esta sesion sincronizada a esta maquina (que arranco con la carpeta `.claude/memory/` local vacia, aunque el repo ya la traia) y replicada de vuelta al repo.
 
-**Pendiente heredado de la Sesion 14, no resuelto en esta sesion (no era el foco):** sigue faltando un PR `develop`->`main` para igualar ambas ramas (quedaron desincronizadas desde el incidente de la Sesion 14) -- si se retoma, confirmar el estado real de ambas ramas primero, no asumir que sigue igual que como quedo documentado arriba.
+**~~Pendiente heredado de la Sesion 14~~ -- RESUELTO 2026-09-25:** PR #10 (`develop`->`main`) mergeado; `main` (`a500fd3`) quedo con contenido identico a `develop` (`7c166d6`), `git diff` vacio. `main` solo tiene de mas los commits de merge (#3, #6, #10), normal con este flujo. PR abierto a mano por el usuario (sin `gh` en esta maquina y claude-in-chrome no pudo leer ninguna pagina de GitHub: timeouts de `document_idle`). Para verificar estado de PRs sin `gh`, sirve la API publica: `Invoke-RestMethod https://api.github.com/repos/erodrigueztestialab/qa-suite/pulls?state=all`.
 
 **How to apply:** (a) el patron de import (Excel via `XLSX.read()` ya cargado en cliente; Word via `mammoth.convertToHtml()` sin aplanar + parser que camina headings/subtitulos literales fijos que el propio builder genera) es reusable si se pide importar Certificacion/Bug tambien (no se hizo esta ronda, no fue pedido); (b) el patron de "reemplazar la fuente de un RAG sin tocar el pipeline" (Confluence) es reusable si en el futuro se agrega OTRA fuente (ej. SharePoint) -- el contrato es siempre `[{relPath, content}]`; (c) si el usuario reporta de nuevo datos concretos/literales en casos generados en un dominio DISTINTO al de formulas de calculo (ej. fechas, IDs de otro tipo), diagnosticar primero con reproduccion real igual que esta vez antes de tocar el prompt a ciegas -- no asumir que el mismo fix generaliza a todos los dominios.
+
+---
+
+## Sesion 16 (2026-09-25, viernes) -- sesion corta de mantenimiento git, sin cambios de codigo
+
+1. Repaso del estado (Sesion 15) y verificacion de `main` vs `develop`: `develop` tenia 8 commits de contenido (#7/#8/#9) que no estaban en `main`.
+2. PR #10 (`develop`->`main`) creado a mano por el usuario (claude-in-chrome conectado pero sin poder leer ninguna pagina de GitHub: timeouts de `document_idle` en 2 pestanas y 2 paginas distintas; sin `gh` en esta maquina). El primer "listo" del usuario no era un merge real: el PR seguia abierto (le faltaba "Confirm merge"). Se detecto con la API publica y despues se confirmo el merge real: `main` `a500fd3` == `develop` `7c166d6` en contenido. **Leccion:** despues de un "ya lo mergee", verificar siempre con `git fetch` + diff (o la API) antes de dar por cerrado.
+3. Se guardo en memoria la preferencia de tuteo (ver [[feedback-spanish-colombian]]).
+4. Rama `feature/memoria-sesion-16` (commit `cadc5d5` + este registro) con push hecho; **PR hacia `develop` PENDIENTE de que el usuario lo abra/mergee** (link: `compare/develop...feature/memoria-sesion-16`).
+
+**Para el lunes (2026-09-28):** (a) confirmar si el PR de `feature/memoria-sesion-16` quedo mergeado en `develop` (API publica o `git fetch`); si si: `git checkout develop && git pull`, borrar la rama local+remota; (b) preguntar al usuario la proxima tarea (ideas sin pedir: import de Certificacion/Bugs con el mismo patron de la Sesion 15).
+
+---
+
+## Sesion 17 (2026-09-28, lunes) -- sesion corta, sin cambios de codigo
+
+1. Verificado (API publica + `git fetch`): el PR de `feature/memoria-sesion-16` -> `develop` **NUNCA se abrio** (el usuario creia haberlo mergeado; lo que recordaba era el PR #10). Ultimo PR del repo = #10. `origin/develop` sigue en `7c166d6`; `171bd24` (y el commit de esta sesion) solo viven en `feature/memoria-sesion-16`.
+2. claude-in-chrome sigue sin poder leer GitHub (timeout de `document_idle` + screenshot) -- no insistir con el navegador para GitHub en esta maquina.
+3. **GitHub CLI instalado** con `winget install --id GitHub.cli -e` (v2.101.0, `C:\Program Files\GitHub CLI\gh.exe`; la sesion de Claude Code no tenia el PATH refrescado -> usar ruta completa). **Aun SIN login:** el `! gh auth login --web` desde el chat fallo (`context deadline exceeded`) porque en modo `!` el comando pasa a segundo plano a los 120s y el usuario no ve el codigo de dispositivo a tiempo. Ojo: `!` corre en **bash**, no PowerShell (sintaxis `& "..."` falla).
+
+**Para el martes (2026-09-29):** (a) que el usuario haga `gh auth login` en una **ventana PowerShell aparte** (`& "C:\Program Files\GitHub CLI\gh.exe" auth login --hostname github.com --git-protocol https --web`) con la cuenta **erodrigueztestialab** (ver [[project-git-identity]]); verificar con `gh auth status`; (b) crear yo el PR `feature/memoria-sesion-16` -> `develop` con `gh pr create`, que el usuario lo mergee, verificar con `git fetch` y borrar la rama; (c) preguntar la proxima tarea.
+
+---
+
+## Sesion 18 (2026-09-29, martes) -- sin cambios de codigo, cierre de pendientes git/GitHub
+
+1. `gh auth login` hecho por el usuario en PowerShell aparte -> `gh` autenticado como **erodrigueztestialab** (scopes repo/workflow). Sigue sin estar en el PATH de la sesion: usar `"/c/Program Files/GitHub CLI/gh.exe"`.
+2. **PR #11** (`feature/memoria-sesion-16` -> `develop`) creado con `gh pr create` y mergeado por el usuario (merge `54c15c0`). Rama borrada local y remota.
+3. Limpieza automatica de ramas configurada: `delete_branch_on_merge: true` + ruleset 24174776 que impide borrar `main`/`develop` + permisos locales para `git branch -d feature/*` y `git push origin --delete feature/*`. Detalle en [[project-git-workflow]].
+4. Esta memoria subida en `feature/memoria-sesion-18` -> PR a `develop`.
+
+**Proximo:** confirmar merge del PR de memoria-sesion-18 y preguntar la proxima tarea (nueva `feature/` desde `develop`).

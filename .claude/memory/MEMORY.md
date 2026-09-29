@@ -1,8 +1,8 @@
 - [Español colombiano](feedback_spanish_colombian.md) — responder siempre en español, tono colombiano, nunca argentino (sin "vos").
 - [Probar antes de decir "listo"](feedback_test_before_claiming_done.md) — verificar de verdad (navegador/reproducción), no solo revisión de código.
-- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 15 (2026-09-22/23, máquina nueva): migración de Histórico, PR #7 (fixes) y PR #8 (imports M1/M3/M4 + Chatbot sobre Confluence + fix datos abstractos M4), ambos mergeados a develop.
+- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 18 (2026-09-29): gh autenticado, PR #11 mergeado, auto-borrado de ramas + ruleset; pendiente PR memoria-sesion-18 y próxima tarea.
 - [Identidad git QA-Suite](project_git_identity.md) — todo commit/push/PR debe ser erodriguez@testialab.com / erodrigueztestialab, nunca kaironyx ni el email de Cinemark.
-- [Flujo de ramas QA-Suite](project_git_workflow.md) — main/develop/feature con PR obligatorio en ambos niveles; próxima tarea siempre en feature/ desde develop.
+- [Flujo de ramas QA-Suite](project_git_workflow.md) — main/develop/feature con PR obligatorio; auto-borrado de feature/* al mergear + ruleset que impide borrar main/develop (2026-09-29).
 - [Modelo/esfuerzo preferido](feedback_model_effort.md) — Sonnet medio por defecto para fixes/desarrollo en QA Suite (mi propio razonamiento), salvo indicación contraria.
 - [Política de modelos QA Suite](project_qa_suite_model_policy.md) — modelo fuerte SOLO en M4 (ambos motores); resto estándar. M1/M2/M3 ahora con --effort medium explícito (2026-09-16).
 - [Pedidos grandes: plan mode + fases](feedback_big_requests_plan_mode.md) — para listas largas multi-módulo, plan mode + implementar/probar fase por fase contra la sesión real, sin pausar a preguntar entre fases.
