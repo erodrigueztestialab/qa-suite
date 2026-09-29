@@ -153,7 +153,6 @@ QA-Suite/
 ├── proxy.js              # Backend (Express) -- orquesta las llamadas a Claude/Gemini y genera los .docx/.pdf/.xlsx
 ├── qa-suite.html          # Frontend completo (aplicación de una sola pagina)
 ├── assets/                # Logo y recursos estaticos
-├── knowledge/             # Banco de conocimiento de ejemplo para el Chatbot QA (sintetico)
 ├── Demo/                  # Requerimiento, artefactos generados y evidencias de una demo de referencia
 ├── docs/screenshots/      # Capturas usadas en este README
 └── HANDOFF-TestIALab-QA-Suite.md   # Documento de traspaso de la primera version
