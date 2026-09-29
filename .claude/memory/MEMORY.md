@@ -1,6 +1,6 @@
 - [Español colombiano](feedback_spanish_colombian.md) — responder siempre en español, tono colombiano, nunca argentino (sin "vos").
 - [Probar antes de decir "listo"](feedback_test_before_claiming_done.md) — verificar de verdad (navegador/reproducción), no solo revisión de código.
-- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 18 (2026-09-29): PRs #11-#15 + fix de casos (sin citar fuente, lenguaje natural, tablas DOCX, un caso por campo); pendiente PR.
+- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 18 (2026-09-29): PRs #11-#17, fix de casos QA en main; próxima: confirmar PR de cierre y pedir prueba con requerimiento real.
 - [Identidad git QA-Suite](project_git_identity.md) — todo commit/push/PR debe ser erodriguez@testialab.com / erodrigueztestialab, nunca kaironyx ni el email de Cinemark.
 - [Flujo de ramas QA-Suite](project_git_workflow.md) — main/develop/feature con PR obligatorio; auto-borrado de feature/* al mergear + ruleset que impide borrar main/develop (2026-09-29).
 - [Modelo/esfuerzo preferido](feedback_model_effort.md) — Sonnet medio por defecto para fixes/desarrollo en QA Suite (mi propio razonamiento), salvo indicación contraria.
@@ -9,3 +9,4 @@
 - [Motor Gemini via Antigravity CLI](project_gemini_antigravity_engine.md) — "gemini" corre sobre `agy`. Confirmado (2026-09-08): Gemini no sigue bien instrucciones abiertas de exhaustividad; Claude es el motor recomendado para M1/M4.
 - [Revisar todas las aristas de un fix](feedback_check_all_edges.md) — al corregir un bug, buscar el mismo patrón en TODO el archivo (ambos motores, endpoints copiados), no solo el sitio reportado.
 - [Memoria espejada en el repo](project_memory_mirrored_to_repo.md) — copia versionada en `.claude/memory/` del repo; replicar ahí cada memoria nueva de project/feedback.
+- [Descripciones de PR detalladas](feedback_pr_descriptions.md) — PRs ultra detallados: contexto, causa raíz, cambios por función, tabla de verificación, riesgos, commits; nunca bullets cortos.
