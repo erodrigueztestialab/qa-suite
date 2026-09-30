@@ -8,10 +8,13 @@ verificada — nada fue inventado a mano.
 ## Qué hay en cada carpeta
 
 - **`requerimiento/`** — el requerimiento demo (`RQ-DEMO-001 - Login con
-  bloqueo de cuenta.txt`), una feature inventada (login con bloqueo de cuenta
+  bloqueo de cuenta.docx`), una feature inventada (login con bloqueo de cuenta
   tras 3 intentos fallidos) redactada como la escribiría un BA/PM real, sin
-  ninguna etiqueta ni ayuda especial para la IA. Es el archivo que se sube en
-  M1 · Procesar Requerimiento.
+  ninguna etiqueta ni ayuda especial para la IA. Incluye un **cuadro de
+  campos** de la pantalla de login (Correo corporativo, Contraseña y botón
+  Iniciar sesión, con tipo, longitud, obligatoriedad, formato y mensajes de
+  validación), como los que traen los requerimientos reales. Es el archivo que
+  se sube en M1 · Procesar Requerimiento.
 - **`evidencias/`** — las capturas que se suben en M5 · Ejecución y Evidencias:
   - `caso-exito-login-1-formulario.jpg` + `caso-exito-login-2-dashboard.jpg`:
     evidencia de un login exitoso → la IA la verifica como **PASS**.
@@ -26,6 +29,15 @@ verificada — nada fue inventado a mano.
   regenerar nada en vivo si hay afán o falla de conexión el día de la demo.
 
 ## Qué generó la IA en esta corrida (para saber qué esperar)
+
+> Los `artefactos-generados/` y los resultados de abajo son de la corrida
+> original, hecha con la versión anterior del requerimiento en `.txt` (sin
+> cuadro de campos). Con el `.docx` actual, M1 además genera una regla por
+> cada campo del cuadro con todos sus atributos y M4 arma un caso por campo;
+> en la corrida de verificación (2026-09-30, motor Claude) salieron 24 CA,
+> 13 RN y 20 casos con el 100% de CA/RN cubiertos. La numeración de los casos
+> cambia entre corridas: el de bloqueo al tercer intento fue CP_3 en la
+> original y CP_5 en la de verificación.
 
 - M1 detectó el riesgo correcto: *"El bloqueo no se activa exactamente en el
   tercer intento fallido (off-by-one)..."* — la IA anticipó el bug antes de
@@ -45,9 +57,10 @@ verificada — nada fue inventado a mano.
 
 ## Guion sugerido para la demo en vivo
 
-1. **M1 · Procesar Requerimiento** — subir el `.txt` de `requerimiento/` y
+1. **M1 · Procesar Requerimiento** — subir el `.docx` de `requerimiento/` y
    pulsar "Analizar con Claude". Mostrar cómo la IA extrae HU, Criterios,
-   Reglas, Riesgos e Impactos de un texto plano, sin ninguna estructura previa.
+   Reglas, Riesgos e Impactos del documento, sin ninguna estructura previa, y
+   cómo cada campo del cuadro queda como una regla con todos sus atributos.
 2. **M2 · Impacto y Estimación** — mostrar que el QA puede editar todo, nada es
    una caja negra.
 3. **M3 · Plan de Pruebas** — generar y mostrar el documento con estructura
@@ -70,7 +83,7 @@ verificada — nada fue inventado a mano.
 
 ## Cómo repetirla
 
-- Con `node proxy.js` corriendo en `C:\TestiAlab\QA-Suite`, abrir
+- Con `node proxy.js` corriendo en la carpeta del repo, abrir
   `http://localhost:3001`.
 - La sesión de esta corrida quedó guardada en el **Histórico** del navegador
   donde se ejecutó (sesión "Inicio de sesión con bloqueo de cuenta") — si es
