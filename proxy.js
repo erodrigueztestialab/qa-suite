@@ -348,7 +348,7 @@ async function callGemini(prompt, opts) {
     'No se encontro el ejecutable "agy" (Antigravity CLI) en este equipo. ' +
     'Instalalo con: winget install --id Google.AntigravityCLI --exact ' +
     '(o el instalador oficial en antigravity.google). Si ya esta instalado y el error ' +
-    'persiste, definí la variable de entorno AGY_CLI_PATH con la ruta completa al ejecutable ' +
+    'persiste, define la variable de entorno AGY_CLI_PATH con la ruta completa al ejecutable ' +
     'antes de iniciar el proxy.'
   );
 }
@@ -571,7 +571,7 @@ async function callClaude(prompt, opts) {
     'Verifica corriendo "claude --version" en la MISMA terminal donde ejecutas "node proxy.js" ' +
     '(el proxy solo ve el PATH de esa terminal, no el de otras ventanas o apps donde "claude" si funcione). ' +
     'Si ahi tampoco corre, instalalo o agregalo al PATH. Si ya funciona en esa terminal y el error persiste, ' +
-    'definí la variable de entorno CLAUDE_CLI_PATH con la ruta completa al ejecutable ' +
+    'define la variable de entorno CLAUDE_CLI_PATH con la ruta completa al ejecutable ' +
     '(ej: set CLAUDE_CLI_PATH=C:\\ruta\\a\\claude.cmd) antes de iniciar el proxy.'
   );
 }
@@ -1254,7 +1254,11 @@ function buildPlanPruebasPrompt(analysisRaw, m2Context, engine) {
     '   los bugs reportados, QA hace re-test de cada bug corregido y regresion focalizada de los casos impactados por',
     '   esa correccion, hasta cerrar. Refleja este modelo en la Estrategia, los Supuestos y los Criterios de entrada y',
     '   de salida. NUNCA hables de "ciclo 1/ciclo 2", "primer ciclo", "entregas parciales", "sprints" ni "iteraciones".',
-    '7. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
+    '7. NO cites los identificadores internos del analisis (CA_N, RN_N, R_N, ESC_N ni rangos como "CA_5 a CA_7") en',
+    '   NINGUNA seccion: el cliente no conoce esa numeracion, no aparece en su requerimiento. Describe cada punto por su',
+    '   contenido. MAL: "Bloqueo de la cuenta al tercer intento fallido (CA_5, RN_1)." BIEN: "Bloqueo de la cuenta al',
+    '   tercer intento fallido consecutivo."',
+    '8. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
     '',
     '---OBJETIVO---',
     '1 a 2 parrafos.',
@@ -1889,7 +1893,10 @@ function buildCertificationPrompt(analysisRaw, m2Context, cases, bugs, engine, p
     '3. La conclusion de calidad debe ser honesta: si hay fails criticos sin resolver, no certifiques como apto sin condiciones.',
     '4. NO menciones que la ejecucion de pruebas uso o se apoyo en inteligencia artificial -- este documento describe',
     '   los resultados de QA hacia el cliente, no la herramienta interna que usa TestiAlab.',
-    '5. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
+    '5. NO cites los identificadores internos del analisis (CA_N, RN_N, R_N, ESC_N ni rangos como "CA_5 a CA_7") en',
+    '   NINGUNA seccion: el cliente no conoce esa numeracion. Describe cada criterio o regla por su contenido. Los IDs de',
+    '   casos (CP_N) y de bugs (BUG_N) SI se pueden citar -- el cliente los ve en el Excel de casos y en el reporte del bug.',
+    '6. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
     '',
     '---META---',
     'Una sola linea con formato: Version | Responsable QA. Ejemplo: "1.0 | Equipo QA - TestIALab".',
