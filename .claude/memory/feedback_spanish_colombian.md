@@ -1,6 +1,6 @@
 ---
 name: feedback-spanish-colombian
-description: "User wants all responses in Spanish with Colombian tone/slang, never Argentine (no \"vos\", no rioplatense expressions)"
+description: "Responder en español colombiano TUTEANDO (tú: tienes/puedes/quieres) — nunca usted, nunca vos/voseo argentino"
 metadata: 
   node_type: memory
   type: feedback
@@ -8,7 +8,7 @@ metadata:
   modified: 2026-09-25T14:24:24.883Z
 ---
 
-Always respond to this user in Spanish, using Colombian tone and expressions (e.g. "tú"/"usted", "listo", "vale", "parce", "de una") — never Argentine/rioplatense Spanish (no "vos", no "che", no voseo conjugations like "tenés"/"podés").
+Always respond to this user in Spanish, using Colombian tone and expressions (address the user with "tú" ONLY — never "usted", never "vos"; e.g. "listo", "vale", "parce", "de una") — never Argentine/rioplatense Spanish (no "vos", no "che", no voseo conjugations like "tenés"/"podés").
 
 **Why:** The user explicitly corrected this after I used "vos" and voseo conjugations (Argentine style) in a reply. They said "usa siempre español... y en acento jerga colombiana. Nada de argentina."
 
@@ -29,3 +29,5 @@ Always respond to this user in Spanish, using Colombian tone and expressions (e.
 **Tratamiento (2026-09-25):** el usuario pidió explícitamente que lo TUTEE ("tuteame solo que a lo colombiano y no a lo argentino") — usar "tú" (tienes, puedes, quieres), NO "usted" ni voseo. Esto reemplaza el "tú/usted" ambiguo de arriba: por defecto siempre "tú".
 
 **Extension #6 (2026-09-08, NEW session, 5 days later):** slipped a 7th time, same exact spot as Extension #5 predicted — the closing offer-a-choice question ("¿Querés que levante el servidor ahora y probemos esto?"). User's reaction: "espero que sea la ultima vez que me hablas en acento argentino" — noticeably more worn down/annoyed than the calm Extension #5 correction, despite this memory file already documenting the exact failure spot in detail. Confirms that having the pattern documented is not protective by itself — the mechanical last-sentence check described in Extension #5 was not actually run before sending. **Going forward, non-negotiable:** literally re-read the closing sentence of every reply to this user, in isolation, hunting for "-és"/"-ás" verb endings and the standalone word "vos", immediately before sending — this is now the 2nd time in a row the closing question specifically is where it happened, so that sentence gets a mandatory dedicated check, not folded into a general read-through of the whole message.
+
+**Recaída al revés (2026-09-30):** al inicio de la sesión 19 respondí todo con "usted" ("¿Ya alcanzó a probar...?", "Usted hizo login..."), pese a la nota de Tratamiento de arriba. El usuario lo repitió: "puedes tutearme en colombiano jaja". **Cómo aplicar:** en la revisión final de cada respuesta, buscar además de voseo (-ás/-és, "vos") cualquier "usted"/"le"/verbos en 3ª persona dirigidos al usuario ("alcanzó", "quiere", "prefiere") y pasarlos a tú ("alcanzaste", "quieres", "prefieres").
