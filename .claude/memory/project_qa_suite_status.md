@@ -646,3 +646,8 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 11. **Cierre del dia (2026-09-30).** Hoy: PRs #22 a #25 mergeados; `main` (`dad0901`) == `develop` (`80faf00`) en contenido. El proxy de pruebas se detuvo (limite de 2 h en segundo plano) -- el usuario lo arranca con `node proxy.js` desde su terminal. Nota tecnica: la pestana de Chrome se colgo cargando `localhost:3001` al inicio de la sesion; las pruebas se hicieron por API directa (scripts en el scratchpad de la sesion, no versionados).
 
 **Proximo (sesion 20):** (a) crear la primera `feature/` desde `develop` (lleva este registro de memoria sin commitear); (b) backlog abierto: 4 casos recurrentes de M4 (EAN aparte) -- decision de producto pendiente; Gemini en 2 pasadas (exploratorio, Gemini es menos exhaustivo en M4: 10 casos vs 20 de Claude); (c) recordar al usuario regenerar en M3 los planes viejos para que salgan sin IDs internos; (d) si vuelve a probar en navegador, revisar por que la pestana se colgaba.
+
+## Sesion 20 (2026-10-01)
+1. Punto (a) del Proximo hecho: rama `feature/memoria-cierre-sesion-19` con el registro de memoria de la sesion 19 -> PR #26 hacia `develop` (pendiente de merge por el usuario; despues, PR develop->main). Memoria local y `.claude/memory/` verificadas identicas (15/15, solo difieren en CRLF).
+2. Se le paso al usuario el resumen de actividades de los PRs #21 a #25.
+**Proximo:** mergear #26 (+ release a main); siguen abiertos (b), (c) y (d) de la sesion 19.
