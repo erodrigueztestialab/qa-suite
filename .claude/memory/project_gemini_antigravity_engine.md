@@ -219,3 +219,7 @@ la causa que lo que se penso originalmente (refresca cada 5h, no 1 vez por
 semana). Si se quiere fijar el binario de `agy` a una ruta especifica (ej.
 otra maquina con instalacion distinta), usar la env var `AGY_CLI_PATH` antes
 de iniciar el proxy.
+
+## Equipo nuevo (2026-09-30)
+
+El repo se movio a `C:\Repos\qa-suite` en otro equipo donde `agy` no estaba instalado. Se reinstalo con `winget install --id Google.AntigravityCLI --exact` (v1.2.14); el binario queda en `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Google.AntigravityCLI_Microsoft.Winget.Source_8wekyb3d8bbwe\agy.exe` (NO en `WinGet\Links`), y `proxy.js` lo encuentra solo. El login es interactivo (`agy` sin argumentos en una PowerShell NUEVA) y lo hace el usuario. `gemini-3.1-pro-high/-low` (del `GEMINI_MODEL_MAP`) siguen existiendo en la lista de 14 modelos. Primera prueba de Certificacion con Gemini: invento el motivo de los casos no ejecutados y hablo de "iteracion complementaria" -- corregido en el prompt (PR #24).
