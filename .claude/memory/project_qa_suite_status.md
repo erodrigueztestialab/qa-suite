@@ -650,4 +650,7 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 ## Sesion 20 (2026-10-01)
 1. Punto (a) del Proximo hecho: rama `feature/memoria-cierre-sesion-19` con el registro de memoria de la sesion 19 -> PR #26 hacia `develop` (pendiente de merge por el usuario; despues, PR develop->main). Memoria local y `.claude/memory/` verificadas identicas (15/15, solo difieren en CRLF).
 2. Se le paso al usuario el resumen de actividades de los PRs #21 a #25.
-**Proximo:** mergear #26 (+ release a main); siguen abiertos (b), (c) y (d) de la sesion 19.
+3. PR #26 (merge `46182a3`) y PR #27 develop->main (merge `2d76df9`) mergeados: `main` == `develop`, sin PRs abiertos ni ramas feature. Este punto queda sin commitear y viaja en la proxima `feature/`.
+4. **Gemini en 2 pasadas para M4: probado y DESCARTADO** (ver [[project-gemini-antigravity-engine]]): mismo analisis Gemini 7 CA/9 RN -> 1 pasada 11 casos/42 pasos, 2 pasadas 12/44 y 12/52, Claude 16/94; costo 1.3x-1.8x tiempo y doble cuota. El usuario pidio descartar la rama; solo se versiona el hallazgo (rama `feature/memoria-gemini-dos-pasadas`).
+   Nota de pruebas: si el usuario tiene su proxy en 3001, probar codigo nuevo con un wrapper que lo levante en 3002 (Module._compile sobre proxy.js reemplazando PORT) -- no matar el proxy del usuario. `/api/engine-status` tarda >3 s (corre `agy models`), no usarlo con timeout corto para saber si el proxy esta arriba.
+**Proximo:** backlog: 4 casos recurrentes de M4 (EAN aparte, decision de producto); regenerar en M3 planes viejos; pestana de Chrome colgada; idea exploratoria: M1 con Gemini (ahi esta la brecha real).
