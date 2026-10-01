@@ -223,3 +223,14 @@ de iniciar el proxy.
 ## Equipo nuevo (2026-09-30)
 
 El repo se movio a `C:\Repos\qa-suite` en otro equipo donde `agy` no estaba instalado. Se reinstalo con `winget install --id Google.AntigravityCLI --exact` (v1.2.14); el binario queda en `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Google.AntigravityCLI_Microsoft.Winget.Source_8wekyb3d8bbwe\agy.exe` (NO en `WinGet\Links`), y `proxy.js` lo encuentra solo. El login es interactivo (`agy` sin argumentos en una PowerShell NUEVA) y lo hace el usuario. `gemini-3.1-pro-high/-low` (del `GEMINI_MODEL_MAP`) siguen existiendo en la lista de 14 modelos. Primera prueba de Certificacion con Gemini: invento el motivo de los casos no ejecutados y hablo de "iteracion complementaria" -- corregido en el prompt (PR #24).
+
+## Prueba de M4 en 2 pasadas (2026-10-01): mejora marginal, no cierra la brecha
+
+**DESCARTADO por decision del usuario (2026-10-01): el codigo nunca se commiteo; la rama se borro.** Lo que se probo: con Gemini, `/api/generate-cases` hace pasada 1 `buildCaseInventoryPrompt` (solo lista "Requisito | Tipo | Condicion", sin minimo) -> inventario a un .txt temporal referenciado por ruta (evita ENAMETOOLONG) -> pasada 2 `buildCasesPrompt(..., inventoryPath)` sin "Minimo 8 casos" y con instruccion 9(j). Claude sigue en una pasada.
+Resultados reales, demo DOCX, MISMO analisis Gemini (7 CA / 9 RN), metricas por script:
+- Gemini 1 pasada: 11 casos / 42 pasos, 94 s.
+- Gemini 2 pasadas: 12 / 44 (121 s, inventario 41) y 12 / 52 (173 s, inventario 43).
+- Claude (Opus) 1 pasada: 16 / 94.
+Todos: 100% CA/RN citados, 0 IDs fuera de Requisito, 0 citas de fuente.
+**Conclusion:** el inventario de Gemini es bueno (43 condiciones atomicas, cubre todo), y Gemini en una sola pasada YA cubria casi todas esas condiciones como pasos. La brecha con Claude no es "condiciones olvidadas" sino (a) pasos mas detallados (Claude ~6 pasos/caso vs ~4) y (b) variantes que Claude razona por su cuenta (otra cuenta no afectada, 1 vs 2 intentos previos, mensaje de bloqueo durante todo el periodo, clics rapidos con clave incorrecta). Ademas, la brecha "10 vs 20" de la sesion 19 venia sobre todo de M1 (Claude saco 24 CA, Gemini 14), no de M4: sobre el mismo analisis es 11 vs 16. Costo de las 2 pasadas: ~1.3x-1.8x de tiempo y doble cuota de Antigravity.
+**How to apply:** no volver a proponer M4 en 2 pasadas para Gemini. Si se quiere acercar Gemini a Claude, la palanca es M1 (cantidad de CA/RN del analisis), no M4 -- quedo como idea exploratoria, sin pedido del usuario.
