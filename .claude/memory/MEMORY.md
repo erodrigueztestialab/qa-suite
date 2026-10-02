@@ -1,12 +1,12 @@
 - [Español colombiano](feedback_spanish_colombian.md) — responder siempre en español colombiano TUTEANDO (tú), nunca "usted" ni "vos"/voseo.
 - [Probar antes de decir "listo"](feedback_test_before_claiming_done.md) — verificar de verdad (navegador/reproducción), no solo revisión de código.
-- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 20 cerrada (2026-10-01): PRs #26-#29 (solo memoria), main==develop; Gemini 2 pasadas en M4 descartado. Próximo: feature/ con memoria + 4 casos recurrentes M4.
+- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 21 (2026-10-02): M1 con Gemini en 2 pasadas implementado (~14 CA vs ~8.5) en feature/m1-gemini-cobertura; planes viejos y pestaña Chrome cerrados.
 - [Identidad git QA-Suite](project_git_identity.md) — todo commit/push/PR debe ser erodriguez@testialab.com / erodrigueztestialab, nunca kaironyx ni el email de Cinemark.
 - [Flujo de ramas QA-Suite](project_git_workflow.md) — main/develop/feature con PR obligatorio; auto-borrado de feature/* al mergear + ruleset que impide borrar main/develop (2026-09-29).
 - [Modelo/esfuerzo preferido](feedback_model_effort.md) — Sonnet medio por defecto para fixes/desarrollo en QA Suite (mi propio razonamiento), salvo indicación contraria.
 - [Política de modelos QA Suite](project_qa_suite_model_policy.md) — modelo fuerte SOLO en M4 (ambos motores); resto estándar con --effort medium explícito en TODOS los endpoints Sonnet (2026-09-29).
 - [Pedidos grandes: plan mode + fases](feedback_big_requests_plan_mode.md) — para listas largas multi-módulo, plan mode + implementar/probar fase por fase contra la sesión real, sin pausar a preguntar entre fases.
-- [Motor Gemini via Antigravity CLI](project_gemini_antigravity_engine.md) — "gemini" corre sobre `agy`. Gemini no sigue instrucciones abiertas de exhaustividad; M4 en 2 pasadas probado y descartado (2026-10-01): la brecha con Claude viene de M1. Claude recomendado para M1/M4.
+- [Motor Gemini via Antigravity CLI](project_gemini_antigravity_engine.md) — "gemini" corre sobre `agy`. Gemini no sigue exhaustividad abierta; M4 en 2 pasadas descartado, M1 en 2 pasadas IMPLEMENTADO (2026-10-02, ~14 CA vs ~8.5; high y quitar mínimos no sirven). Claude sigue recomendado para M1/M4.
 - [Revisar todas las aristas de un fix](feedback_check_all_edges.md) — al corregir un bug, buscar el mismo patrón en TODO el archivo (ambos motores, endpoints copiados), no solo el sitio reportado.
 - [Memoria espejada en el repo](project_memory_mirrored_to_repo.md) — copia versionada en `.claude/memory/` del repo; replicar ahí cada memoria nueva de project/feedback.
 - [Descripciones de PR detalladas](feedback_pr_descriptions.md) — PRs ultra detallados: contexto, causa raíz, cambios por función, tabla de verificación, riesgos, commits; nunca bullets cortos.
