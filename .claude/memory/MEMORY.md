@@ -1,6 +1,6 @@
 - [Español colombiano](feedback_spanish_colombian.md) — responder siempre en español colombiano TUTEANDO (tú), nunca "usted" ni "vos"/voseo.
 - [Probar antes de decir "listo"](feedback_test_before_claiming_done.md) — verificar de verdad (navegador/reproducción), no solo revisión de código.
-- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 21 (2026-10-02): M1 con Gemini en 2 pasadas implementado (~14 CA vs ~8.5) en feature/m1-gemini-cobertura; planes viejos y pestaña Chrome cerrados.
+- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 21 (2026-10-02): M1 Gemini 2 pasadas en main (PRs #30/#31); ejemplo venta/transferencia neutralizado; backlog: solo fix menor de agy Links.
 - [Identidad git QA-Suite](project_git_identity.md) — todo commit/push/PR debe ser erodriguez@testialab.com / erodrigueztestialab, nunca kaironyx ni el email de Cinemark.
 - [Flujo de ramas QA-Suite](project_git_workflow.md) — main/develop/feature con PR obligatorio; auto-borrado de feature/* al mergear + ruleset que impide borrar main/develop (2026-09-29).
 - [Modelo/esfuerzo preferido](feedback_model_effort.md) — Sonnet medio por defecto para fixes/desarrollo en QA Suite (mi propio razonamiento), salvo indicación contraria.
@@ -11,3 +11,4 @@
 - [Memoria espejada en el repo](project_memory_mirrored_to_repo.md) — copia versionada en `.claude/memory/` del repo; replicar ahí cada memoria nueva de project/feedback.
 - [Descripciones de PR detalladas](feedback_pr_descriptions.md) — PRs ultra detallados: contexto, causa raíz, cambios por función, tabla de verificación, riesgos, commits; nunca bullets cortos.
 - [Estrategia QA real de TestIALab](project_testialab_qa_strategy.md) — una sola entrega completa, todos los casos, re-test de bugs + regresión focalizada; nunca ciclos/sprints/entregas parciales.
+- [Metodología genérica, sin negocio quemado](feedback_generic_methodology.md) — nunca convertir conceptos de un cliente (EAN, EDI…) en casos, reglas, ejemplos de prompt ni backlog; la metodología aplica a cualquier requerimiento.
