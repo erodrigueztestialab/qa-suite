@@ -836,7 +836,7 @@ function outputSectionsBlock() {
 // el motor los lea con su herramienta de lectura de archivos; el texto de
 // DOCX/TXT se embebe directo; las imagenes incrustadas de un DOCX tambien se
 // referencian por ruta -- todo en UN solo bloque de lectura, ambos motores por igual.
-function buildMultiFileAnalysisPrompt(files, engine) {
+function buildAnalysisFileRefBlock(files) {
   var fileRefLines = [];
   files.forEach(function(f){
     if (f.mode === 'native') {
@@ -855,10 +855,36 @@ function buildMultiFileAnalysisPrompt(files, engine) {
       });
     }
   });
-  var refBlock = fileRefLines.length
+  return fileRefLines.length
     ? 'Usa tu herramienta de lectura de archivos EN PARALELO sobre estas ' + fileRefLines.length + ' ruta(s) exactas antes de responder:\n' +
       fileRefLines.map(function(l, i){ return (i+1) + '. ' + l; }).join('\n')
     : '';
+}
+
+// ── M1 con Gemini, pasada 1: inventario plano de condiciones atomicas ─────────
+// Gemini se ancla en los "Minimo N" de cada seccion aunque el prompt pida
+// exhaustividad (ver memoria del motor Gemini). Medido el 2026-10-02 sobre el demo
+// DOCX: en una sola pasada saca 7-10 CA; si primero SOLO enumera las condiciones
+// (sin formato final ni minimos) y la pasada 2 recibe ese inventario, saca 14-16.
+// Claude no lo necesita (23 CA en una pasada) y sigue en una sola llamada.
+function buildAnalysisInventoryPrompt(files) {
+  return [
+    'Eres un Analista de Requerimientos senior. Lee integralmente ' +
+      (files.length > 1 ? 'los ' + files.length + ' archivos, que en conjunto conforman UN MISMO requerimiento' : 'el documento de requerimiento') +
+      ' (texto, tablas, imagenes, diagramas).',
+    'Tu UNICA tarea: enumerar en una lista plana CADA condicion atomica y verificable que el requerimiento contiene o implica:',
+    'reglas de negocio, validaciones, atributos de cada campo (tipo, longitud, obligatoriedad, formato, mensajes),',
+    'transiciones de estado, limites y umbrales, tiempos, mensajes del sistema, permisos, excepciones y casos limite.',
+    'Una condicion por linea, formato: N | Tipo | Condicion. No agrupes dos condiciones en una linea. No resumas.',
+    'No cites la fuente ni nombres de archivos o personas. Responde SOLO con la lista.',
+    '',
+    buildAnalysisFileRefBlock(files),
+  ].join('\n');
+}
+
+// inventoryPath (opcional): .txt con el inventario de la pasada 1 (solo Gemini).
+function buildMultiFileAnalysisPrompt(files, engine, inventoryPath) {
+  var refBlock = buildAnalysisFileRefBlock(files);
   var multi = files.length > 1;
   return [
     'Eres un Analista de Requerimientos senior con mas de 15 anios de experiencia en proyectos de software empresarial.',
@@ -871,6 +897,11 @@ function buildMultiFileAnalysisPrompt(files, engine) {
         'diagramas, wireframes y cualquier contenido visual.',
     'Comprende el requerimiento en su totalidad, incluyendo lo implicito, y produce un analisis tecnico objetivo, detallado y accionable.',
     '',
+    inventoryPath
+      ? 'INVENTARIO PREVIO: en ' + inventoryPath + ' hay un inventario de las condiciones atomicas del requerimiento (leelo ' +
+        'tambien). Cada condicion del inventario debe quedar reflejada en al menos un CA_N o RN_N de tu analisis, una ' +
+        'condicion verificable por ID. No copies el inventario tal cual: redactalo en el formato de cada seccion.\n'
+      : null,
     'INSTRUCCIONES CRITICAS:',
     '1. NO uses plantillas genericas ni frases de relleno.',
     '2. NO asumas que el riesgo siempre es ALTO. Evalua el riesgo real basandote en: complejidad tecnica, integracion de',
@@ -2186,20 +2217,19 @@ app.post('/api/analyze', async function(req, res) {
     }
   });
 
-  var prompt = buildMultiFileAnalysisPrompt(files, engine);
-
   emitProgress(reqId, 20, 'Enviando a '+engineLabel+'...');
 
   // Simulate staged progress while waiting for el motor elegido
   var stages = [
     [30, engineLabel+' leyendo el/los documento(s)...'],
+    engine === 'gemini' ? [38, 'Inventariando condiciones del requerimiento...'] : null,
     [45, 'Analizando requerimientos...'],
     [60, 'Generando Historia de Usuario...'],
     [72, 'Detallando criterios de aceptacion...'],
     [82, 'Elaborando reglas de negocio...'],
     [90, 'Identificando riesgos e impactos...'],
     [95, 'Finalizando analisis...'],
-  ];
+  ].filter(Boolean);
 
   var stageIdx = 0;
   var stageTimer = setInterval(function(){
@@ -2207,7 +2237,7 @@ app.post('/api/analyze', async function(req, res) {
       emitProgress(reqId, stages[stageIdx][0], stages[stageIdx][1]);
       stageIdx++;
     }
-  }, 8000); // Every 8s advance one stage (conservative for 30-90s total)
+  }, engine === 'gemini' ? 13000 : 8000); // Claude ~40-90s; Gemini hace 2 pasadas (~90-120s)
 
   // Archivos/imagenes que el motor debe leer con su herramienta de archivos --
   // todos viven bajo os.tmpdir() (multer + extractDocx asi los crean), asi que un
@@ -2227,14 +2257,26 @@ app.post('/api/analyze', async function(req, res) {
     });
   }
 
+  var analyzeOpts = {
+    engine: engine,
+    addDir: needsFileAccess ? os.tmpdir() : null,
+    allowedTools: ['Read'],
+    model: 'sonnet',
+    effort: 'medium'
+  };
+
   try {
-    var text = await callAI(prompt, {
-      engine: engine,
-      addDir: needsFileAccess ? os.tmpdir() : null,
-      allowedTools: ['Read'],
-      model: 'sonnet',
-      effort: 'medium'
-    });
+    // Gemini: pasada 1 = inventario de condiciones atomicas (ver
+    // buildAnalysisInventoryPrompt). Va a un .txt temporal y se referencia por ruta
+    // en la pasada 2, para no inflar el prompt (agy recibe el prompt por argumento).
+    var inventoryPath = null;
+    if (engine === 'gemini') {
+      var inventory = await callAI(buildAnalysisInventoryPrompt(files), analyzeOpts);
+      inventoryPath = path.join(os.tmpdir(), 'analyze-inventory-' + Date.now() + '-' + Math.round(Math.random()*1e6) + '.txt');
+      fs.writeFileSync(inventoryPath, inventory, 'utf-8');
+      textTmpPaths.push(inventoryPath);
+    }
+    var text = await callAI(buildMultiFileAnalysisPrompt(files, engine, inventoryPath), analyzeOpts);
     clearInterval(stageTimer);
     cleanupTmpFiles();
 
