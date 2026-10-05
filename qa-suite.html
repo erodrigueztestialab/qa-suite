@@ -1819,7 +1819,7 @@ function renderHistorico() {
   }
   body.innerHTML = _history.map(function(item){
     var isCurrent = item.id === _currentHistoryId;
-    var nombre = (item.snapshot && item.snapshot.S && (item.snapshot.S.reqDocName || item.snapshot.S.huSummary)) || 'Requerimiento';
+    var nombre = (item.snapshot && item.snapshot.S && (cleanReqTitle(item.snapshot.S.reqDocName) || item.snapshot.S.huSummary)) || 'Requerimiento';
     return '<div class="m2-card"'+(isCurrent?' style="border-color:var(--teal)"':'')+'>' +
       '<div class="case-card-hdr" style="border-bottom:none;padding:12px 14px 4px">' +
         '<span class="case-card-title">'+esc(nombre)+'</span>' +
@@ -2092,7 +2092,10 @@ function stepsToRawString(steps) {
 // y el paso a paso metido en el campo Caso). Un bloque con un campo por linea
 // es mucho mas robusto para el modelo, sin importar que tan largo sea Pasos.
 function parseCasesBlock(raw) {
-  var block = parseSection(raw, 'CASOS_DE_PRUEBA');
+  // El prompt termina justo en "---CASOS_DE_PRUEBA---", y a veces el modelo
+  // responde directo desde "### CP_N" sin repetir el delimitador -- en ese caso
+  // se toma la respuesta completa en vez de descartar todos los casos.
+  var block = parseSection(raw, 'CASOS_DE_PRUEBA') || ((raw||'').indexOf('###') !== -1 ? (raw||'').trim() : '');
   var chunks = block.split(/\n(?=\s*###\s*CP_\d+)/).map(function(s){ return s.trim(); }).filter(Boolean);
   return chunks.map(function(chunk, i){
     var idMatch = /^###\s*(CP_\d+)/.exec(chunk);
@@ -2653,16 +2656,19 @@ async function verifyCoverageWithAI() {
     });
     var d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Error verificando cobertura');
-    var lines = parseSection(d.raw,'COBERTURA_VERIFICADA').split('\n').filter(function(l){ return l.trim() && l.includes('|'); });
+    // Mismo caso que parseCasesBlock(): si el modelo omite el delimitador final
+    // del prompt, se usa la respuesta completa (las filas se filtran por "|" igual).
+    var lines = (parseSection(d.raw,'COBERTURA_VERIFICADA') || (d.raw||'')).split('\n').filter(function(l){ return l.trim() && l.includes('|'); });
     var items = lines.map(function(l){
-      var p = l.split('|').map(function(s){ return s.trim(); });
+      // Tolera filas estilo tabla markdown ("| CA_1 | SI | ... |") y "Sí"/"**SI**".
+      var p = l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(function(s){ return s.trim().replace(/\*\*/g, ''); });
       return {
         id: p[0] || '',
-        covered: /^SI$/i.test(p[1]||''),
+        covered: /^S[IÍ](?![A-Za-z])/i.test(p[1]||''),
         caseIds: (p[2]||'').split(',').map(function(s){ return s.trim(); }).filter(Boolean),
         justificacion: p[3] || '',
       };
-    }).filter(function(x){ return x.id; });
+    }).filter(function(x){ return /^(CA|RN)_\d+$/i.test(x.id); });
     S.coverageVerified = { items: items, verifiedAt: nowStrCO() };
     ok = true;
     toast('Cobertura verificada con IA','ok');
@@ -2992,7 +2998,18 @@ function parseNamedItemsSection(text) {
 // del documento (si se pudo extraer) > nombre del archivo subido. Solo si el
 // QA nunca subio archivo (sesion vieja) cae de vuelta a huSummary como ultimo recurso.
 function reqProjectName() {
-  return (S.reqDocName || S.huSummary || 'Requerimiento').slice(0,120);
+  return (cleanReqTitle(S.reqDocName) || S.huSummary || 'Requerimiento').slice(0,120);
+}
+// La linea "DESARROLLO ..." de algunos documentos trae en el mismo renglon el
+// campo de fecha del encabezado (ej. "5769 - Titulo FECHA 29/09/2026"); eso no
+// es parte del nombre del requerimiento. Se corta desde "FECHA" y se quita una
+// fecha suelta al final. Se aplica tambien al leer (reqProjectName) para que
+// las sesiones ya guardadas con el nombre sucio salgan bien sin re-analizar.
+function cleanReqTitle(t) {
+  return String(t || '')
+    .replace(/[\s\-–—|:]*\bFECHA\b.*$/i, '')
+    .replace(/[\s\-–—|:]*\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\s*$/, '')
+    .trim();
 }
 // Version de reqProjectName() segura para nombre de archivo -- quita caracteres
 // invalidos en Windows (\/:*?"<>|), colapsa espacios y recorta a 60 chars para
@@ -3014,9 +3031,9 @@ function extractDesarrolloTitle(text) {
   for (var i = 0; i < lines.length; i++) {
     var m = /^DESARROLLO\b[\s:.\-]*(.*)$/i.exec(lines[i]);
     if (m) {
-      if (m[1]) return m[1].trim().slice(0,120);
+      if (m[1]) return cleanReqTitle(m[1]).slice(0,120);
       for (var j = i+1; j < lines.length; j++) {
-        if (lines[j]) return lines[j].slice(0,120);
+        if (lines[j]) return cleanReqTitle(lines[j]).slice(0,120);
       }
     }
   }
