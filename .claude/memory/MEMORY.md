@@ -1,6 +1,6 @@
 - [Español colombiano](feedback_spanish_colombian.md) — responder siempre en español colombiano TUTEANDO (tú), nunca "usted" ni "vos"/voseo.
 - [Probar antes de decir "listo"](feedback_test_before_claiming_done.md) — verificar de verdad (navegador/reproducción), no solo revisión de código.
-- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 22 (2026-10-05): PRs #34-#37 + fix nombre "FECHA" y casos faltantes sin delimitador mergeado (PRs #38-#41, main==develop). Pendiente: usuario reinicia proxy 3001 y re-genera faltantes en la 5769.
+- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 22 cerrada (2026-10-05): PRs #34-#43, main==develop. Mañana (2026-10-06): confirmar que el usuario reinició el proxy 3001 y que la 5769 queda 43/43 y sin "FECHA"; luego preguntar.
 - [Identidad git QA-Suite](project_git_identity.md) — todo commit/push/PR debe ser erodriguez@testialab.com / erodrigueztestialab, nunca kaironyx ni el email de Cinemark.
 - [Flujo de ramas QA-Suite](project_git_workflow.md) — main/develop/feature con PR obligatorio; auto-borrado de feature/* al mergear + ruleset que impide borrar main/develop (2026-09-29).
 - [Modelo/esfuerzo preferido](feedback_model_effort.md) — Sonnet medio por defecto para fixes/desarrollo en QA Suite (mi propio razonamiento), salvo indicación contraria.
