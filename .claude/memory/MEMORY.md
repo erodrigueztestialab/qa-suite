@@ -1,6 +1,6 @@
 - [Español colombiano](feedback_spanish_colombian.md) — responder siempre en español colombiano TUTEANDO (tú), nunca "usted" ni "vos"/voseo.
 - [Probar antes de decir "listo"](feedback_test_before_claiming_done.md) — verificar de verdad (navegador/reproducción), no solo revisión de código.
-- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 21 (2026-10-02): M1 Gemini 2 pasadas en main (PRs #30/#31); ejemplo venta/transferencia neutralizado; backlog: solo fix menor de agy Links.
+- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 21 cerrada (2026-10-02): PRs #30-#33, main==develop. Próximo (lunes 2026-10-05): feature/ con memoria; backlog solo fix menor agy Links, luego preguntar.
 - [Identidad git QA-Suite](project_git_identity.md) — todo commit/push/PR debe ser erodriguez@testialab.com / erodrigueztestialab, nunca kaironyx ni el email de Cinemark.
 - [Flujo de ramas QA-Suite](project_git_workflow.md) — main/develop/feature con PR obligatorio; auto-borrado de feature/* al mergear + ruleset que impide borrar main/develop (2026-09-29).
 - [Modelo/esfuerzo preferido](feedback_model_effort.md) — Sonnet medio por defecto para fixes/desarrollo en QA Suite (mi propio razonamiento), salvo indicación contraria.
