@@ -27,3 +27,9 @@ de memoria local, replicar el mismo archivo (contenido y nombre) en
 feature branch + PR segun [[project_git_workflow]]). Si se olvida sincronizar
 en algun momento, el usuario puede pedir "sincroniza la memoria" y hay que
 diffear ambas carpetas y subir lo que falte.
+
+**Actualizacion 2026-10-05 (pedido del usuario):** no dejar el registro de
+memoria sin commitear "para la proxima `feature/`" cuando no hay mas features
+a la vista. Al cerrar un trabajo, commitear la memoria de una vez en su propia
+`feature/memoria-...` y llevarla hasta `main` (PR a develop + PR develop->main),
+para que el remoto quede completo.
