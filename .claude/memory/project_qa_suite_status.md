@@ -671,3 +671,8 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 8. **Cierre del dia (2026-10-02, viernes).** Hoy: PRs #30 a #33 mergeados (M1 Gemini 2 pasadas + ejemplo neutro en M4 + memoria); `main` (`f126846`) == `develop` (`bef0dc7`). Proxy de pruebas en 3002 apagado; el del usuario en 3001 no se toco. Scripts del experimento (m1exp.js, e2e.js, srv3002.js) quedaron en el scratchpad de la sesion, no versionados.
 
 **Proximo (sesion 22, lunes 2026-10-05):** (a) crear la primera `feature/` desde `develop` (lleva este registro de memoria sin commitear); (b) backlog: solo el fix menor opcional de `candidateGeminiBins()` (quitar o mover al final el candidato `WinGet\Links\agy.exe`, que no existe en esta maquina y genera un spawn fallido por llamada); fuera de eso no hay pendientes -- preguntar al usuario con que sigue.
+
+## Sesion 22 (2026-10-05)
+1. Rama `feature/agy-links-fix` desde `develop`: commit 1 = registro de memoria de la sesion 21 (`f022cdd`).
+2. **Fix `candidateGeminiBins()` (commit `e167f50`):** el shim `WinGet\Links\agy.exe` solo se agrega como candidato si `fs.existsSync` lo encuentra. Verificado con llamada real a `callGemini` (copia del proxy en 3002): candidatos = [Packages\...\agy.exe, 'agy'], primer spawn rc=0 "OK", sin el "no se reconoce como un comando"; `/api/engine-status` -> available, 18 modelos. Proxy del usuario en 3001 no se toco.
+**Proximo:** abrir/mergear PR de `feature/agy-links-fix` -> develop -> main segun indique el usuario; backlog vacio -- preguntar con que sigue.
