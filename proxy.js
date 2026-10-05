@@ -2080,15 +2080,23 @@ function fixMojibake(name) {
 // duplicado aca (no hay bundler que comparta codigo cliente/servidor) porque
 // solo el servidor puede extraer texto de un PDF (mammoth/pdf-parse corren en
 // Node). Si se ajusta el regex de un lado, ajustar tambien el otro.
+// Mismo recorte que cleanReqTitle() del frontend: el campo "FECHA <fecha>" del
+// encabezado a veces viene en el mismo renglon del titulo y no es parte del nombre.
+function cleanReqTitle(t) {
+  return String(t || '')
+    .replace(/[\s\-–—|:]*\bFECHA\b.*$/i, '')
+    .replace(/[\s\-–—|:]*\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\s*$/, '')
+    .trim();
+}
 function extractDesarrolloTitleFromText(text) {
   if (!text) return '';
   var lines = text.split('\n').map(function(l){ return l.trim(); });
   for (var i = 0; i < lines.length; i++) {
     var m = /^DESARROLLO\b[\s:.\-]*(.*)$/i.exec(lines[i]);
     if (m) {
-      if (m[1]) return m[1].trim().slice(0,120);
+      if (m[1]) return cleanReqTitle(m[1]).slice(0,120);
       for (var j = i+1; j < lines.length; j++) {
-        if (lines[j]) return lines[j].slice(0,120);
+        if (lines[j]) return cleanReqTitle(lines[j]).slice(0,120);
       }
     }
   }
