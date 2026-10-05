@@ -247,7 +247,7 @@ const progressClients = new Map();
 var GEMINI_MODEL_MAP = { opus: 'gemini-3.1-pro-high', sonnet: 'gemini-3.1-pro-low' };
 
 // Resolver el binario de Antigravity CLI: env var explicita, el shim de winget
-// (si existe), la carpeta real de instalacion de winget (nombre con hash de
+// (solo si existe en disco), la carpeta real de instalacion de winget (nombre con hash de
 // publisher variable segun la version -- ej "Google.AntigravityCLI_Microsoft.
 // Winget.Source_8wekyb3d8bbwe" -- por eso se busca por prefijo en vez de
 // hardcodear el hash), y por ultimo el comando a secas resuelto por PATH.
@@ -255,7 +255,10 @@ function candidateGeminiBins() {
   var list = [];
   if (process.env.AGY_CLI_PATH) list.push(process.env.AGY_CLI_PATH);
   if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
-    list.push(path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'agy.exe'));
+    // El shim de Links no siempre se crea (depende de la version de winget); si
+    // no existe se omite, para no hacer un spawn fallido en cada llamada.
+    var linkBin = path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'agy.exe');
+    if (fs.existsSync(linkBin)) list.push(linkBin);
     try {
       var pkgsDir = path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Packages');
       var match = fs.readdirSync(pkgsDir).find(function(name){ return name.indexOf('Google.AntigravityCLI_') === 0; });
