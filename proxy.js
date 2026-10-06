@@ -1260,6 +1260,16 @@ function buildComplexityPrompt(analysisRaw) {
 // Estructura del ejemplo real de TestIALab (Totto): Objetivo, Alcance dentro/fuera,
 // Supuestos, Riesgos funcionales/negocio, Estrategia, Tipos/Niveles, Criterios
 // de entrada/salida, Responsables. Se genera al inicio del ciclo, antes de los casos.
+// Regla de ortografia para los documentos que se entregan al cliente (Plan de
+// Pruebas y Certificacion): el QA no deberia tener que corregir tildes a mano.
+// Los prompts estan escritos sin tildes por costumbre del codigo, por eso se
+// pide explicito que la SALIDA no copie esa forma.
+var ORTOGRAFIA_DOC_CLIENTE =
+  'ORTOGRAFIA (obligatorio): redacta en espanol de Colombia/Latinoamerica con ortografia impecable: todas las tildes ' +
+  '(ej. "integración", "regresión", "aceptación", "también", "módulo", "validación", "información"), la letra ñ, ' +
+  'signos de apertura ¿ y ¡, y mayusculas/puntuacion correctas. Estas instrucciones vienen escritas sin tildes; NO ' +
+  'copies esa forma en tu respuesta. Antes de entregar, relee todo el texto y corrige cualquier falta.';
+
 function buildPlanPruebasPrompt(analysisRaw, m2Context, engine) {
   m2Context = m2Context || {};
   return [
@@ -1292,7 +1302,8 @@ function buildPlanPruebasPrompt(analysisRaw, m2Context, engine) {
     '   NINGUNA seccion: el cliente no conoce esa numeracion, no aparece en su requerimiento. Describe cada punto por su',
     '   contenido. MAL: "Bloqueo de la cuenta al tercer intento fallido (CA_5, RN_1)." BIEN: "Bloqueo de la cuenta al',
     '   tercer intento fallido consecutivo."',
-    '8. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
+    '8. ' + ORTOGRAFIA_DOC_CLIENTE,
+    '9. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
     '',
     '---OBJETIVO---',
     '1 a 2 parrafos.',
@@ -1320,15 +1331,15 @@ function buildPlanPruebasPrompt(analysisRaw, m2Context, engine) {
     '---TIPOS_PRUEBA---',
     'EXACTAMENTE estos 4 tipos, en este orden, cada uno con 2-4 puntos concretos de ESTE requerimiento (formato: Nombre | punto 1 / punto 2):',
     'Pruebas funcionales | ...',
-    'Pruebas de integracion | ...',
+    'Pruebas de integración | ...',
     'Pruebas negativas | ...',
-    'Pruebas de regresion focalizada | ...',
+    'Pruebas de regresión focalizada | ...',
     '',
     '---NIVELES_PRUEBA---',
     'EXACTAMENTE estos 3 niveles, en este orden, cada uno con 1-3 puntos concretos de ESTE requerimiento (formato: Nombre | punto 1 / punto 2):',
     'Pruebas de sistema | ...',
-    'Pruebas de integracion | ...',
-    'Pruebas de aceptacion (UAT) | ...',
+    'Pruebas de integración | ...',
+    'Pruebas de aceptación (UAT) | ...',
     '',
     '---CRITERIOS_ENTRADA---',
     'Lista de criterios de entrada, uno por linea con "- ". Deben incluir, como base: el desarrollo completo desplegado',
@@ -1355,12 +1366,14 @@ var DOCX_FONT = 'Calibri'; // fuente real de la plantilla (confirmada en footer1
 function docxHeading(numberedTitle) {
   return new Paragraph({
     heading: HeadingLevel.HEADING_1,
+    keepNext: true, keepLines: true,
     spacing: { before: 280, after: 120 },
     children: [ new TextRun({ text: numberedTitle, bold: true, size: 26, color: DOCX_NAVY, font: DOCX_FONT }) ],
   });
 }
 function docxSubheading(title) {
   return new Paragraph({
+    keepNext: true, keepLines: true,
     spacing: { before: 180, after: 80 },
     children: [ new TextRun({ text: title, bold: true, size: 22, color: DOCX_TEAL, font: DOCX_FONT }) ],
   });
@@ -1388,7 +1401,7 @@ function docxNumberedList(items) {
 function docxNamedItemsBlock(list) {
   var out = [];
   (list || []).forEach(function(entry, i){
-    out.push(new Paragraph({ spacing: { before: 100, after: 40 }, children: [ new TextRun({ text: (i+1)+'. '+entry.nombre, bold: true, size: 21, font: DOCX_FONT }) ] }));
+    out.push(new Paragraph({ keepNext: true, keepLines: true, spacing: { before: 100, after: 40 }, children: [ new TextRun({ text: (i+1)+'. '+entry.nombre, bold: true, size: 21, font: DOCX_FONT }) ] }));
     (entry.items || []).forEach(function(it){ out.push(docxBullet(it)); });
   });
   if (!out.length) out.push(docxPara('---'));
@@ -1403,11 +1416,11 @@ function docxCell(text, opts) {
   });
 }
 function docxResponsablesTable(rows) {
-  var header = new TableRow({ children: [
-    docxCell('Equipo', {header:true}), docxCell('Cargo / Rol', {header:true}), docxCell('Contacto', {header:true}),
+  var header = new TableRow({ cantSplit: true, children: [
+    docxCell('Equipo', {header:true}), docxCell('Nombre / Rol', {header:true}), docxCell('Contacto', {header:true}),
   ]});
   var body = (rows && rows.length ? rows : [{equipo:'Por definir',cargo:'Por definir',contacto:'Por definir'}]).map(function(r){
-    return new TableRow({ children: [ docxCell(r.equipo), docxCell(r.cargo), docxCell(r.contacto) ] });
+    return new TableRow({ cantSplit: true, children: [ docxCell(r.equipo), docxCell(r.cargo), docxCell(r.contacto) ] });
   });
   return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [header].concat(body) });
 }
@@ -1558,12 +1571,12 @@ async function buildHUDocxBuffer(p) {
 }
 
 function docxDefectosTable(bugs) {
-  var header = new TableRow({ children: [
+  var header = new TableRow({ cantSplit: true, children: [
     docxCell('ID Bug', {header:true, width:15}), docxCell('Caso de Prueba', {header:true, width:15}),
     docxCell('Descripcion', {header:true, width:50}), docxCell('Estado', {header:true, width:20}),
   ]});
   var body = (bugs && bugs.length ? bugs : [{id:'--', caseId:'--', descripcion:'Ningun bug registrado.', estado:'--'}]).map(function(b){
-    return new TableRow({ children: [ docxCell(b.id), docxCell(b.caseId||'-'), docxCell(b.descripcion), docxCell(b.estado) ] });
+    return new TableRow({ cantSplit: true, children: [ docxCell(b.id), docxCell(b.caseId||'-'), docxCell(b.descripcion), docxCell(b.estado) ] });
   });
   return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [header].concat(body) });
 }
@@ -1686,12 +1699,12 @@ function bugEvidenceChildren(images) {
 function bugCaseChildren(casoAsociado) {
   if (!casoAsociado) return [ docxPara('(este bug no tiene un caso de prueba vinculado)') ];
   var steps = casoAsociado.steps || [];
-  var header = new TableRow({ children: [
+  var header = new TableRow({ cantSplit: true, children: [
     docxCell('#', {header:true, width:8}), docxCell('Paso', {header:true, width:46}), docxCell('Resultado esperado', {header:true, width:46}),
   ]});
   var body = steps.length
-    ? steps.map(function(s, i){ return new TableRow({ children: [ docxCell(String(i+1)), docxCell(s.paso||'-'), docxCell(s.resultado||'-') ] }); })
-    : [ new TableRow({ children: [ docxCell('-'), docxCell('(sin pasos definidos)'), docxCell('-') ] }) ];
+    ? steps.map(function(s, i){ return new TableRow({ cantSplit: true, children: [ docxCell(String(i+1)), docxCell(s.paso||'-'), docxCell(s.resultado||'-') ] }); })
+    : [ new TableRow({ cantSplit: true, children: [ docxCell('-'), docxCell('(sin pasos definidos)'), docxCell('-') ] }) ];
   return [
     docxLabelPara('Caso', casoAsociado.caso),
     docxLabelPara('Objetivo', casoAsociado.objetivo),
@@ -1732,17 +1745,17 @@ async function buildBugDocxBuffer(p) {
 // persistidas via c.evidenceData en el cliente -- Fase 6). Reusa embedOneEvidenceImage
 // (mismo parser de dimensiones que el Word del bug) en vez de duplicarlo.
 function dossierCaseTable(steps) {
-  var header = new TableRow({ children: [
+  var header = new TableRow({ cantSplit: true, children: [
     docxCell('#', {header:true, width:8}), docxCell('Paso', {header:true, width:46}), docxCell('Resultado esperado', {header:true, width:46}),
   ]});
   var body = (steps && steps.length)
-    ? steps.map(function(s, i){ return new TableRow({ children: [ docxCell(String(i+1)), docxCell(s.paso||'-'), docxCell(s.resultado||'-') ] }); })
-    : [ new TableRow({ children: [ docxCell('-'), docxCell('(sin pasos definidos)'), docxCell('-') ] }) ];
+    ? steps.map(function(s, i){ return new TableRow({ cantSplit: true, children: [ docxCell(String(i+1)), docxCell(s.paso||'-'), docxCell(s.resultado||'-') ] }); })
+    : [ new TableRow({ cantSplit: true, children: [ docxCell('-'), docxCell('(sin pasos definidos)'), docxCell('-') ] }) ];
   return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [header].concat(body) });
 }
 function dossierCaseChildren(c) {
   var out = [
-    new Paragraph({ spacing: { before: 220, after: 60 }, border: { top: { style: BorderStyle.SINGLE, size: 4, color: DOCX_TEAL, space: 8 } }, children: [
+    new Paragraph({ keepNext: true, keepLines: true, spacing: { before: 220, after: 60 }, border: { top: { style: BorderStyle.SINGLE, size: 4, color: DOCX_TEAL, space: 8 } }, children: [
       new TextRun({ text: (c.id||'-') + ' -- ' + (c.caso||'-'), bold: true, size: 24, color: DOCX_NAVY, font: DOCX_FONT }),
     ] }),
     docxLabelPara('Objetivo', c.objetivo),
@@ -1938,7 +1951,8 @@ function buildCertificationPrompt(analysisRaw, m2Context, cases, bugs, engine, p
     '   regresion focalizada de los casos impactados, hasta cerrar. Los pendientes se ejecutan sobre ESA misma entrega.',
     '   NUNCA hables de "otra iteracion", "iteracion complementaria", "siguiente ciclo", "segundo ciclo", "entregas',
     '   parciales" ni "sprints". "El ciclo de pruebas" en singular, como nombre de todo el proceso, si esta permitido.',
-    '7. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
+    '7. ' + ORTOGRAFIA_DOC_CLIENTE,
+    '8. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
     '',
     '---META---',
     'Una sola linea con formato: Version | Responsable QA. Ejemplo: "1.0 | Equipo QA - TestIALab".',
@@ -2084,8 +2098,13 @@ function fixMojibake(name) {
 // encabezado a veces viene en el mismo renglon del titulo y no es parte del nombre.
 function cleanReqTitle(t) {
   return String(t || '')
-    .replace(/[\s\-–—|:]*\bFECHA\b.*$/i, '')
-    .replace(/[\s\-–—|:]*\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\s*$/, '')
+    .replace(/[\s\-–—|:_]*FECHA(?![a-záéíóúñ]).*$/i, '')
+    .replace(/[\s\-–—|:_]*\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\s*$/, '')
+    .replace(/[\s\-–—|:_]*(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])20\d{2}\s*$/, '')
+    .replace(/(?:^|[\s\-–—_]+)v(?:ersi[oó]n)?\.?\s*\d+(?:[._]\d+)*\s*$/i, '')
+    .replace(/[\s\-–—|:_]*\b(?:Documento|Especificaci[oó]n)\s+(?:Funcional|T[eé]cnic[oa])\b[\s\-–—|:_]*/i, ' - ')
+    .replace(/^[\s\-–—|:_]+|[\s\-–—|:_]+$/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 function extractDesarrolloTitleFromText(text) {
