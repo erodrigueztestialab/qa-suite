@@ -701,7 +701,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="content wide">
       <div class="page-tag">M2 &middot; IMPACTO</div>
       <h1 class="page-title">Impacto y Estimacion</h1>
-      <p class="page-sub">Aqui el QA valida (no re-analiza) las areas de impacto que la IA detecto en M1, y usa el Estimador QA para dimensionar el esfuerzo del ciclo: complejidad del requerimiento (evaluada por IA o definida a mano), horas de ejecucion por complejidad de caso, y tiempos por cada fase (reunion, transformacion a HU, plan de pruebas, diseno, ejecucion, bugs, cierre) -- todo editable, sin calculos ocultos. Al confirmar, se desbloquea el Plan de Pruebas.</p>
+      <p class="page-sub">Aqui el QA valida (no re-analiza) las areas de impacto que la IA detecto en M1, y usa el Estimador QA para dimensionar el esfuerzo del ciclo: complejidad del requerimiento (evaluada por IA, ajustable a mano), ritmo de ejecucion del QA (casos por dia) y tiempos por cada fase (reunion, transformacion a HU, plan de pruebas, diseno, ejecucion, bugs, cierre) -- todo editable, sin calculos ocultos. Al confirmar, se desbloquea el Plan de Pruebas.</p>
       <div id="m2-empty" class="placeholder-wrap">
         <div class="placeholder-ico">&#9888;</div>
         <div class="placeholder-ttl">Todavia no hay analisis</div>
@@ -829,7 +829,7 @@ var S = {
   // Estimador QA (portado del Estimador LIZ original de TestIALab):
   reqComplejidad     : null,  // 'Alto' | 'Medio' | 'Bajo', evaluado por IA en M2
   reqJustificacion   : '',
-  horasPorComplejidad: { Alto: 3, Medio: 1.5, Bajo: 0.5 }, // horas de ejecucion por complejidad de caso
+  casosPorDia        : null,  // ritmo de ejecucion del QA (casos/dia); null = el guardado en este navegador (ver getCasosPorDia)
   phases: {              // horas por fase del ciclo QA -- TODAS editables por el QA, ninguna se auto-calcula
     reunion: 1, transformacion_hu: 2, plan_pruebas: 2, diseno_casos: 3, ejecucion: 0, reporte_bugs: 3, cierre: 1.5,
   },
@@ -840,59 +840,45 @@ var PHASE_LABELS = {
   ejecucion: 'Ejecucion de casos de prueba', reporte_bugs: 'Reporte de bugs y re-test', cierre: 'Documento de cierre de pruebas',
 };
 
-/* ── ESTIMADOR QA: sugerencia de referencia (NO se auto-aplica a ninguna fase) ──
-   El QA decide manualmente las horas de "Ejecucion de casos de prueba" en
-   S.phases.ejecucion; esto solo calcula un numero de referencia en base a la
-   complejidad de cada caso, para que el QA lo mire y decida si lo usa o no. */
-function computeExecHoursSuggestion() {
-  if (!S.cases.length) return 0;
-  var h = S.horasPorComplejidad;
-  return S.cases.reduce(function(sum, c){
-    var comp = c.complejidadEjecucion || 'Medio';
-    return sum + (h[comp] != null ? h[comp] : h.Medio);
-  }, 0);
+/* ── ESTIMADOR QA: horas de "Ejecucion de casos de prueba" por RITMO ─────────
+   Se estima como lo hace el lider de proyectos: casos / casos por dia x jornada.
+   El ritmo depende del contexto del QA y del cliente (que tan nuevo es el negocio),
+   no de la complejidad de cada requerimiento, por eso es un parametro del QA y no
+   una regla quemada: arranca en CASOS_POR_DIA_DEFAULT, el QA lo ajusta una vez y
+   queda recordado en su navegador; tambien se puede cambiar solo para una sesion.
+   La complejidad del requerimiento se sigue evaluando, pero ya no mueve las horas. */
+var CASOS_POR_DIA_DEFAULT = 10;
+var HORAS_JORNADA = 8;
+var CASOS_POR_DIA_KEY = 'testialab_casos_por_dia';
+function storedCasosPorDia() {
+  try { var v = parseFloat(localStorage.getItem(CASOS_POR_DIA_KEY)); return v > 0 ? v : null; } catch(e) { return null; }
 }
-// Referencia temprana (M2 se visita ANTES de que existan casos -- M1->M2->M3->M4 --
-// asi que computeExecHoursSuggestion() siempre da 0 en ese punto del flujo). Estima
-// cuantos casos probablemente hagan falta contando CA_N+RN_N del analisis (misma
-// extraccion que ya usa computeCoverage()) y les aplica una MEZCLA de complejidades
-// de caso segun la complejidad del requerimiento (EXEC_CASE_MIX) -- los casos reales
-// nunca son todos de la misma complejidad: aun en un requerimiento Alto hay
-// validaciones simples. Los porcentajes son una suposicion inicial, no datos medidos:
-// ajustar aca cuando haya referencias reales de horas de ejecucion. Una vez existen
-// casos reales, continueToM4() la reemplaza por el calculo por complejidad de cada caso.
-var EXEC_CASE_MIX = {
-  Alto:  { Alto: 0.40, Medio: 0.40, Bajo: 0.20 },
-  Medio: { Alto: 0.10, Medio: 0.40, Bajo: 0.50 },
-  Bajo:  { Alto: 0.00, Medio: 0.30, Bajo: 0.70 },
-};
-function earlyExecItemCount() {
+function getCasosPorDia() {
+  var v = parseFloat(S.casosPorDia);
+  return v > 0 ? v : (storedCasosPorDia() || CASOS_POR_DIA_DEFAULT);
+}
+// Casos reales (si ya se disenaron) o, antes de M4, una estimacion: CA_N+RN_N del
+// analisis (en el 5769 real: 43 CA+RN -> 46 casos, buena aproximacion).
+function execCaseCount() {
+  if (S.cases.length) return S.cases.length;
   if (!_analysis) return 0;
   var n = parseReqIdItems(_analysis, 'CRITERIOS_DE_ACEPTACION').length
         + parseReqIdItems(_analysis, 'REGLAS_DE_NEGOCIO').length;
   return n || 1;
 }
-// Horas promedio por caso = suma de (porcentaje de la mezcla x horas de esa complejidad).
-function earlyExecAvgHoursPerCase() {
-  var mix = EXEC_CASE_MIX[S.reqComplejidad || 'Medio'] || EXEC_CASE_MIX.Medio;
-  var h = S.horasPorComplejidad;
-  return ['Alto','Medio','Bajo'].reduce(function(sum, k){ return sum + mix[k] * (parseFloat(h[k]) || 0); }, 0);
+function computeExecHours() {
+  var n = execCaseCount();
+  return n ? n / getCasosPorDia() * HORAS_JORNADA : 0;
 }
-function computeEarlyExecHoursSuggestion() {
-  if (!_analysis) return 0;
-  return earlyExecItemCount() * earlyExecAvgHoursPerCase();
-}
-// "Ejecucion de casos de prueba" se muestra ya calculada (como las demas fases),
-// no en 0 con un boton de referencia. Mientras no existan casos se recalcula sola
-// cada vez que cambia la complejidad o las horas por complejidad; si el QA escribe
-// su propio valor (S.ejecucionManual) se respeta. Con casos, continueToM4() la
-// reemplaza por el calculo por complejidad de cada caso.
+// "Ejecucion de casos de prueba" se muestra ya calculada (como las demas fases) y se
+// recalcula sola al cambiar el ritmo o la cantidad de casos; si el QA escribe su
+// propio valor (S.ejecucionManual) se respeta.
 function recalcEjecucionPhase() {
-  if (S.cases.length) return;
-  // Sesiones guardadas antes de este flag: un valor distinto de 0 lo puso el QA.
-  if (S.ejecucionManual === undefined) S.ejecucionManual = (parseFloat(S.phases.ejecucion) || 0) > 0;
+  // Sesiones guardadas antes de este flag: con casos, el valor lo puso continueToM4();
+  // sin casos, un valor distinto de 0 lo puso el QA.
+  if (S.ejecucionManual === undefined) S.ejecucionManual = !S.cases.length && (parseFloat(S.phases.ejecucion) || 0) > 0;
   if (S.ejecucionManual) return;
-  S.phases.ejecucion = Math.round(computeEarlyExecHoursSuggestion()*100)/100;
+  S.phases.ejecucion = Math.round(computeExecHours()*100)/100;
 }
 function useEarlyExecReference() {
   S.ejecucionManual = false;
@@ -1431,7 +1417,7 @@ function resetDownstreamState() {
   ];
   S.reqComplejidad = null;
   S.reqJustificacion = '';
-  S.horasPorComplejidad = { Alto: 3, Medio: 1.5, Bajo: 0.5 };
+  S.casosPorDia = null;
   S.phases = { reunion: 1, transformacion_hu: 2, plan_pruebas: 2, diseno_casos: 3, ejecucion: 0, reporte_bugs: 3, cierre: 1.5 };
   S.ejecucionManual = false;
   GATED_MODULES.forEach(relockModule);
@@ -1551,9 +1537,11 @@ function onPhaseHM(key) {
   if (key === 'ejecucion') S.ejecucionManual = true;
   updateM2TotalDisplay();
 }
-function onHorasComplejidadHM(key) {
-  var h = document.getElementById('hc-h-'+key), m = document.getElementById('hc-m-'+key);
-  S.horasPorComplejidad[key] = hmToDecHours(h ? h.value : 0, m ? m.value : 0);
+function onCasosPorDiaInput(el) {
+  var v = parseFloat(el.value);
+  if (!(v > 0)) return;
+  S.casosPorDia = v;
+  try { localStorage.setItem(CASOS_POR_DIA_KEY, String(v)); } catch(e) {}
   // Si la ejecucion esta calculada, refleja el cambio sin re-render (no perder el foco).
   var antes = S.phases.ejecucion;
   recalcEjecucionPhase();
@@ -1606,7 +1594,6 @@ async function evaluateComplexity() {
     var comp = parseSection(d.raw,'COMPLEJIDAD_REQUERIMIENTO').trim();
     S.reqComplejidad = /alto/i.test(comp) ? 'Alto' : /bajo/i.test(comp) ? 'Bajo' : 'Medio';
     S.reqJustificacion = parseSection(d.raw,'JUSTIFICACION_COMPLEJIDAD').trim();
-    recalcEjecucionPhase();
     ok = true;
     toast('Complejidad evaluada: '+S.reqComplejidad,'ok');
   } catch(e) {
@@ -1618,14 +1605,12 @@ async function evaluateComplexity() {
     renderM2();
   }
 }
-function setComplexityManual(v) { S.reqComplejidad = v; recalcEjecucionPhase(); renderM2(); }
+function setComplexityManual(v) { S.reqComplejidad = v; renderM2(); }
 function execCalcNoteText() {
-  var comp = S.reqComplejidad || 'Medio';
-  var mix = EXEC_CASE_MIX[comp] || EXEC_CASE_MIX.Medio;
-  var hm = decHoursToHM(earlyExecAvgHoursPerCase());
-  var pct = function(k){ return Math.round(mix[k]*100)+'% '+k; };
-  return 'Calculado: '+earlyExecItemCount()+' criterio(s)/regla(s) del analisis &times; '+hm.h+'h '+hm.m+'m promedio por caso ' +
-    '(requerimiento '+comp+': '+pct('Alto')+', '+pct('Medio')+', '+pct('Bajo')+'). Se afina con la complejidad real de cada caso al pasar a Ejecucion.';
+  var n = execCaseCount(), r = getCasosPorDia();
+  var origen = S.cases.length ? 'caso(s) disenados' : 'caso(s) estimados (criterios + reglas del analisis)';
+  return 'Calculado: '+n+' '+origen+' &divide; '+r+' casos/dia &times; '+HORAS_JORNADA+'h = '+(n/r).toFixed(1)+' dia(s).' +
+    (S.cases.length ? '' : ' Se actualiza con los casos reales al pasar a Ejecucion.');
 }
 
 function continueToM3() {
@@ -1677,15 +1662,6 @@ function renderM2() {
   var totalPhases = computeTotalPhaseHours();
   var totalHM = decHoursToHM(totalPhases);
 
-  var horasCompHtml = ['Alto','Medio','Bajo'].map(function(k){
-    var hm = decHoursToHM(S.horasPorComplejidad[k]);
-    return '<div><span class="m2-fld-lbl">'+k+'</span>' +
-      '<div class="m2-hm-pair">' +
-        '<input type="number" class="m2-est-input" style="width:50px" min="0" step="1" value="'+hm.h+'" id="hc-h-'+k+'" oninput="onHorasComplejidadHM(\''+k+'\')">h' +
-        '<input type="number" class="m2-est-input" style="width:50px" min="0" max="55" step="5" value="'+hm.m+'" id="hc-m-'+k+'" oninput="onHorasComplejidadHM(\''+k+'\')">m' +
-      '</div></div>';
-  }).join('');
-
   recalcEjecucionPhase();
   var phasesHtml = Object.keys(PHASE_LABELS).map(function(k){
     var hm = decHoursToHM(S.phases[k]);
@@ -1701,9 +1677,10 @@ function renderM2() {
       row += '<div style="'+noteStyle+'"><span>Fijo en 3h para cualquier complejidad: (1) el QA arma su propia lista de casos, (2) la QA Suite genera los casos con IA, (3) se cruzan ambas y se verifica la cobertura (manual y con IA).</span></div>';
     }
     if (k === 'ejecucion') {
-      if (S.cases.length) {
-        row += '<div style="'+noteStyle+'"><span>Calculado con la complejidad de los '+S.cases.length+' caso(s) disenados.</span></div>';
-      } else if (S.ejecucionManual) {
+      row += '<div style="'+noteStyle+'"><span>Ritmo de ejecucion del QA:</span>' +
+        '<input type="number" class="m2-est-input" style="width:60px" min="1" step="1" value="'+getCasosPorDia()+'" oninput="onCasosPorDiaInput(this)">' +
+        '<span>casos por dia (se recuerda en este navegador para los proximos requerimientos).</span></div>';
+      if (S.ejecucionManual) {
         row += '<div style="'+noteStyle+'"><span>Valor editado por el QA.</span>' +
           '<button class="btn btn-ghost" style="padding:2px 8px;font-size:10.5px" onclick="useEarlyExecReference()">Volver al calculo</button></div>';
       } else {
@@ -1722,10 +1699,6 @@ function renderM2() {
     '<div class="m2-card"><div class="m2-card-hdr">Areas de impacto detectadas</div>' + areasHtml + '</div>' +
 
     '<div class="m2-card"><div class="m2-card-hdr">Complejidad de pruebas para el requerimiento</div>' + complexHtml + '</div>' +
-
-    '<div class="m2-card"><div class="m2-card-hdr">Horas de ejecucion por complejidad de caso</div>' +
-      '<div style="display:flex;gap:1.5rem;flex-wrap:wrap">' + horasCompHtml + '</div>' +
-    '</div>' +
 
     '<div class="m2-card"><div class="m2-card-hdr">Tiempos por fase del ciclo de pruebas</div>' +
       '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Todas las fases parten de un valor de referencia (fijo, o estimado una vez hay analisis/casos) pero son completamente parametrizables y editables a criterio del QA.</div>' +
@@ -2896,9 +2869,10 @@ function continueToM4() {
   if (!S.casesExcelExported) { toast('Exporta los casos a Excel antes de continuar a Ejecucion.','err'); return; }
   if (!confirm('¿Los casos de prueba estan listos para ejecutar?\n\nSe desbloquearan Ejecucion, Bugs e Informe de Avance. ¿Continuar?')) return;
   // El QA ya esta de acuerdo con los casos generados en este punto -- se aplica
-  // automaticamente la referencia de horas de ejecucion (por complejidad de caso)
+  // automaticamente las horas de ejecucion con los casos reales (casos / casos por dia)
   // al Estimador QA de M2, sin necesitar un boton manual aparte.
-  S.phases.ejecucion = Math.round(computeExecHoursSuggestion()*100)/100;
+  S.ejecucionManual = false;
+  recalcEjecucionPhase();
   unlockModule('m4'); unlockModule('mavance'); unlockModule('m5');
   toast('Ejecucion desbloqueada. Horas de ejecucion del Estimador QA actualizadas.', 'ok');
   showModule('m4', document.getElementById('nav-m4'));
