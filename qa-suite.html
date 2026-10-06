@@ -855,17 +855,32 @@ function computeExecHoursSuggestion() {
 // Referencia temprana (M2 se visita ANTES de que existan casos -- M1->M2->M3->M4 --
 // asi que computeExecHoursSuggestion() siempre da 0 en ese punto del flujo). Estima
 // cuantos casos probablemente hagan falta contando CA_N+RN_N del analisis (misma
-// extraccion que ya usa computeCoverage()) y aplica la hora por complejidad global
-// del requerimiento (S.reqComplejidad) -- una referencia real, no forzada, mientras
-// no existan casos todavia. Una vez existen casos reales, continueToM4() la reemplaza
-// por el calculo preciso por complejidad de cada caso (sin cambios en esa parte).
-function computeEarlyExecHoursSuggestion() {
+// extraccion que ya usa computeCoverage()) y les aplica una MEZCLA de complejidades
+// de caso segun la complejidad del requerimiento (EXEC_CASE_MIX) -- los casos reales
+// nunca son todos de la misma complejidad: aun en un requerimiento Alto hay
+// validaciones simples. Los porcentajes son una suposicion inicial, no datos medidos:
+// ajustar aca cuando haya referencias reales de horas de ejecucion. Una vez existen
+// casos reales, continueToM4() la reemplaza por el calculo por complejidad de cada caso.
+var EXEC_CASE_MIX = {
+  Alto:  { Alto: 0.40, Medio: 0.40, Bajo: 0.20 },
+  Medio: { Alto: 0.10, Medio: 0.40, Bajo: 0.50 },
+  Bajo:  { Alto: 0.00, Medio: 0.30, Bajo: 0.70 },
+};
+function earlyExecItemCount() {
   if (!_analysis) return 0;
   var n = parseReqIdItems(_analysis, 'CRITERIOS_DE_ACEPTACION').length
         + parseReqIdItems(_analysis, 'REGLAS_DE_NEGOCIO').length;
-  if (!n) n = 1;
-  var h = S.horasPorComplejidad[S.reqComplejidad || 'Medio'] || S.horasPorComplejidad.Medio;
-  return n * h;
+  return n || 1;
+}
+// Horas promedio por caso = suma de (porcentaje de la mezcla x horas de esa complejidad).
+function earlyExecAvgHoursPerCase() {
+  var mix = EXEC_CASE_MIX[S.reqComplejidad || 'Medio'] || EXEC_CASE_MIX.Medio;
+  var h = S.horasPorComplejidad;
+  return ['Alto','Medio','Bajo'].reduce(function(sum, k){ return sum + mix[k] * (parseFloat(h[k]) || 0); }, 0);
+}
+function computeEarlyExecHoursSuggestion() {
+  if (!_analysis) return 0;
+  return earlyExecItemCount() * earlyExecAvgHoursPerCase();
 }
 // "Ejecucion de casos de prueba" se muestra ya calculada (como las demas fases),
 // no en 0 con un boton de referencia. Mientras no existan casos se recalcula sola
@@ -1605,11 +1620,12 @@ async function evaluateComplexity() {
 }
 function setComplexityManual(v) { S.reqComplejidad = v; recalcEjecucionPhase(); renderM2(); }
 function execCalcNoteText() {
-  var n = parseReqIdItems(_analysis || '', 'CRITERIOS_DE_ACEPTACION').length
-        + parseReqIdItems(_analysis || '', 'REGLAS_DE_NEGOCIO').length;
   var comp = S.reqComplejidad || 'Medio';
-  var hm = decHoursToHM(S.horasPorComplejidad[comp] || S.horasPorComplejidad.Medio);
-  return 'Calculado: '+(n||1)+' criterio(s)/regla(s) del analisis &times; '+hm.h+'h '+hm.m+'m (complejidad '+comp+'). Se afina con la complejidad real de cada caso al pasar a Ejecucion.';
+  var mix = EXEC_CASE_MIX[comp] || EXEC_CASE_MIX.Medio;
+  var hm = decHoursToHM(earlyExecAvgHoursPerCase());
+  var pct = function(k){ return Math.round(mix[k]*100)+'% '+k; };
+  return 'Calculado: '+earlyExecItemCount()+' criterio(s)/regla(s) del analisis &times; '+hm.h+'h '+hm.m+'m promedio por caso ' +
+    '(requerimiento '+comp+': '+pct('Alto')+', '+pct('Medio')+', '+pct('Bajo')+'). Se afina con la complejidad real de cada caso al pasar a Ejecucion.';
 }
 
 function continueToM3() {
