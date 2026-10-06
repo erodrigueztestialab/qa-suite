@@ -820,7 +820,7 @@ var S = {
   // guarda tal cual el QA lo dejo (no se vuelve a calcular por encima).
   avanceEdits    : { intro: null, validacionesRealizadas: null, pendientesEspecialista: null },
   // Responsables del Plan de Pruebas: 3 filas FIJAS (igual que la plantilla real de
-  // TestiAlab) -- Cargo/Rol y Contacto son editables por el QA, varian por requerimiento.
+  // TestiAlab) -- Nombre/Rol y Contacto son editables por el QA, varian por requerimiento.
   responsables: [
     { equipo: 'TestiAlab', cargo: '', contacto: '' },
     { equipo: 'Cliente', cargo: '', contacto: '' },
@@ -831,7 +831,7 @@ var S = {
   reqJustificacion   : '',
   horasPorComplejidad: { Alto: 3, Medio: 1.5, Bajo: 0.5 }, // horas de ejecucion por complejidad de caso
   phases: {              // horas por fase del ciclo QA -- TODAS editables por el QA, ninguna se auto-calcula
-    reunion: 1, transformacion_hu: 2, plan_pruebas: 2, diseno_casos: 4, ejecucion: 0, reporte_bugs: 3, cierre: 1.5,
+    reunion: 1, transformacion_hu: 2, plan_pruebas: 2, diseno_casos: 3, ejecucion: 0, reporte_bugs: 3, cierre: 1.5,
   },
 };
 var PHASE_LABELS = {
@@ -867,8 +867,21 @@ function computeEarlyExecHoursSuggestion() {
   var h = S.horasPorComplejidad[S.reqComplejidad || 'Medio'] || S.horasPorComplejidad.Medio;
   return n * h;
 }
-function useEarlyExecReference() {
+// "Ejecucion de casos de prueba" se muestra ya calculada (como las demas fases),
+// no en 0 con un boton de referencia. Mientras no existan casos se recalcula sola
+// cada vez que cambia la complejidad o las horas por complejidad; si el QA escribe
+// su propio valor (S.ejecucionManual) se respeta. Con casos, continueToM4() la
+// reemplaza por el calculo por complejidad de cada caso.
+function recalcEjecucionPhase() {
+  if (S.cases.length) return;
+  // Sesiones guardadas antes de este flag: un valor distinto de 0 lo puso el QA.
+  if (S.ejecucionManual === undefined) S.ejecucionManual = (parseFloat(S.phases.ejecucion) || 0) > 0;
+  if (S.ejecucionManual) return;
   S.phases.ejecucion = Math.round(computeEarlyExecHoursSuggestion()*100)/100;
+}
+function useEarlyExecReference() {
+  S.ejecucionManual = false;
+  recalcEjecucionPhase();
   renderM2();
 }
 function computeTotalPhaseHours() {
@@ -929,6 +942,9 @@ function showModule(id, btn) {
   };
   _lastShownModule = id;
   document.getElementById('topbar-title').textContent = titles[id] || id;
+  // M2: la complejidad se evalua sola al entrar si todavia no hay una (sesion
+  // nueva o cargada del Historico sin complejidad).
+  if (id === 'm2') autoEvaluateComplexity();
 
   // Cada modulo solo expone en el topbar los exports que realmente le aplican
   // (antes PDF/Word quedaban fijos a las funciones de M1 sin importar el modulo activo).
@@ -1401,7 +1417,8 @@ function resetDownstreamState() {
   S.reqComplejidad = null;
   S.reqJustificacion = '';
   S.horasPorComplejidad = { Alto: 3, Medio: 1.5, Bajo: 0.5 };
-  S.phases = { reunion: 1, transformacion_hu: 2, plan_pruebas: 2, diseno_casos: 4, ejecucion: 0, reporte_bugs: 3, cierre: 1.5 };
+  S.phases = { reunion: 1, transformacion_hu: 2, plan_pruebas: 2, diseno_casos: 3, ejecucion: 0, reporte_bugs: 3, cierre: 1.5 };
+  S.ejecucionManual = false;
   GATED_MODULES.forEach(relockModule);
 }
 function renderAnalysis(raw) {
@@ -1516,11 +1533,24 @@ function hmToDecHours(h, m) {
 function onPhaseHM(key) {
   var h = document.getElementById('ph-h-'+key), m = document.getElementById('ph-m-'+key);
   S.phases[key] = hmToDecHours(h ? h.value : 0, m ? m.value : 0);
+  if (key === 'ejecucion') S.ejecucionManual = true;
   updateM2TotalDisplay();
 }
 function onHorasComplejidadHM(key) {
   var h = document.getElementById('hc-h-'+key), m = document.getElementById('hc-m-'+key);
   S.horasPorComplejidad[key] = hmToDecHours(h ? h.value : 0, m ? m.value : 0);
+  // Si la ejecucion esta calculada, refleja el cambio sin re-render (no perder el foco).
+  var antes = S.phases.ejecucion;
+  recalcEjecucionPhase();
+  if (S.phases.ejecucion !== antes) {
+    var hm = decHoursToHM(S.phases.ejecucion);
+    var eh = document.getElementById('ph-h-ejecucion'), em = document.getElementById('ph-m-ejecucion');
+    if (eh) eh.value = hm.h;
+    if (em) em.value = hm.m;
+    var note = document.getElementById('m2-exec-calc-note');
+    if (note) note.innerHTML = execCalcNoteText();
+    updateM2TotalDisplay();
+  }
 }
 function updateM2TotalDisplay() {
   var el = document.getElementById('m2-total-estimate');
@@ -1530,10 +1560,24 @@ function updateM2TotalDisplay() {
   el.innerHTML = '<span class="m2-total-lbl">Total estimado del ciclo QA</span>' +
     '<span class="m2-total-value">'+hm.h+'h '+hm.m+'m &asymp; '+(totalPhases/8).toFixed(1)+' jornada(s) de 8h</span>';
 }
+// La complejidad se evalua sola al entrar a M2 (ya no hay boton "Evaluar con IA");
+// el QA la puede cambiar despues con el selector. _complexityEvaluating evita
+// disparar dos evaluaciones si el QA entra y sale de M2 mientras corre.
+// Se intenta una sola vez por analisis (_complexityAutoTriedFor): si falla, queda
+// el boton "Reintentar" en vez de volver a disparar en cada visita a M2.
+var _complexityEvaluating = false;
+var _complexityAutoTriedFor = null;
+function autoEvaluateComplexity() {
+  if (!_analysis || S.reqComplejidad || _complexityEvaluating) return;
+  if (_complexityAutoTriedFor === _analysis) return;
+  _complexityAutoTriedFor = _analysis;
+  evaluateComplexity();
+}
 async function evaluateComplexity() {
   if (!_analysis) { toast('Analiza un requerimiento primero.','err'); return; }
-  var btn = document.getElementById('btn-eval-complex');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Evaluando...'; }
+  if (_complexityEvaluating) return;
+  _complexityEvaluating = true;
+  renderM2();
   sideConsoleStart('m2', 'Evaluando complejidad con '+(_engine==='claude'?'Claude':'Gemini (Antigravity)'));
   var evtSrc = procConsoleSSE('sc-m2');
   var ok = false;
@@ -1547,17 +1591,26 @@ async function evaluateComplexity() {
     var comp = parseSection(d.raw,'COMPLEJIDAD_REQUERIMIENTO').trim();
     S.reqComplejidad = /alto/i.test(comp) ? 'Alto' : /bajo/i.test(comp) ? 'Bajo' : 'Medio';
     S.reqJustificacion = parseSection(d.raw,'JUSTIFICACION_COMPLEJIDAD').trim();
+    recalcEjecucionPhase();
     ok = true;
     toast('Complejidad evaluada: '+S.reqComplejidad,'ok');
   } catch(e) {
     toast(e.message,'err');
   } finally {
+    _complexityEvaluating = false;
     procConsoleStop('sc-m2', ok);
     evtSrc.close();
     renderM2();
   }
 }
-function setComplexityManual(v) { S.reqComplejidad = v; renderM2(); }
+function setComplexityManual(v) { S.reqComplejidad = v; recalcEjecucionPhase(); renderM2(); }
+function execCalcNoteText() {
+  var n = parseReqIdItems(_analysis || '', 'CRITERIOS_DE_ACEPTACION').length
+        + parseReqIdItems(_analysis || '', 'REGLAS_DE_NEGOCIO').length;
+  var comp = S.reqComplejidad || 'Medio';
+  var hm = decHoursToHM(S.horasPorComplejidad[comp] || S.horasPorComplejidad.Medio);
+  return 'Calculado: '+(n||1)+' criterio(s)/regla(s) del analisis &times; '+hm.h+'h '+hm.m+'m (complejidad '+comp+'). Se afina con la complejidad real de cada caso al pasar a Ejecucion.';
+}
 
 function continueToM3() {
   if (!confirm('¿Confirmaste las areas de impacto y la estimacion de tiempos?\n\nSe desbloqueara el Plan de Pruebas. ¿Continuar?')) return;
@@ -1591,8 +1644,11 @@ function renderM2() {
   '</div>';
 
   var complexHtml = !S.reqComplejidad
-    ? '<button class="btn btn-primary" id="btn-eval-complex" onclick="evaluateComplexity()">Evaluar complejidad con IA</button>' +
-      '<div style="font-size:11px;color:var(--text3);margin-top:6px">Tambien puedes definirla manualmente: ' +
+    ? (_complexityEvaluating
+        ? '<div style="font-size:12.5px;color:var(--text2);display:flex;align-items:center;gap:8px"><span class="spin"></span> Evaluando complejidad con IA a partir del analisis...</div>'
+        : '<div style="font-size:12px;color:var(--text2)">No se pudo evaluar la complejidad automaticamente. ' +
+          '<button class="btn btn-ghost" style="padding:3px 8px;font-size:10.5px" onclick="evaluateComplexity()">Reintentar</button></div>') +
+      '<div style="font-size:11px;color:var(--text3);margin-top:6px">O definela manualmente: ' +
       ['Alto','Medio','Bajo'].map(function(k){ return '<button class="btn btn-ghost" style="padding:3px 8px;font-size:10.5px;margin-right:4px" onclick="setComplexityManual(\''+k+'\')">'+k+'</button>'; }).join('') + '</div>'
     : '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
         '<span class="m2-fld-lbl">Complejidad (ajustable por el QA)</span>' +
@@ -1614,8 +1670,7 @@ function renderM2() {
       '</div></div>';
   }).join('');
 
-  var earlyExecRef = computeEarlyExecHoursSuggestion();
-  var earlyExecRefHM = decHoursToHM(earlyExecRef);
+  recalcEjecucionPhase();
   var phasesHtml = Object.keys(PHASE_LABELS).map(function(k){
     var hm = decHoursToHM(S.phases[k]);
     var row = '<div class="m2-area-row" style="justify-content:space-between;gap:10px">' +
@@ -1624,14 +1679,20 @@ function renderM2() {
         '<input type="number" class="m2-est-input" style="width:50px" min="0" step="1" value="'+hm.h+'" id="ph-h-'+k+'" oninput="onPhaseHM(\''+k+'\')">h' +
         '<input type="number" class="m2-est-input" style="width:50px" min="0" max="55" step="5" value="'+hm.m+'" id="ph-m-'+k+'" oninput="onPhaseHM(\''+k+'\')">m' +
       '</div></div>';
-    // "Ejecucion de casos de prueba" siempre parte en 0 aca -- todavia no existen
-    // casos (se disenan en M4, mas adelante). Se ofrece una referencia temprana
-    // basada en CA_N/RN_N del analisis + complejidad global, sin forzarla.
-    if (k === 'ejecucion' && !S.cases.length) {
-      row += '<div style="font-size:11px;color:var(--text3);margin:-4px 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-        '<span>Sin casos disenados todavia -- referencia estimada: <b>'+earlyExecRefHM.h+'h '+earlyExecRefHM.m+'m</b> (segun criterios/reglas del analisis y complejidad del requerimiento).</span>' +
-        '<button class="btn btn-ghost" style="padding:2px 8px;font-size:10.5px" onclick="useEarlyExecReference()">Usar esta referencia</button>' +
-      '</div>';
+    var noteStyle = 'font-size:11px;color:var(--text3);margin:-4px 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+    // Diseno: siempre las mismas 3 actividades, sin importar la complejidad.
+    if (k === 'diseno_casos') {
+      row += '<div style="'+noteStyle+'"><span>Fijo en 3h para cualquier complejidad: (1) el QA arma su propia lista de casos, (2) la QA Suite genera los casos con IA, (3) se cruzan ambas y se verifica la cobertura (manual y con IA).</span></div>';
+    }
+    if (k === 'ejecucion') {
+      if (S.cases.length) {
+        row += '<div style="'+noteStyle+'"><span>Calculado con la complejidad de los '+S.cases.length+' caso(s) disenados.</span></div>';
+      } else if (S.ejecucionManual) {
+        row += '<div style="'+noteStyle+'"><span>Valor editado por el QA.</span>' +
+          '<button class="btn btn-ghost" style="padding:2px 8px;font-size:10.5px" onclick="useEarlyExecReference()">Volver al calculo</button></div>';
+      } else {
+        row += '<div style="'+noteStyle+'"><span id="m2-exec-calc-note">'+execCalcNoteText()+'</span></div>';
+      }
     }
     return row;
   }).join('');
@@ -2903,19 +2964,21 @@ function ppBlock(title, value, onExpr) {
     '<div class="res-block-body"><textarea class="m2-textarea" style="width:100%;min-height:76px" onchange="'+onExpr+'">'+esc(value)+'</textarea></div></div>';
 }
 
-// Responsables: 3 filas fijas (Equipo no cambia), Cargo/Rol y Contacto los llena
-// el QA a mano porque varian por requerimiento -- no lo genera la IA.
+// Responsables: 3 filas fijas (Equipo no cambia), Nombre/Rol y Contacto los llena
+// el QA a mano porque varian por requerimiento -- no lo genera la IA. La columna
+// antes se llamaba "Cargo / Rol"; la clave interna sigue siendo 'cargo' para no
+// romper sesiones guardadas ni el import desde Word.
 function onResponsableInput(i, key, v) { S.responsables[i][key] = v; }
 function responsablesTableHtml() {
   var rows = S.responsables.map(function(r, i){
     return '<tr>' +
       '<td class="mono">'+esc(r.equipo)+'</td>' +
-      '<td><input type="text" class="m2-select" style="width:100%" placeholder="Cargo / Rol" value="'+esc(r.cargo)+'" onchange="onResponsableInput('+i+',\'cargo\',this.value)"></td>' +
+      '<td><input type="text" class="m2-select" style="width:100%" placeholder="Nombre / Rol" value="'+esc(r.cargo)+'" onchange="onResponsableInput('+i+',\'cargo\',this.value)"></td>' +
       '<td><input type="text" class="m2-select" style="width:100%" placeholder="Contacto" value="'+esc(r.contacto)+'" onchange="onResponsableInput('+i+',\'contacto\',this.value)"></td>' +
     '</tr>';
   }).join('');
   return '<div class="res-block" style="margin-bottom:10px"><div class="res-block-hdr">Responsables</div>' +
-    '<div class="res-block-body"><div class="tbl-wrap"><table class="qa-table qa-table-narrow"><thead><tr><th>Equipo</th><th>Cargo / Rol</th><th>Contacto</th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>';
+    '<div class="res-block-body"><div class="tbl-wrap"><table class="qa-table qa-table-narrow"><thead><tr><th>Equipo</th><th>Nombre / Rol</th><th>Contacto</th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>';
 }
 
 function renderPP() {
@@ -2962,6 +3025,7 @@ function renderPP() {
     '</div>' +
     '<div style="margin-top:10px">' +
       '<button class="btn btn-ghost" style="font-size:12px" onclick="document.getElementById(\'plan-import-input\').click()">&#8593; Importar desde Word (reemplaza lo de arriba)</button>' +
+      '<button class="btn btn-ghost" style="font-size:12px;margin-left:8px;color:var(--red,#c0392b)" onclick="clearPlanPruebas()">&#128465; Limpiar plan</button>' +
       '<input type="file" id="plan-import-input" accept=".docx" style="display:none" onchange="importPlanDocx(this)">' +
     '</div>' +
     '<div class="advance-box">' +
@@ -2969,6 +3033,18 @@ function renderPP() {
       '<div class="advance-sub">Se desbloqueara el diseno de Escenarios y Casos QA.</div></div>' +
       '<button class="btn btn-primary" onclick="continueToCasos()">Continuar a Casos de Prueba &rarr;</button>' +
     '</div>';
+}
+
+// Borra el plan generado (o importado) y deja la pantalla como antes de generar.
+// Responsables se conserva: lo llena el QA a mano y no depende del plan.
+function clearPlanPruebas() {
+  if (_planGenerating) { toast('Espera a que termine la generacion en curso.','err'); return; }
+  if (!confirm('¿Borrar el Plan de Pruebas generado?\n\nSe pierde el contenido y las ediciones de esta pantalla (no los Responsables). Luego puedes generarlo de nuevo o importarlo desde Word.')) return;
+  S.planPruebasRaw = null;
+  S.planSections = null;
+  renderPP();
+  schedulePersist();
+  toast('Plan de Pruebas borrado.','ok');
 }
 
 function continueToCasos() {
@@ -3003,12 +3079,19 @@ function reqProjectName() {
 // La linea "DESARROLLO ..." de algunos documentos trae en el mismo renglon el
 // campo de fecha del encabezado (ej. "5769 - Titulo FECHA 29/09/2026"); eso no
 // es parte del nombre del requerimiento. Se corta desde "FECHA" y se quita una
-// fecha suelta al final. Se aplica tambien al leer (reqProjectName) para que
+// fecha suelta al final (dd/mm/aaaa o ddmmaaaa). Tambien se quitan la version del
+// archivo ("_v1.0") y el tipo de documento ("Documento Funcional"), que vienen en
+// el nombre del archivo pero no son el nombre del requerimiento. Se aplica tambien al leer (reqProjectName) para que
 // las sesiones ya guardadas con el nombre sucio salgan bien sin re-analizar.
 function cleanReqTitle(t) {
   return String(t || '')
-    .replace(/[\s\-–—|:]*\bFECHA\b.*$/i, '')
-    .replace(/[\s\-–—|:]*\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\s*$/, '')
+    .replace(/[\s\-–—|:_]*FECHA(?![a-záéíóúñ]).*$/i, '')
+    .replace(/[\s\-–—|:_]*\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\s*$/, '')
+    .replace(/[\s\-–—|:_]*(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])20\d{2}\s*$/, '')
+    .replace(/(?:^|[\s\-–—_]+)v(?:ersi[oó]n)?\.?\s*\d+(?:[._]\d+)*\s*$/i, '')
+    .replace(/[\s\-–—|:_]*\b(?:Documento|Especificaci[oó]n)\s+(?:Funcional|T[eé]cnic[oa])\b[\s\-–—|:_]*/i, ' - ')
+    .replace(/^[\s\-–—|:_]+|[\s\-–—|:_]+$/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 // Version de reqProjectName() segura para nombre de archivo -- quita caracteres
