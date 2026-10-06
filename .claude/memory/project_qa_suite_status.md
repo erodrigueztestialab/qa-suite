@@ -687,3 +687,17 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 8. **Cierre del dia (2026-10-05, lunes).** Hoy: PRs #34 a #41 (fix shim agy Links; nombre del requerimiento sin "FECHA"; casos faltantes/cobertura cuando el modelo omite el delimitador; memoria). `main` == `develop`, nada sin commitear salvo este cierre, que se commiteo de una en `feature/memoria-cierre-2026-10-05` (PRs #42/#43, solo memoria). Proxy de pruebas en 3002 apagado; el 3001 del usuario no se toco (corre con codigo anterior a #38 hasta que lo reinicie).
 
 **Proximo (sesion 23, martes 2026-10-06):** (a) preguntar al usuario si ya reinicio su proxy 3001 + Ctrl+F5 y si en la sesion 5769 "Generar casos para lo faltante" + "Re-verificar" dio 43/43 sin aviso, y si los nombres de archivo del Plan/HU ya salen sin "FECHA"; si algo falla, pedir de nuevo el export del Historico (Descargas) y montarlo en 3002 con ruta temporal `/__sess`. (b) Backlog vacio fuera de eso -- preguntar con que sigue.
+
+## Sesion 23 (2026-10-06)
+1. El usuario confirmo que tras reiniciar el 3001 lo de la sesion 22 (5769: 43/43, nombre sin "FECHA") se ve bien.
+2. Nueva lista (solo M2 y M3), rama `feature/m2-m3-ajustes`, commit `28fe7f9`:
+   - M2: complejidad automatica al entrar (`autoEvaluateComplexity()` desde `showModule('m2')`, una vez por analisis via `_complexityAutoTriedFor`; si falla queda "Reintentar" + botones manuales). Ya no existe el boton "Evaluar complejidad con IA".
+   - M2: `diseno_casos` = 3h fijo (nota con las 3 actividades). `ejecucion` se muestra calculada (`recalcEjecucionPhase()`: CA+RN x horas de la complejidad) y se recalcula al cambiar complejidad/horas; si el QA la edita (`S.ejecucionManual`) se respeta, con "Volver al calculo". Con casos, `continueToM4()` sigue mandando.
+   - M3: `keepNext/keepLines` en titulos (`docxHeading`, `docxSubheading`, nombres de tipos/niveles, titulo de caso del dossier) + `cantSplit` en filas de tabla -> aplica a Plan, HU, Cert, Bug y Dossier (Word y PDF via Word).
+   - M3/Cert: `ORTOGRAFIA_DOC_CLIENTE` en ambos prompts; tipos/niveles con tilde en el prompt.
+   - M3: Responsables "Nombre / Rol" (clave interna sigue `cargo`).
+   - `cleanReqTitle()` (front y proxy, identicos): ademas de FECHA, quita "Documento/Especificacion Funcional/Tecnico", sufijo de version (`_v1.0`) y fecha ddmmaaaa.
+   - M3: boton "Limpiar plan" (`clearPlanPruebas()`, conserva Responsables).
+3. Verificado con Chrome headless (puppeteer-core en el scratchpad, la extension no estaba conectada) contra copia del proxy en 3002 con llamadas reales a Claude: complejidad auto en ~4 s, recalculos OK, plan real con 143 tildes y 0 palabras sin tilde, PDF real sin titulos huerfanos, limpiar OK. 3001 del usuario no se toco.
+4. Ojo a comentar con el usuario: en el demo de login la ejecucion calculada da 73.5h (49 CA+RN x 1.5h) -- la formula es la misma de la referencia previa; puede necesitar calibracion.
+**Proximo:** si el usuario aprueba, PR feature -> develop y develop -> main.
