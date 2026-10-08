@@ -12,3 +12,4 @@
 - [Descripciones de PR detalladas](feedback_pr_descriptions.md) — PRs ultra detallados: contexto, causa raíz, cambios por función, tabla de verificación, riesgos, commits; nunca bullets cortos.
 - [Estrategia QA real de TestIALab](project_testialab_qa_strategy.md) — una sola entrega completa, todos los casos, re-test de bugs + regresión focalizada; nunca ciclos/sprints/entregas parciales.
 - [Metodología genérica, sin negocio quemado](feedback_generic_methodology.md) — nunca convertir conceptos de un cliente (EAN, EDI…) en casos, reglas, ejemplos de prompt ni backlog; la metodología aplica a cualquier requerimiento.
+- [Plan demo Liz 2026-10-08](project_plan_liz_2026_10_08.md) — 6 fases (bugs, Avance gerencial/Teams, Bugs, consolidar casos M4, finalizacion, docs) + decisiones: estados en espanol, M2 solo nota, repo publico por hoy.
