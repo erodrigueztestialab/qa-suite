@@ -1391,6 +1391,13 @@ function docxNumbered(text, n) {
   return new Paragraph({ alignment: AlignmentType.JUSTIFIED, indent: { left: 300 }, spacing: { after: 40 },
     children: [ new TextRun({ text: n + '. ' + text, size: 21, font: DOCX_FONT }) ] });
 }
+// Texto con saltos de linea -> un parrafo por linea (Word ignora los saltos dentro de
+// un TextRun: el 'Resultado esperado' del bug salia todo pegado en una sola linea).
+function docxLinesBlock(text) {
+  var lines = String(text || '').split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+  if (!lines.length) return [ docxPara('---') ];
+  return lines.map(function(l){ return docxPara(l); });
+}
 function docxBulletList(items) {
   if (!items || !items.length) return [ docxPara('---') ];
   return items.map(function(t){ return docxBullet(t); });
@@ -1694,24 +1701,6 @@ function bugEvidenceChildren(images) {
   });
   return out.length ? out : [ docxPara('(sin evidencia de imagen disponible para incrustar en este Word)') ];
 }
-// Tabla Paso/Resultado esperado del CASO DE PRUEBA vinculado al bug -- distinto del
-// "Paso a paso" del bug (que es como reproducir el bug en si). El QA pidio que el
-// Word del bug tambien deje registrado el caso completo que se estaba ejecutando.
-function bugCaseChildren(casoAsociado) {
-  if (!casoAsociado) return [ docxPara('(este bug no tiene un caso de prueba vinculado)') ];
-  var steps = casoAsociado.steps || [];
-  var header = new TableRow({ cantSplit: true, children: [
-    docxCell('#', {header:true, width:8}), docxCell('Paso', {header:true, width:46}), docxCell('Resultado esperado', {header:true, width:46}),
-  ]});
-  var body = steps.length
-    ? steps.map(function(s, i){ return new TableRow({ cantSplit: true, children: [ docxCell(String(i+1)), docxCell(s.paso||'-'), docxCell(s.resultado||'-') ] }); })
-    : [ new TableRow({ cantSplit: true, children: [ docxCell('-'), docxCell('(sin pasos definidos)'), docxCell('-') ] }) ];
-  return [
-    docxLabelPara('Caso', casoAsociado.caso),
-    docxLabelPara('Objetivo', casoAsociado.objetivo),
-    new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [header].concat(body) }),
-  ];
-}
 async function buildBugDocxBuffer(p) {
   p = p || {};
   var children = [
@@ -1719,20 +1708,22 @@ async function buildBugDocxBuffer(p) {
       new TextRun({ text: 'Bug -- ' + (p.caseId || '--'), bold: true, size: 26, color: DOCX_NAVY, font: DOCX_FONT }),
     ] }),
     docxLabelPara('Título', p.titulo),
+    docxLabelPara('Caso de prueba', p.casoTitulo ? (p.caseId + ' -- ' + p.casoTitulo) : p.caseId),
     docxSubheading('Descripción'),
     docxPara(p.descripcion),
-    docxSubheading('Paso a paso'),
+    docxSubheading('Pasos para reproducir'),
   ].concat(docxNumberedList(p.pasos)).concat([
     docxSubheading('Resultado esperado'),
-    docxPara(p.resultadoEsperado),
+  ]).concat(docxLinesBlock(p.resultadoEsperado)).concat([
+    docxSubheading('Resultado obtenido'),
+  ]).concat(docxLinesBlock(p.resultadoObtenido)).concat([
     docxSubheading('Tipo de error'),
   ]).concat(docxBulletList(p.tipoError)).concat([
     docxLabelPara('Severidad', p.severidad),
     docxSubheading('Evidencia'),
   ]).concat(bugEvidenceChildren(p.evidenceImages)).concat([
     docxLabelPara('Asignado a', p.dev),
-    docxSubheading('Caso de Prueba Asociado'),
-  ]).concat(bugCaseChildren(p.casoAsociado));
+  ]);
   var hf = docxHeaderFooter('Reporte de Bug');
   var doc = new Document({
     styles: { default: { document: { run: { font: DOCX_FONT, size: 21, language: { value: DOCX_LANG } } } } },
@@ -2718,6 +2709,78 @@ app.post('/api/estimate-complexity', async function(req, res) {
     clearInterval(stageTimer);
     emitDone(reqId);
     console.error('[/api/estimate-complexity]', err.message);
+    return res.status(502).json({ error: engineLabel + ': ' + err.message });
+  }
+});
+
+// ── Gestion de Bugs: redactar el bug como lo escribiria un QA ────────────────────
+// Demo 2026-10-08: la descripcion del bug era el veredicto de la IA copiado (hablaba
+// de capturas y evidencias, no del defecto). Aca se redacta para el desarrollador.
+function buildDraftBugPrompt(c) {
+  c = c || {};
+  var steps = (c.steps || []).map(function(s, i){
+    var v = (c.stepVerdicts && c.stepVerdicts[i] === false) ? 'FALLO' + (c.stepReasons && c.stepReasons[i] ? ' -- ' + c.stepReasons[i] : '') :
+            (c.stepVerdicts && c.stepVerdicts[i] === true) ? 'OK' : 'sin verificar';
+    return (i+1) + '. Paso: ' + (s.paso || '-') + ' | Resultado esperado: ' + (s.resultado || '-') + ' | Ejecucion: ' + v;
+  }).join('\n');
+  return [
+    'Eres un Analista QA senior redactando el reporte de un bug para el equipo de desarrollo, a partir de un caso de',
+    'prueba que fallo durante la ejecucion.',
+    '',
+    'CASO DE PRUEBA: ' + (c.id || '-') + ' -- ' + (c.caso || '-'),
+    'Escenario: ' + (c.escenario || '-'),
+    'Objetivo: ' + (c.objetivo || '-'),
+    '',
+    'PASOS DEL CASO Y RESULTADO DE LA EJECUCION:',
+    steps || '(sin pasos)',
+    '',
+    'OBSERVACION DE LA VERIFICACION: ' + (c.verdictNote || '(ninguna)'),
+    '',
+    'INSTRUCCIONES CRITICAS:',
+    '1. Describe el DEFECTO del sistema (que falla, donde y bajo que condicion), como lo escribiria un QA para un',
+    '   desarrollador: claro, concreto y breve. NO hables de capturas, evidencias, veredictos, verificaciones ni de IA.',
+    '2. CERO informacion inventada: usa solo lo que dicen los pasos, sus resultados y las razones de falla. Si no se',
+    '   sabe con certeza que mostro el sistema, describe lo observable sin inventar datos, mensajes ni valores.',
+    '3. Los pasos para reproducir llegan hasta el punto donde se observa la falla, en orden y accionables.',
+    '4. Si la falla se debe a que la evidencia estaba incompleta o no correspondia al caso (y no a un defecto del',
+    '   sistema), dilo en NOTA_QA para que el QA lo revise antes de reportar. Si no, escribe NINGUNA.',
+    '5. ' + ORTOGRAFIA_DOC_CLIENTE,
+    '6. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
+    '',
+    '---TITULO---',
+    'Una sola linea (maximo 100 caracteres) que nombre el defecto, no el caso. MAL: "Falla en CP_3". BIEN: "El reporte no filtra por rango de fechas de vencimiento".',
+    '',
+    '---DESCRIPCION---',
+    '2 a 4 frases: que ocurre, en que funcionalidad, bajo que condicion y que impacto tiene.',
+    '',
+    '---RESULTADO_ESPERADO---',
+    '1 a 3 lineas.',
+    '',
+    '---RESULTADO_OBTENIDO---',
+    '1 a 3 lineas.',
+    '',
+    '---PASOS---',
+    'Un paso por linea, numerados (1. 2. 3.).',
+    '',
+    '---NOTA_QA---',
+    'Una linea, o NINGUNA.',
+  ].join('\n');
+}
+app.post('/api/draft-bug', async function(req, res) {
+  var c = req.body.caso;
+  var engine = (req.body.engine === 'gemini' || req.body.engine === 'claude') ? req.body.engine : ENGINE_DEFAULT;
+  var engineLabel = engine === 'claude' ? 'Claude CLI' : 'Gemini (Antigravity CLI)';
+  var reqId = req.body.reqId || '';
+  if (!c || !c.id) return res.status(400).json({ error: 'Se requiere el caso de prueba.' });
+  emitProgress(reqId, 20, 'Redactando el bug con ' + engineLabel + '...');
+  try {
+    var text = await callAI(buildDraftBugPrompt(c), { engine: engine, model: 'sonnet', effort: 'medium' });
+    emitProgress(reqId, 98, 'Procesando respuesta...');
+    emitDone(reqId);
+    return res.json({ raw: text, engine: engine });
+  } catch (err) {
+    emitDone(reqId);
+    console.error('[/api/draft-bug]', err.message);
     return res.status(502).json({ error: engineLabel + ': ' + err.message });
   }
 });

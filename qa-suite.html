@@ -3662,9 +3662,13 @@ function reportBugFromCase(i) {
   var cs = S.cases[i];
   _bugFormEdit = null;
   var failReasons = (cs.stepReasons||[]).filter(function(r,si){ return r && cs.stepVerdicts && cs.stepVerdicts[si]===false; });
+  // La descripcion ya NO es el veredicto de la IA copiado (hablaba de capturas, no del
+  // defecto -- demo 2026-10-08): queda un borrador base y la IA lo redacta como un QA.
   S._bugDraft = {
     caseId: cs.id, titulo: 'Falla en '+(cs.caso||cs.id),
-    descripcion: cs.verdictNote || (failReasons.length ? failReasons.join(' ') : ('Resultado esperado: '+(cs.steps||[]).map(function(s){return s.resultado;}).join(' / '))),
+    descripcion: '',
+    resultadoEsperado: bugExpectedFromCase(cs),
+    resultadoObtenido: failReasons.join('\n'),
     // Autocompletado desde el caso -- Severidad/Desarrollador quedan vacios/con
     // default generico a proposito, el QA los diligencia a mano.
     pasos: (cs.steps||[]).map(function(s){ return s.paso; }),
@@ -3679,6 +3683,70 @@ function reportBugFromCase(i) {
   });
   unlockModule('m5');
   showModule('m5', document.getElementById('nav-m5'));
+  draftBugWithAI(true);
+}
+function bugExpectedFromCase(cs) {
+  return (cs && cs.steps || []).map(function(s, i){ return (i+1)+'. '+(s.resultado||''); }).join('\n');
+}
+// Redacta titulo/descripcion/resultados/pasos con IA a partir del caso vinculado.
+// auto=true (al reportar desde Ejecucion): solo llena los campos que el QA no haya
+// tocado mientras la IA respondia. Desde el boton: reemplaza todo (con confirmacion).
+var _bugDrafting = false;
+var BUG_AI_FIELDS = { titulo:'bug-titulo', descripcion:'bug-desc', resultadoEsperado:'bug-esperado', resultadoObtenido:'bug-obtenido', pasos:'bug-pasos' };
+function bugFieldValue(key) {
+  var el = document.getElementById(BUG_AI_FIELDS[key]);
+  if (el) return el.value;
+  var d = S._bugDraft || {};
+  return key === 'pasos' ? arrToNumberedLines(d.pasos) : (d[key] || '');
+}
+async function draftBugWithAI(auto) {
+  if (_bugDrafting) return;
+  var sel = document.getElementById('bug-case');
+  var caseId = sel ? sel.value : (S._bugDraft && S._bugDraft.caseId);
+  var cs = caseId ? S.cases.find(function(c){ return c.id === caseId; }) : null;
+  if (!cs) { if (!auto) toast('Elige el caso relacionado primero.','err'); return; }
+  if (!auto && (bugFieldValue('descripcion').trim() || bugFieldValue('titulo').trim()) &&
+      !confirm('Esto reemplaza el título, la descripción, los resultados y los pasos del bug por la redacción de la IA. ¿Continuar?')) return;
+  var before = {}; Object.keys(BUG_AI_FIELDS).forEach(function(k){ before[k] = bugFieldValue(k); });
+  _bugDrafting = true; renderBugDraftStatus();
+  try {
+    var r = await fetch(API+'/api/draft-bug', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      engine: _engine,
+      caso: { id: cs.id, caso: cs.caso, escenario: cs.escenario, objetivo: cs.objetivo, steps: cs.steps || [], stepVerdicts: cs.stepVerdicts || null, stepReasons: cs.stepReasons || null, verdictNote: cs.verdictNote || '' },
+    }) });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error redactando el bug');
+    var out = {
+      titulo: (parseSection(d.raw,'TITULO')||'').split('\n')[0].trim(),
+      descripcion: (parseSection(d.raw,'DESCRIPCION')||'').trim(),
+      resultadoEsperado: (parseSection(d.raw,'RESULTADO_ESPERADO')||'').trim(),
+      resultadoObtenido: (parseSection(d.raw,'RESULTADO_OBTENIDO')||'').trim(),
+      pasos: numberedLinesToArr(parseSection(d.raw,'PASOS')||''),
+    };
+    var nota = (parseSection(d.raw,'NOTA_QA')||'').trim();
+    if (!S._bugDraft) S._bugDraft = { caseId: caseId };
+    Object.keys(BUG_AI_FIELDS).forEach(function(k){
+      var v = out[k]; if (k === 'pasos' ? !v.length : !v) return;
+      if (auto && bugFieldValue(k) !== before[k]) return; // el QA ya lo edito
+      var txt = k === 'pasos' ? arrToNumberedLines(v) : v;
+      var el = document.getElementById(BUG_AI_FIELDS[k]);
+      if (el) { el.value = txt; if (el.tagName === 'TEXTAREA') autoGrowTextarea(el); }
+      S._bugDraft[k] = v;
+    });
+    S._bugDraft.notaIA = /^NINGUNA\.?$/i.test(nota) ? '' : nota;
+    toast('Bug redactado con IA. Revísalo antes de guardar.','ok');
+  } catch(e) {
+    toast(e.message,'err');
+  } finally {
+    _bugDrafting = false; renderBugDraftStatus();
+  }
+}
+function renderBugDraftStatus() {
+  var btn = document.getElementById('btn-draft-bug');
+  if (btn) { btn.disabled = _bugDrafting; btn.innerHTML = _bugDrafting ? '<span class="spin"></span> Redactando...' : '&#10024; Redactar con IA'; }
+  var nota = document.getElementById('bug-nota-ia');
+  var txt = S._bugDraft && S._bugDraft.notaIA;
+  if (nota) { nota.style.display = txt ? '' : 'none'; nota.textContent = txt ? '⚠ Revisa antes de reportar: '+txt : ''; }
 }
 function captureBugEvidenceImages(cs) {
   var imgFiles = (cs._evidenceFiles||[]).filter(function(f){ return f.type && f.type.indexOf('image')===0; });
@@ -3707,6 +3775,8 @@ function saveBugForm() {
     titulo: titulo,
     descripcion: document.getElementById('bug-desc').value.trim(),
     pasos: numberedLinesToArr(document.getElementById('bug-pasos').value),
+    resultadoEsperado: document.getElementById('bug-esperado').value.trim(),
+    resultadoObtenido: document.getElementById('bug-obtenido').value.trim(),
     tipoError: linesToArr(document.getElementById('bug-tipo-error').value),
     severidad: document.getElementById('bug-sev').value,
     dev: document.getElementById('bug-dev').value.trim(),
@@ -3755,20 +3825,20 @@ async function exportBug_Word(i) {
   toast('Generando documento Word...','ok');
   try {
     var relatedCase = b.caseId ? S.cases.find(function(c){ return c.id === b.caseId; }) : null;
-    var resultadoEsperado = relatedCase && relatedCase.steps && relatedCase.steps.length
-      ? relatedCase.steps.map(function(s,i){ return (i+1)+'. '+s.resultado; }).join('\n')
-      : '';
+    // Bugs viejos no tienen resultadoEsperado propio: se arma desde el caso como antes.
+    var resultadoEsperado = b.resultadoEsperado || (relatedCase ? bugExpectedFromCase(relatedCase) : '');
     var payload = {
       caseId: b.caseId || '--',
       titulo: b.titulo,
       descripcion: b.descripcion,
       pasos: b.pasos || [],
       resultadoEsperado: resultadoEsperado,
+      resultadoObtenido: b.resultadoObtenido || '',
+      casoTitulo: relatedCase ? relatedCase.caso : '',
       tipoError: b.tipoError || [],
       severidad: SEVERIDAD_LABELS[b.severidad] || b.severidad,
       dev: b.dev,
       evidenceImages: b.evidenceImages || [],
-      casoAsociado: relatedCase ? { caso: relatedCase.caso, objetivo: relatedCase.objetivo, steps: relatedCase.steps || [] } : null,
     };
     var r = await fetch(API+'/api/export-bug-docx', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
     if (!r.ok) { var d = await r.json().catch(function(){return {};}); throw new Error(d.error || 'Error generando el Word'); }
@@ -3806,6 +3876,8 @@ function onBugCaseSelectChange(val) {
     estado: document.getElementById('bug-estado').value,
     dev: document.getElementById('bug-dev').value,
     descripcion: document.getElementById('bug-desc').value,
+    resultadoEsperado: document.getElementById('bug-esperado').value,
+    resultadoObtenido: document.getElementById('bug-obtenido').value,
     pasos: numberedLinesToArr(document.getElementById('bug-pasos').value),
     tipoError: linesToArr(document.getElementById('bug-tipo-error').value),
   };
@@ -3829,9 +3901,13 @@ function renderM5() {
         Object.keys(BUG_ESTADO_LABELS).map(function(k){return '<option value="'+k+'" '+(draft.estado===k?'selected':'')+'>'+BUG_ESTADO_LABELS[k]+'</option>';}).join('') +
       '</select></div>' +
       '<div><label>Desarrollador asignado</label><input type="text" id="bug-dev" placeholder="Nombre del desarrollador" value="'+esc(draft.dev||'')+'"></div>' +
-      '<div class="full"><label>Caso relacionado</label><select id="bug-case" onchange="onBugCaseSelectChange(this.value)">'+caseOptions+'</select></div>' +
+      '<div class="full"><label>Caso relacionado</label><div style="display:flex;gap:8px;align-items:center"><select id="bug-case" style="flex:1" onchange="onBugCaseSelectChange(this.value)">'+caseOptions+'</select>' +
+        '<button class="btn btn-ghost" id="btn-draft-bug" style="white-space:nowrap" onclick="draftBugWithAI(false)" title="Redacta título, descripción, resultados y pasos a partir del caso">&#10024; Redactar con IA</button></div></div>' +
       '<div class="full">'+bugCaseAssocHtml(draft.caseId)+'</div>' +
-      '<div class="full"><label>Descripcion</label><textarea id="bug-desc">'+esc(draft.descripcion)+'</textarea></div>' +
+      '<div class="full" id="bug-nota-ia" style="display:none;font-size:11.5px;color:var(--orange);background:rgba(201,162,39,0.08);border:1px solid rgba(201,162,39,0.4);border-radius:6px;padding:8px 10px"></div>' +
+      '<div class="full"><label>Descripción</label><textarea id="bug-desc" placeholder="Qué ocurre, en qué funcionalidad, bajo qué condición y qué impacto tiene">'+esc(draft.descripcion)+'</textarea></div>' +
+      '<div class="full"><label>Resultado esperado</label><textarea id="bug-esperado">'+esc(draft.resultadoEsperado||'')+'</textarea></div>' +
+      '<div class="full"><label>Resultado obtenido</label><textarea id="bug-obtenido" placeholder="Qué hizo el sistema en realidad">'+esc(draft.resultadoObtenido||'')+'</textarea></div>' +
       '<div class="full"><label>Paso a paso para reproducir (uno por linea)</label><textarea id="bug-pasos" placeholder="1. Ingresar a...&#10;2. Seleccionar...&#10;3. Observar...">'+esc(arrToNumberedLines(draft.pasos))+'</textarea></div>' +
       '<div class="full"><label>Tipo de error (uno por linea)</label><textarea id="bug-tipo-error" placeholder="Error de funcionalidad&#10;Error de validacion de reglas de negocio">'+esc(arrToLines(draft.tipoError))+'</textarea></div>' +
     '</div>' +
@@ -3868,12 +3944,13 @@ function renderM5() {
   // Los textareas del formulario de bug (Descripcion/Pasos/Tipo de error) tenian
   // una altura minima fija de 60px -- con un caso de varios pasos quedaban cortados,
   // mostrando solo 2-3 lineas con scroll interno. Se autoajustan a su contenido real.
-  ['bug-desc','bug-pasos','bug-tipo-error'].forEach(function(id){
+  ['bug-desc','bug-esperado','bug-obtenido','bug-pasos','bug-tipo-error'].forEach(function(id){
     var el = document.getElementById(id);
     if (!el) return;
     autoGrowTextarea(el);
     el.addEventListener('input', function(){ autoGrowTextarea(el); });
   });
+  renderBugDraftStatus();
 }
 function autoGrowTextarea(el) {
   el.style.height = 'auto';
