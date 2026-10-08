@@ -1419,6 +1419,7 @@ function resetDownstreamState() {
   S.reqJustificacion = '';
   S.casosPorDia = null;
   S.phases = { reunion: 1, transformacion_hu: 2, plan_pruebas: 2, diseno_casos: 3, ejecucion: 0, reporte_bugs: 3, cierre: 1.5 };
+  S.disenoFijo3h = true;
   S.ejecucionManual = false;
   GATED_MODULES.forEach(relockModule);
 }
@@ -1956,6 +1957,13 @@ function restoreSnapshot(item) {
   if (item.raw) renderAnalysis(item.raw);
   if (item.snapshot && item.snapshot.S) {
     Object.keys(item.snapshot.S).forEach(function(k){ S[k] = item.snapshot.S[k]; });
+    // Sesiones guardadas cuando el Diseno de casos arrancaba en 4h (antes del fijo en
+    // 3h): se pasan a 3h una sola vez. La marca evita volver a pisar un 4h que el QA
+    // ponga a proposito despues.
+    if (!item.snapshot.S.disenoFijo3h) {
+      if (S.phases && parseFloat(S.phases.diseno_casos) === 4) S.phases.diseno_casos = 3;
+      S.disenoFijo3h = true;
+    }
   }
   _analysis = (item.snapshot && item.snapshot.analysisRaw) || item.raw || null;
   if (item.snapshot && item.snapshot.engine) { _engine = item.snapshot.engine; localStorage.setItem('testialab_engine', _engine); }
