@@ -1,5 +1,44 @@
 # Handoff — TestIALab QA Suite IA
 
+> **Lee primero la sección 0 (estado actual).** Las secciones 1 a 6 son la bitácora de la **primera versión** (agosto de 2026): sirven como historia de las decisiones, pero su "estado actual" ya no es el vigente (por ejemplo, dicen que solo existían M1 y M2).
+
+---
+
+## 0. Estado actual (actualizado el 2026-10-08)
+
+### Qué es
+Aplicación **100% local** para el equipo de QA de TestIALab: `qa-suite.html` (frontend de una sola página) + `proxy.js` (backend Express en **http://localhost:3001**) que invoca la IA por CLI (Claude Code o Gemini vía Antigravity) con la sesión del QA, sin API keys. El historial vive en **IndexedDB** del navegador de cada QA.
+
+### Cómo arrancar
+Doble clic en **`iniciar-qa-suite.bat`** (la primera vez corre `npm install` solo), o `npm install` + `npm start`. Requisitos y problemas comunes: ver el **README** (sección "Instalación paso a paso").
+
+### Módulos (todos construidos)
+| Módulo (id interno) | Estado |
+|---|---|
+| Histórico (`mhist`) | Sesiones con todo su avance; exportar/importar `.json`. |
+| M1 Procesar Requerimiento (`m1`) | Varios archivos a la vez (PDF visión nativa, DOCX, TXT) → HU, CA, RN, riesgos, impactos, escenarios. Exporta HU a Word/PDF. Recuadro de carga grande con botón; arrastrar a toda la pantalla. |
+| M2 Impacto y Estimación (`m2`) | Complejidad evaluada por IA (referencia, **no mueve horas**); ejecución = casos ÷ **casos por día** (default 10, recordado en el navegador) × 8h; diseño fijo 3h. |
+| M3 Plan de Pruebas (`mpp`) | Generado por IA con el modelo de entrega real de TestIALab; editable; Word con la plantilla real y PDF; Responsables (Nombre/Rol, Contacto). |
+| M4 Escenarios y Casos QA (`m3`) | Modelo fuerte; casos **operativos ejecutables**; verificación de cobertura con IA (mensaje explícito si está completa) y casos faltantes; replantear con transcripciones; **consolidar con casos del QA/cliente** (Excel cualquier plantilla, CSV, Word, TXT) con revisión antes de aplicar; importar Excel / caso manual aun sin casos generados. |
+| M5 Ejecución y Evidencias (`m4`) | Evidencia por caso (archivo, arrastrar, Ctrl+V); veredicto IA Exitoso/Fallido por paso; marcar Bloqueado (motivo + destino UAT/insumo) o Desestimado (motivo); cada cambio de estado guarda su hora. |
+| M6 Gestión de Bugs (`m5`) | Bug desde caso fallido redactado por IA como QA (título, descripción, esperado/obtenido, pasos); Word del bug sin "Caso asociado". |
+| Informe de Avance Diario (`mavance`) | Tablero + secciones por estado siempre al día; **mensaje para Teams** + imagen del tablero. |
+| Certificación (`mcert`) | Documento formal (Word/PDF) + **informe de finalización para Teams** + dossier de evidencias. |
+| ROI (`mroi`) y Chatbot QA (`mchat`) | Existen; **fuera de alcance por ahora** (decisión del 2026-10-08). |
+
+Estados de caso en la UI **en español** (Exitoso, Fallido, Bloqueado, Desestimado, Sin ejecutar); internamente siguen `pass/fail/blocked/retired/todo`.
+
+### Reglas que no se negocian
+- **Estrategia QA real:** una sola entrega completa de Desarrollo; QA ejecuta todos los casos; re-test de cada bug corregido + regresión focalizada. Nunca ciclos, sprints ni entregas parciales.
+- **Metodología genérica:** ningún concepto de un cliente puntual en prompts, reglas, ejemplos ni backlog.
+- **Modelos:** modelo fuerte **solo en M4** (generación, faltantes y consolidación de casos, en ambos motores); el resto Sonnet con `effort: medium`.
+- **Documentos para el cliente:** ortografía completa (regla `ORTOGRAFIA_DOC_CLIENTE` en los prompts) y Word con idioma `es-CO`.
+
+### Flujo de trabajo del repositorio
+`main` / `develop` / `feature/*` con PR obligatorio (descripciones detalladas); las ramas feature se borran al mergear. La memoria del proyecto para Claude Code está versionada en **`.claude/memory/`** (decisiones, estado de cada sesión, preferencias del equipo): es la fuente más actualizada del contexto.
+
+---
+
 > Documento de continuidad generado desde una conversación con Claude (claude.ai) para retomar el trabajo en Claude Code. Contiene todas las decisiones de arquitectura, todo lo construido, todos los bugs encontrados y corregidos, y el estado exacto donde se dejó el proyecto.
 
 ---

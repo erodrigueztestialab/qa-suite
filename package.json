@@ -1,4 +1,10 @@
 {
+  "name": "testialab-qa-suite",
+  "private": true,
+  "description": "TestIALab QA Suite IA -- copiloto de QA (backend Express + frontend de una sola pagina)",
+  "scripts": {
+    "start": "node proxy.js"
+  },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "cors": "^2.8.6",
