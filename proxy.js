@@ -946,6 +946,18 @@ function buildMultiFileAnalysisPrompt(files, engine, inventoryPath) {
   ].filter(function(l){ return l !== null; }).join('\n');
 }
 
+// Demo 2026-10-08 (Liz): los casos deben ser ejecutables por el QA en el ambiente de
+// pruebas, sobre flujos reales del usuario -- no pruebas que en la practica se
+// desestiman porque no se pueden hacer. Generico: aplica a cualquier requerimiento.
+var REGLA_CASOS_OPERATIVOS =
+  'CASOS OPERATIVOS Y EJECUTABLES: cada caso debe poder ejecutarlo un QA en el ambiente de pruebas siguiendo un flujo\n' +
+  '   real del usuario del negocio, con las pantallas, datos y permisos que ese ambiente normalmente ofrece. NO generes\n' +
+  '   casos de carga, estres, rendimiento con volumenes masivos, concurrencia, seguridad/penetracion, ni casos que exijan\n' +
+  '   herramientas especiales o condiciones que el QA no puede producir (caidas de servidor, millones de registros,\n' +
+  '   manipular la base de datos, esperar dias reales). Si el analisis menciona un requisito no funcional, conviertelo\n' +
+  '   SOLO en lo que el usuario puede observar al operar (ej: que un proceso se ejecuta en segundo plano sin bloquear la\n' +
+  '   pantalla), o no lo conviertas en caso si no es observable.';
+
 // ── Build prompt: Escenarios y Casos QA ────────────────────────────────────────
 // Toma el analisis crudo de M1 (todas sus secciones) + la configuracion que el
 // QA confirmo en M2 (notas/areas validadas) y pide los casos
@@ -1033,6 +1045,7 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '   EXCEPCION: el caso de validacion de un campo de la regla 3(d) agrupa a proposito todas las validaciones de ese',
     '   campo en pasos distintos -- no lo separes aunque cite 3 o mas IDs, siempre que todos sean del mismo campo.',
     '5. Cada paso a paso debe ser ejecutable por un QA sin conocimiento previo del sistema.',
+    '5.1 ' + REGLA_CASOS_OPERATIVOS,
     '6. El resultado esperado debe ser verificable, no ambiguo.',
     '7. NO inventes datos de negocio que no esten en el analisis. Esto aplica en especial a VALORES concretos (correos,',
     '   nombres, IDs, montos, fechas puntuales, cantidades/valores numericos de campos del sistema en formulas o calculos):',
@@ -1075,6 +1088,8 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '   quitala y cita su CA_N en el caso del campo.',
     '   (i) Ningun caso menciona reuniones, transcripciones, documentos o personas como fuente, ni trae IDs fuera del campo',
     '   "Requisito" -- si encuentras alguno, reescribelo.',
+    '   (j) Ningun caso es de carga, estres, volumen masivo u otra prueba que el QA no pueda ejecutar en el ambiente (regla',
+    '   5.1) -- si encuentras alguno, conviertelo en lo que el usuario puede observar o quitalo.',
     '10. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
     '',
     '---CASOS_DE_PRUEBA---',
@@ -1099,6 +1114,93 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     'Requisito=ID(s) exacto(s) de CA_N/RN_N que este caso cubre.',
     'Pasos=una linea por paso, "N. Texto del paso >> Resultado esperado especifico" -- cada paso debe tener su propio',
     'resultado esperado verificable, distinto del de los demas pasos. No fusiones varios pasos en una sola linea.',
+  ].join('\n');
+}
+
+// ── Build prompt: Consolidar casos de varias fuentes (M4) ─────────────────────
+// Demo 2026-10-08 (Liz): el QA tiene sus propios casos y a veces el cliente entrega
+// los suyos (Excel con cualquier plantilla, Word...). La IA los cruza con los que ya
+// genero la QA Suite y entrega UNA version final: sin duplicados, mejorando lo que se
+// pueda y agregando lo que salga de combinar las fuentes, con trazabilidad del origen.
+function buildConsolidateCasesPrompt(analysisRaw, existingCases, sources, m2Context) {
+  m2Context = m2Context || {};
+  var areas = (m2Context.impactAreas || []).filter(function(a){ return a.checked; })
+    .map(function(a){ return a.label + (a.desc ? ': ' + a.desc : ''); }).join('\n') || 'Ninguna area especifica marcada.';
+  var existingText = (existingCases || []).map(function(c){
+    var pasos = (c.steps || []).map(function(st, i){ return (i+1) + '. ' + (st.paso||'') + ' >> ' + (st.resultado||''); }).join(' / ') || '(sin pasos)';
+    return c.id + ' | Requisito: ' + (c.requisito||'-') + ' | Tipo: ' + (c.tipo||'-') + ' | Escenario: ' + (c.escenario||'-') +
+      ' | Caso: ' + (c.caso||'-') + ' | Objetivo: ' + (c.objetivo||'-') + ' | Pasos: ' + pasos;
+  }).join('\n') || '(no hay casos generados todavia)';
+  var sourcesText = (sources || []).map(function(src){
+    return '=== FUENTE: ' + (src.origen === 'Cliente' ? 'CLIENTE' : 'QA') + ' -- archivo "' + (src.filename||'-') + '" ===\n' + (src.text||'');
+  }).join('\n\n');
+  return [
+    'Eres un Disenador de Casos de Prueba QA senior. Debes CONSOLIDAR en un solo set final los casos de prueba de',
+    'varias fuentes para el mismo requerimiento:',
+    '- IA: los casos que ya genero la herramienta (abajo, con su ID CP_N).',
+    '- QA: casos propios del analista QA (pueden venir completos o solo como titulos/escenarios).',
+    '- Cliente: casos que entrego el cliente (pueden venir en cualquier formato o plantilla).',
+    '',
+    'ANALISIS DEL REQUERIMIENTO:',
+    analysisRaw,
+    '',
+    'CONFIGURACION DEFINIDA POR EL QA:',
+    'Areas de impacto validadas:',
+    areas,
+    '',
+    'CASOS GENERADOS POR LA IA:',
+    existingText,
+    '',
+    'CASOS EXTERNOS (texto extraido de los archivos; las hojas de calculo vienen como filas separadas por comas y la',
+    'plantilla puede ser cualquiera -- identifica tu mismo que columna es el titulo, los pasos, el resultado esperado, etc.;',
+    'ignora encabezados, logos, filas vacias y columnas de ejecucion/estado):',
+    sourcesText || '(ninguno)',
+    '',
+    'INSTRUCCIONES CRITICAS:',
+    '1. Entrega UNA version final: cada validacion distinta aparece UNA sola vez. Si un caso externo valida lo mismo que',
+    '   un caso de la IA (mismo objetivo, aunque este redactado distinto), NO lo dupliques: fusionalos en uno solo y quedate',
+    '   con lo mejor de ambos (pasos mas completos, datos o condiciones que el otro no tenia).',
+    '2. Si un caso externo cubre algo que ningun caso de la IA cubre, agregalo como caso completo. Si viene solo como',
+    '   titulo o escenario, completalo con objetivo, pasos y resultados esperados a partir del analisis.',
+    '3. Si al combinar fuentes aparece una validacion que ninguna tenia por separado (ej: el escenario del cliente con la',
+    '   condicion que propuso el QA), agregala como caso nuevo.',
+    '4. Mejora la redaccion de un caso solo si de verdad aporta (pasos ambiguos, resultado no verificable). No cambies por',
+    '   cambiar: un caso de la IA que ya esta bien se mantiene igual.',
+    '5. Descarta (no los incluyas en el set) los casos externos que esten duplicados exactos, fuera del alcance del',
+    '   requerimiento o que no sean ejecutables segun la regla 6, y listalos en DESCARTADOS con el motivo.',
+    '6. ' + REGLA_CASOS_OPERATIVOS,
+    '7. Cobertura OBLIGATORIA: al final, TODOS los CA_N y RN_N del analisis deben quedar cubiertos por al menos un caso.',
+    '   El campo "Requisito" cita el/los ID(s) exactos que cubre cada caso (si un caso externo no trae IDs, asignalos tu).',
+    '8. NO inventes datos de negocio (correos, montos, IDs, fechas, valores numericos) que no esten en el analisis ni en',
+    '   las fuentes: describe la accion de forma generica si no hay un valor exacto.',
+    '9. REDACCION NATURAL: como la escribiria un analista QA para que otra persona la ejecute, en imperativo, con el',
+    '   vocabulario del negocio. NUNCA cites la fuente dentro del caso ("segun el cliente", "el QA propuso", nombres de',
+    '   archivos o personas): el origen va SOLO en las lineas Origen/Accion/Detalle. Los IDs CA_N/RN_N van SOLO en',
+    '   "Requisito".',
+    '10. Responde UNICAMENTE con las dos secciones delimitadas. Sin texto adicional.',
+    '',
+    '---CASOS_DE_PRUEBA---',
+    'Formato EXACTO -- un bloque por caso, numerados CP_1, CP_2... en orden, cada campo en su propia linea, ninguno opcional:',
+    '### CP_1',
+    'Requisito: CA_1, RN_2',
+    'Tipo: Funcional',
+    'Complejidad: Medio',
+    'Escenario: nombre corto del escenario',
+    'Caso: titulo corto del caso',
+    'Objetivo: una frase que describe que se valida',
+    'Origen: IA',
+    'Accion: Se mantiene',
+    'Detalle: (vacio si Accion es "Se mantiene"; si no, una frase con que se hizo, ej: "Fusionado con el caso del cliente \'Alta de registro\', se agrego el paso de confirmacion")',
+    'Pasos:',
+    '1. Texto del paso >> Resultado esperado especifico',
+    '2. Texto del paso >> Resultado esperado especifico',
+    'Donde: Tipo=UNICAMENTE Smoke, Funcional, UI o UX. Complejidad=UNICAMENTE Alto, Medio o Bajo.',
+    'Origen=UNICAMENTE IA, QA, Cliente o Combinado (Combinado = salio de mezclar dos o mas fuentes).',
+    'Accion=UNICAMENTE "Se mantiene", "Mejorado", "Fusionado" o "Nuevo".',
+    '',
+    '---DESCARTADOS---',
+    'Una linea por caso externo descartado: Origen (QA o Cliente) | titulo del caso externo | motivo concreto.',
+    'Si no se descarto ninguno, escribe NINGUNO.',
   ].join('\n');
 }
 
@@ -1185,6 +1287,7 @@ function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, en
     '3. La columna "Requisito Funcional" de cada caso debe citar el/los ID(s) exacto(s) que cubre.',
     '4. Cada paso a paso debe ser ejecutable por un QA sin conocimiento previo del sistema, con resultado esperado',
     '   verificable.',
+    '4.1 ' + REGLA_CASOS_OPERATIVOS,
     '5. NO inventes datos de negocio que no esten en el analisis. Esto aplica en especial a VALORES concretos (correos,',
     '   nombres, IDs, montos, fechas puntuales, cantidades/valores numericos de campos del sistema en formulas o calculos):',
     '   si el analisis no especifica un valor exacto para un campo, describe la ACCION de forma generica orientada a la',
@@ -2368,6 +2471,43 @@ app.post('/api/generate-cases', async function(req, res) {
     clearInterval(stageTimer);
     emitDone(reqId);
     console.error('[/api/generate-cases]', err.message);
+    return res.status(502).json({ error: engineLabel + ': ' + err.message });
+  }
+});
+
+// ── Escenarios y Casos QA: consolidar casos de IA + QA + Cliente ──────────────
+// M4 = modelo fuerte de cada motor (misma politica que /api/generate-cases).
+app.post('/api/consolidate-cases', async function(req, res) {
+  var analysisRaw = req.body.analysisRaw;
+  var cases       = req.body.cases || [];
+  var sources     = req.body.sources || []; // [{origen:'QA'|'Cliente', filename, text}]
+  var m2Context   = req.body.m2Context || {};
+  var engine      = (req.body.engine === 'gemini' || req.body.engine === 'claude') ? req.body.engine : ENGINE_DEFAULT;
+  var engineLabel = engine === 'claude' ? 'Claude Opus' : 'Gemini (Antigravity)';
+  var reqId       = req.body.reqId || '';
+  if (!analysisRaw) return res.status(400).json({ error: 'Se requiere analysisRaw.' });
+  if (!sources.length) return res.status(400).json({ error: 'Adjunta al menos un archivo con casos.' });
+  emitProgress(reqId, 8, 'Preparando prompt para '+engineLabel+'...');
+  var stages = [
+    [20, 'Enviando a '+engineLabel+'...'],
+    [40, 'Leyendo los casos externos...'],
+    [60, 'Cruzando con los casos generados...'],
+    [80, 'Armando la version final sin duplicados...'],
+  ];
+  var stageIdx = 0;
+  var stageTimer = setInterval(function(){
+    if (stageIdx < stages.length) { emitProgress(reqId, stages[stageIdx][0], stages[stageIdx][1]); stageIdx++; }
+  }, 9000);
+  try {
+    var text = await callAI(buildConsolidateCasesPrompt(analysisRaw, cases, sources, m2Context), { engine: engine, model: 'opus' });
+    clearInterval(stageTimer);
+    emitProgress(reqId, 98, 'Procesando respuesta...');
+    emitDone(reqId);
+    return res.json({ raw: text, engine: engine });
+  } catch (err) {
+    clearInterval(stageTimer);
+    emitDone(reqId);
+    console.error('[/api/consolidate-cases]', err.message);
     return res.status(502).json({ error: engineLabel + ': ' + err.message });
   }
 });
