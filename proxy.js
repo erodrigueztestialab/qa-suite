@@ -391,7 +391,7 @@ async function checkGeminiAvailable(timeoutMs) {
 
 // ── Claude CLI ───────────────────────────────────────────────────────────
 // Usa la sesion Plan Pro del usuario (sin API key). Modo headless con
-// --print --output-format stream-json, igual que en el proyecto Cinemark.
+// --print --output-format stream-json (modo headless del CLI).
 // Si hay filePath (vision nativa de PDF), se habilita --add-dir sobre la carpeta
 // que lo contiene + --allowedTools Read, y el prompt le indica la ruta exacta a leer.
 
