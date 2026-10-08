@@ -824,6 +824,7 @@ var S = {
   // Lo que escribe el QA en el mensaje de avance para Teams (saludo/cierre null =
   // texto por defecto). Las secciones por estado NO se guardan: se calculan siempre.
   avanceNotas    : { saludo: null, observaciones: '', cierre: null },
+  finalNotas     : { saludo: null, observaciones: '', cierre: null }, // mensaje de finalizacion (Certificacion)
   // Responsables del Plan de Pruebas: 3 filas FIJAS (igual que la plantilla real de
   // TestiAlab) -- Nombre/Rol y Contacto son editables por el QA, varian por requerimiento.
   responsables: [
@@ -1414,6 +1415,7 @@ function resetDownstreamState() {
   // del requerimiento ANTERIOR (mismo tipo de bug de "mezcla de sesiones" ya
   // corregido antes en M1).
   S.avanceNotas = { saludo: null, observaciones: '', cierre: null };
+  S.finalNotas = { saludo: null, observaciones: '', cierre: null };
   _selectedCaseIds = {};
   S.responsables = [
     { equipo: 'TestiAlab', cargo: '', contacto: '' },
@@ -4217,8 +4219,17 @@ function ensureAvanceNotas() {
   if (!S.avanceNotas) S.avanceNotas = { saludo: null, observaciones: '', cierre: null };
   return S.avanceNotas;
 }
+// Informe de finalizacion (demo 2026-10-08, Liz 1:33): mismo mecanismo que el avance
+// diario, pero anunciando que QA termino y que el requerimiento pasa al especialista/UAT.
+function ensureFinalNotas() {
+  if (!S.finalNotas) S.finalNotas = { saludo: null, observaciones: '', cierre: null };
+  return S.finalNotas;
+}
+function teamsNotas(kind) { return kind === 'final' ? ensureFinalNotas() : ensureAvanceNotas(); }
 var AVANCE_SALUDO_DEFAULT = 'Buen día, equipo.';
 var AVANCE_CIERRE_DEFAULT = 'Quedo pendiente de cualquier comentario.';
+var FINAL_CIERRE_DEFAULT = 'Por parte de QA damos por finalizadas las pruebas; el requerimiento pasa al especialista funcional para las pruebas con el usuario (UAT). Quedo pendiente de cualquier comentario.';
+function teamsCierreDefault(kind) { return kind === 'final' ? FINAL_CIERRE_DEFAULT : AVANCE_CIERRE_DEFAULT; }
 function avanceComputeIntro() {
   return 'Comparto el avance de ejecución de pruebas del requerimiento '+reqProjectName()+', con corte al '+nowStrCO().replace(/\.$/, '')+'.';
 }
@@ -4244,8 +4255,9 @@ function avanceMotivo(c) { return (c.estadoNota && c.estadoNota.trim()) ? c.esta
 
 // Mensaje para Teams: HTML (Teams conserva negritas y vinetas al pegar) + texto plano
 // de respaldo. Solo cantidades y lo que el grupo necesita leer -- nada de listas largas.
-function buildAvanceMessage() {
-  var n = ensureAvanceNotas(); var d = avanceData();
+function buildAvanceMessage(kind) {
+  kind = kind || 'avance';
+  var n = teamsNotas(kind); var d = avanceData();
   var H = [], T = [];
   var p = function(html, text){ H.push('<p>'+html+'</p>'); T.push(text, ''); };
   var list = function(titleHtml, titleText, items){
@@ -4254,11 +4266,13 @@ function buildAvanceMessage() {
   };
   var saludo = (n.saludo != null ? n.saludo : AVANCE_SALUDO_DEFAULT).trim();
   if (saludo) p(esc(saludo), saludo);
-  var intro = avanceComputeIntro();
+  var intro = kind === 'final'
+    ? 'Les informo que finalizamos la ejecución de pruebas de QA del requerimiento '+reqProjectName()+', con corte al '+nowStrCO().replace(/\.$/, '')+'.'
+    : avanceComputeIntro();
   p(esc(intro).replace(esc(reqProjectName()), '<b>'+esc(reqProjectName())+'</b>'), intro);
   var resumen = avancePlural(d.total,'caso','casos')+' en total: '+avancePlural(d.pass.length,'exitoso','exitosos')+', '+avancePlural(d.retired.length,'desestimado','desestimados')+', '+avancePlural(d.fail.length,'fallido','fallidos')+', '+avancePlural(d.blocked.length,'bloqueado','bloqueados')+' y '+d.todo.length+' sin ejecutar. Avance efectivo: '+d.pct+'%.';
-  p('<b>Resumen:</b> '+esc(resumen), 'Resumen: '+resumen);
-  if (d.passHoy.length) {
+  p('<b>'+(kind === 'final' ? 'Resultado final' : 'Resumen')+':</b> '+esc(resumen), (kind === 'final' ? 'Resultado final' : 'Resumen')+': '+resumen);
+  if (kind !== 'final' && d.passHoy.length) {
     var max = 15, shown = d.passHoy.slice(0, max);
     var items = shown.map(function(c){ return { html: esc(avanceCaseLabel(c)), text: avanceCaseLabel(c) }; });
     if (d.passHoy.length > max) items.push({ html: '<i>y '+(d.passHoy.length-max)+' más</i>', text: 'y '+(d.passHoy.length-max)+' más' });
@@ -4286,18 +4300,18 @@ function buildAvanceMessage() {
   }
   var obs = (n.observaciones || '').trim();
   if (obs) p('<b>Observaciones:</b><br>'+esc(obs).replace(/\n/g, '<br>'), 'Observaciones:\n'+obs);
-  var cierre = (n.cierre != null ? n.cierre : AVANCE_CIERRE_DEFAULT).trim();
+  var cierre = (n.cierre != null ? n.cierre : teamsCierreDefault(kind)).trim();
   if (cierre) p(esc(cierre), cierre);
   return { html: H.join(''), text: T.join('\n').replace(/\n{3,}/g, '\n\n').trim() };
 }
-function onAvanceNotaInput(key, el) {
-  ensureAvanceNotas()[key] = el.value;
-  var prev = document.getElementById('avance-msg-preview');
-  if (prev) prev.innerHTML = buildAvanceMessage().html;
+function onTeamsNotaInput(kind, key, el) {
+  teamsNotas(kind)[key] = el.value;
+  var prev = document.getElementById('msg-preview-'+kind);
+  if (prev) prev.innerHTML = buildAvanceMessage(kind).html;
   schedulePersist();
 }
-async function copyAvanceMessage() {
-  var m = buildAvanceMessage();
+async function copyTeamsMessage(kind) {
+  var m = buildAvanceMessage(kind);
   try {
     await navigator.clipboard.write([new ClipboardItem({
       'text/html': new Blob([m.html], { type: 'text/html' }),
@@ -4327,6 +4341,46 @@ function avanceDetailsHtml(summary, items) {
   return '<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11.5px;color:var(--text2)">'+summary+'</summary>' + avanceListHtml(items) + '</details>';
 }
 
+// Tablero (tabla + torta + Re-test/Regresion/Bugs). Se usa en pantalla y como imagen
+// tanto en el Avance diario como en el informe de finalizacion.
+function avanceDashboardHtml(titulo) {
+  var c = evCounts(); var total = S.cases.length; var d = avanceData();
+  var pieOrder = [['pass','Exitosos'],['retired','Desestimados'],['fail','Fallidos'],['blocked','Bloqueados'],['todo','Sin ejecutar']];
+  var pieSvg = avancePieSvg(pieOrder.map(function(pair){ return { n: c[pair[0]] || 0, color: AVANCE_COLORS[pair[0]] }; }), total);
+  var legend = pieOrder.map(function(pair){
+    return '<div><span class="tpr-legend-dot" style="background:'+AVANCE_COLORS[pair[0]]+'"></span>'+pair[1]+': <b>'+(c[pair[0]]||0)+'</b></div>';
+  }).join('');
+  function pctOf(k) { return total ? Math.round(k/total*1000)/10 : 0; }
+
+  // 1) Tablero: lo unico que va en la imagen -- compacto y legible pegado en Teams.
+  return (
+    '<div style="background:#fff;padding:16px;border-radius:var(--r);border:1px solid var(--border)">' +
+      '<div style="font-size:13px;font-weight:700;color:#0D1828;margin-bottom:2px">'+esc(titulo)+' – '+esc(reqProjectName())+'</div>' +
+      '<div style="font-size:11px;color:#5B6B82;margin-bottom:10px">Corte: '+esc(nowStrCO())+'</div>' +
+      '<div class="tpr-body">' +
+        '<table class="tpr-table">' +
+          '<thead><tr>' +
+            '<th class="tpr-th-cases">Casos</th>' +
+            '<th class="tpr-th-pass">Exitosos</th><th class="tpr-th-retired">Desestimados</th><th class="tpr-th-fail">Fallidos</th><th class="tpr-th-blocked">Bloqueados</th><th class="tpr-th-todo">Sin ejecutar</th>' +
+          '</tr></thead>' +
+          '<tbody>' +
+            '<tr><td>'+total+'</td><td>'+c.pass+'</td><td>'+c.retired+'</td><td>'+c.fail+'</td><td>'+c.blocked+'</td><td>'+c.todo+'</td></tr>' +
+            '<tr class="tpr-pct-row"><td></td><td>'+pctOf(c.pass)+'%</td><td>'+pctOf(c.retired)+'%</td><td>'+pctOf(c.fail)+'%</td><td>'+pctOf(c.blocked)+'%</td><td>'+pctOf(c.todo)+'%</td></tr>' +
+          '</tbody>' +
+        '</table>' +
+        '<div class="tpr-pie-wrap">' +
+          '<div class="tpr-pie">'+pieSvg+'</div>' +
+          '<div class="tpr-pie-center"><div class="tpr-pie-pct">'+d.pct+'%</div><div class="tpr-pie-lbl">Avance efectivo</div></div>' +
+        '</div>' +
+        '<div class="tpr-legend">'+legend+'</div>' +
+      '</div>' +
+      '<div class="tpr-extra" style="margin-top:10px">' +
+        '<span>Re-test: <b>'+avanceComputeRetest()+'</b></span>' +
+        '<span>Regresión: <b>'+avanceComputeRegresion()+'</b></span>' +
+        '<span>Bugs: <b>'+d.bugs.length+'</b></span>' +
+      '</div>' +
+    '</div>');
+}
 var AVANCE_COLORS = { pass:'#009E7A', retired:'#5B6B82', fail:'#E14848', blocked:'#C9A227', todo:'#9aa3b1' };
 // Torta en SVG: se ve igual en pantalla y en la imagen exportada (html2canvas no
 // soporta conic-gradient y la torta salia en blanco en el PNG).
@@ -4356,42 +4410,8 @@ function renderAvance() {
   var n = ensureAvanceNotas();
   var c = evCounts(); var total = S.cases.length;
   var d = avanceData();
+  var dashboard = '<div id="avance-dashboard">'+avanceDashboardHtml('Avance de pruebas')+'</div>';
 
-  var pieOrder = [['pass','Exitosos'],['retired','Desestimados'],['fail','Fallidos'],['blocked','Bloqueados'],['todo','Sin ejecutar']];
-  var pieSvg = avancePieSvg(pieOrder.map(function(pair){ return { n: c[pair[0]] || 0, color: AVANCE_COLORS[pair[0]] }; }), total);
-  var legend = pieOrder.map(function(pair){
-    return '<div><span class="tpr-legend-dot" style="background:'+AVANCE_COLORS[pair[0]]+'"></span>'+pair[1]+': <b>'+(c[pair[0]]||0)+'</b></div>';
-  }).join('');
-  function pctOf(k) { return total ? Math.round(k/total*1000)/10 : 0; }
-
-  // 1) Tablero: lo unico que va en la imagen -- compacto y legible pegado en Teams.
-  var dashboard =
-    '<div id="avance-dashboard" style="background:#fff;padding:16px;border-radius:var(--r);border:1px solid var(--border)">' +
-      '<div style="font-size:13px;font-weight:700;color:#0D1828;margin-bottom:2px">Avance de pruebas – '+esc(reqProjectName())+'</div>' +
-      '<div style="font-size:11px;color:#5B6B82;margin-bottom:10px">Corte: '+esc(nowStrCO())+'</div>' +
-      '<div class="tpr-body">' +
-        '<table class="tpr-table">' +
-          '<thead><tr>' +
-            '<th class="tpr-th-cases">Casos</th>' +
-            '<th class="tpr-th-pass">Exitosos</th><th class="tpr-th-retired">Desestimados</th><th class="tpr-th-fail">Fallidos</th><th class="tpr-th-blocked">Bloqueados</th><th class="tpr-th-todo">Sin ejecutar</th>' +
-          '</tr></thead>' +
-          '<tbody>' +
-            '<tr><td>'+total+'</td><td>'+c.pass+'</td><td>'+c.retired+'</td><td>'+c.fail+'</td><td>'+c.blocked+'</td><td>'+c.todo+'</td></tr>' +
-            '<tr class="tpr-pct-row"><td></td><td>'+pctOf(c.pass)+'%</td><td>'+pctOf(c.retired)+'%</td><td>'+pctOf(c.fail)+'%</td><td>'+pctOf(c.blocked)+'%</td><td>'+pctOf(c.todo)+'%</td></tr>' +
-          '</tbody>' +
-        '</table>' +
-        '<div class="tpr-pie-wrap">' +
-          '<div class="tpr-pie">'+pieSvg+'</div>' +
-          '<div class="tpr-pie-center"><div class="tpr-pie-pct">'+d.pct+'%</div><div class="tpr-pie-lbl">Avance efectivo</div></div>' +
-        '</div>' +
-        '<div class="tpr-legend">'+legend+'</div>' +
-      '</div>' +
-      '<div class="tpr-extra" style="margin-top:10px">' +
-        '<span>Re-test: <b>'+avanceComputeRetest()+'</b></span>' +
-        '<span>Regresión: <b>'+avanceComputeRegresion()+'</b></span>' +
-        '<span>Bugs: <b>'+d.bugs.length+'</b></span>' +
-      '</div>' +
-    '</div>';
 
   // 2) Secciones automaticas (siempre al dia, no editables).
   var secPass = avanceSectionHtml(AVANCE_COLORS.pass, '&#9989;', 'Validaciones exitosas', d.pass.length,
@@ -4420,35 +4440,12 @@ function renderAvance() {
     d.todo.length ? '<div style="font-size:12.5px;color:var(--text2)">'+d.todo.length+' caso'+(d.todo.length===1?'':'s')+' sin ejecutar. En el mensaje solo va la cantidad.</div>' +
       avanceDetailsHtml('Ver cuáles (solo para ti, no se exporta)', d.todo.map(function(x){ return esc(avanceCaseLabel(x)); })) : '');
 
-  // 3) Mensaje para Teams: campos del QA claramente editables + vista previa.
-  var inputStyle = 'width:100%;border:1px solid var(--border2);border-radius:6px;padding:8px 10px;font:inherit;font-size:12.5px;background:var(--bg);color:var(--text)';
-  var msg = buildAvanceMessage();
-  var mensaje =
-    '<div class="m2-card" style="border:1px solid var(--teal)">' +
-      '<div class="m2-card-hdr" style="color:var(--teal)">&#128172; Mensaje para Teams</div>' +
-      '<div style="font-size:11.5px;color:var(--text3);margin-bottom:10px">Lo automático (resumen, bugs, bloqueados, desestimados y pendientes) se arma solo con lo que marcas en Ejecución y Bugs. Tú solo escribes el saludo, las observaciones de la jornada y el cierre.</div>' +
-      '<label class="m2-fld-lbl">&#9998; Saludo</label>' +
-      '<input type="text" style="'+inputStyle+';margin-bottom:10px" value="'+esc(n.saludo != null ? n.saludo : AVANCE_SALUDO_DEFAULT)+'" oninput="onAvanceNotaInput(\'saludo\',this)">' +
-      '<label class="m2-fld-lbl">&#9998; Observaciones de la jornada (opcional)</label>' +
-      '<textarea style="'+inputStyle+';min-height:80px;margin-bottom:10px" placeholder="Escribe aquí lo que quieras contarle al grupo: qué se validó hoy, preguntas pendientes con el usuario, bloqueos..." oninput="onAvanceNotaInput(\'observaciones\',this)">'+esc(n.observaciones||'')+'</textarea>' +
-      '<label class="m2-fld-lbl">&#9998; Cierre</label>' +
-      '<input type="text" style="'+inputStyle+';margin-bottom:12px" value="'+esc(n.cierre != null ? n.cierre : AVANCE_CIERRE_DEFAULT)+'" oninput="onAvanceNotaInput(\'cierre\',this)">' +
-      '<div class="m2-fld-lbl">Vista previa</div>' +
-      '<style>#avance-msg-preview p{margin:0 0 8px}#avance-msg-preview ul{margin:0 0 8px;padding-left:20px}</style><div id="avance-msg-preview" style="border:1px dashed var(--border2);border-radius:6px;padding:10px 14px;font-size:12.5px;color:var(--text);line-height:1.6;background:var(--bg2)">'+msg.html+'</div>' +
-      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">' +
-        '<button class="btn btn-primary" onclick="copyAvanceMessage()">Copiar mensaje para Teams</button>' +
-        '<button class="btn btn-ghost" onclick="copyAvanceImage()">Copiar imagen del tablero</button>' +
-        '<button class="btn btn-ghost" onclick="exportAvance_PNG()">Descargar imagen</button>' +
-      '</div>' +
-      '<div style="font-size:10.5px;color:var(--text3);margin-top:6px">En Teams: pega el mensaje y luego la imagen del tablero.</div>' +
-    '</div>';
-
   body.innerHTML =
     '<div style="max-width:900px">' +
       dashboard +
       '<div style="height:14px"></div>' +
       secPass + secRetired + secBlocked + secFail + secBugs + secTodo +
-      mensaje +
+      teamsMessageCardHtml('avance') +
       '<div class="advance-box" style="margin-top:16px">' +
         '<div><div class="advance-ttl">&#191;Ejecución terminada?</div>' +
         '<div class="advance-sub">Se generará la Certificación de Calidad con los resultados reales de casos y bugs.</div></div>' +
@@ -4457,28 +4454,59 @@ function renderAvance() {
     '</div>';
 }
 
-// Imagen del tablero (solo el tablero, ancho fijo) -- legible al pegarla en Teams.
-async function avanceDashboardCanvas() {
-  var node = document.getElementById('avance-dashboard');
-  if (!node || !window.html2canvas) throw new Error('No se pudo generar la imagen.');
-  var clone = node.cloneNode(true);
+// Mensaje para Teams (avance diario o finalizacion): campos del QA claramente
+// editables + vista previa + copiar mensaje / imagen del tablero.
+function teamsMessageCardHtml(kind) {
+  var n = teamsNotas(kind);
+  var inputStyle = 'width:100%;border:1px solid var(--border2);border-radius:6px;padding:8px 10px;font:inherit;font-size:12.5px;background:var(--bg);color:var(--text)';
+  var obsPh = kind === 'final'
+    ? 'Escribe aquí lo que quieras resaltar del cierre: qué quedó validado, pendientes para UAT, recomendaciones...'
+    : 'Escribe aquí lo que quieras contarle al grupo: qué se validó hoy, preguntas pendientes con el usuario, bloqueos...';
+  return '<div class="m2-card" style="border:1px solid var(--teal)">' +
+      '<div class="m2-card-hdr" style="color:var(--teal)">&#128172; '+(kind === 'final' ? 'Mensaje de finalización para Teams' : 'Mensaje para Teams')+'</div>' +
+      '<div style="font-size:11.5px;color:var(--text3);margin-bottom:10px">Lo automático (resumen, bugs, bloqueados, desestimados y pendientes) se arma solo con lo que marcas en Ejecución y Bugs. Tú solo escribes el saludo, las observaciones y el cierre.</div>' +
+      '<label class="m2-fld-lbl">&#9998; Saludo</label>' +
+      '<input type="text" style="'+inputStyle+';margin-bottom:10px" value="'+esc(n.saludo != null ? n.saludo : AVANCE_SALUDO_DEFAULT)+'" oninput="onTeamsNotaInput(\''+kind+'\',\'saludo\',this)">' +
+      '<label class="m2-fld-lbl">&#9998; Observaciones (opcional)</label>' +
+      '<textarea style="'+inputStyle+';min-height:80px;margin-bottom:10px" placeholder="'+obsPh+'" oninput="onTeamsNotaInput(\''+kind+'\',\'observaciones\',this)">'+esc(n.observaciones||'')+'</textarea>' +
+      '<label class="m2-fld-lbl">&#9998; Cierre</label>' +
+      '<input type="text" style="'+inputStyle+';margin-bottom:12px" value="'+esc(n.cierre != null ? n.cierre : teamsCierreDefault(kind))+'" oninput="onTeamsNotaInput(\''+kind+'\',\'cierre\',this)">' +
+      '<div class="m2-fld-lbl">Vista previa</div>' +
+      '<style>.teams-preview p{margin:0 0 8px}.teams-preview ul{margin:0 0 8px;padding-left:20px}</style>' +
+      '<div id="msg-preview-'+kind+'" class="teams-preview" style="border:1px dashed var(--border2);border-radius:6px;padding:10px 14px;font-size:12.5px;color:var(--text);line-height:1.6;background:var(--bg2)">'+buildAvanceMessage(kind).html+'</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">' +
+        '<button class="btn btn-primary" onclick="copyTeamsMessage(\''+kind+'\')">Copiar mensaje para Teams</button>' +
+        '<button class="btn btn-ghost" onclick="copyAvanceImage(\''+kind+'\')">Copiar imagen del tablero</button>' +
+        '<button class="btn btn-ghost" onclick="exportAvance_PNG(\''+kind+'\')">Descargar imagen</button>' +
+      '</div>' +
+      '<div style="font-size:10.5px;color:var(--text3);margin-top:6px">En Teams: pega el mensaje y luego la imagen del tablero.</div>' +
+    '</div>';
+}
+
+// Imagen del tablero (solo el tablero, ancho fijo) -- legible al pegarla en Teams. Se arma
+// desde avanceDashboardHtml() y no desde la pantalla: asi funciona tambien desde la
+// Certificacion, donde el Avance no esta visible.
+async function avanceDashboardCanvas(kind) {
+  if (!window.html2canvas) throw new Error('No se pudo generar la imagen.');
+  var clone = document.createElement('div');
+  clone.innerHTML = avanceDashboardHtml(kind === 'final' ? 'Resultado final de pruebas' : 'Avance de pruebas');
   clone.style.position = 'fixed'; clone.style.left = '-99999px'; clone.style.top = '0'; clone.style.width = '760px';
   document.body.appendChild(clone);
   try { return await html2canvas(clone, { scale: 2, backgroundColor: '#ffffff' }); }
   finally { document.body.removeChild(clone); }
 }
-async function exportAvance_PNG() {
+async function exportAvance_PNG(kind) {
   if (!S.cases.length) { toast('No hay datos de ejecución todavía.','err'); return; }
   try {
-    var canvas = await avanceDashboardCanvas();
-    var a = document.createElement('a'); a.href = canvas.toDataURL('image/png'); a.download = reqFileSlug()+' - Informe de Avance.png'; a.click();
+    var canvas = await avanceDashboardCanvas(kind);
+    var a = document.createElement('a'); a.href = canvas.toDataURL('image/png'); a.download = reqFileSlug()+(kind === 'final' ? ' - Resultado final de pruebas.png' : ' - Informe de Avance.png'); a.click();
     toast('Imagen descargada','ok');
   } catch(e) { toast('Error exportando la imagen: '+e.message, 'err'); }
 }
-async function copyAvanceImage() {
+async function copyAvanceImage(kind) {
   if (!S.cases.length) { toast('No hay datos de ejecución todavía.','err'); return; }
   try {
-    var canvas = await avanceDashboardCanvas();
+    var canvas = await avanceDashboardCanvas(kind);
     var blob = await new Promise(function(res){ canvas.toBlob(res, 'image/png'); });
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
     toast('Imagen del tablero copiada. Pégala en Teams.','ok');
@@ -4565,11 +4593,22 @@ function dossierBtnHtml() {
     '</div>' +
   '</div>';
 }
+// Bloque "Informe de finalizacion" (Teams) -- vive arriba en la Certificacion y no
+// depende de que el documento de certificacion ya este generado.
+function finalReportHtml() {
+  if (!S.cases.length) return '';
+  return '<div class="m2-card" style="margin-bottom:14px"><div class="m2-card-hdr">&#127937; Informe de finalización para el grupo</div>' +
+    '<div style="font-size:11.5px;color:var(--text3);margin-bottom:10px">Avísale al grupo que QA terminó: imagen del resultado final + mensaje listo para Teams. El documento formal de certificación está más abajo.</div>' +
+    avanceDashboardHtml('Resultado final de pruebas') +
+    '<div style="height:12px"></div>' +
+    teamsMessageCardHtml('final') +
+  '</div>';
+}
 function renderCert() {
   var body = document.getElementById('mcert-body');
   if (!body) return;
   if (!S.certRaw) {
-    body.innerHTML =
+    body.innerHTML = finalReportHtml() +
       '<div class="placeholder-wrap">' +
         '<div class="placeholder-ico">&#127942;</div>' +
         '<div class="placeholder-ttl">Aun no se genera la Certificacion</div>' +
@@ -4585,7 +4624,7 @@ function renderCert() {
   var bugRows = S.bugs.length
     ? S.bugs.map(function(b){ return '<tr><td>'+esc(b.id)+'</td><td>'+esc(b.caseId||'-')+'</td><td>'+esc(b.descripcion||b.titulo)+'</td><td>'+esc(BUG_ESTADO_LABELS[b.estado]||b.estado)+'</td></tr>'; }).join('')
     : '<tr><td colspan="4" style="color:var(--text3)">Ningun bug registrado.</td></tr>';
-  body.innerHTML =
+  body.innerHTML = finalReportHtml() +
     '<div class="res-block" style="margin-bottom:10px"><div class="res-block-hdr">Proyecto / Version / Responsable</div>' +
       '<div class="res-block-body" style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">' +
         '<div><span class="m2-fld-lbl">Proyecto</span><div style="font-size:12.5px">'+esc(reqProjectName())+'</div></div>' +
