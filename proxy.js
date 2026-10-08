@@ -1884,7 +1884,8 @@ function summarizeCasesForPrompt(cases) {
   return cases.map(function(c){
     return (c.id || 'CP') + ' | ' + (c.caso || c.escenario || '') + ' | estado: ' + (ESTADOS_ES[c.status || 'todo'] || c.status) +
       (c.verdict ? ' | resultado de verificacion: ' + (c.verdict === 'PASS' ? 'Exitoso' : c.verdict === 'FAIL' ? 'Fallido' : c.verdict) : '') +
-      (c.estadoNota && String(c.estadoNota).trim() ? ' | motivo registrado por el QA: ' + String(c.estadoNota).trim() : '');
+      (c.estadoNota && String(c.estadoNota).trim() ? ' | motivo registrado por el QA: ' + String(c.estadoNota).trim() : '') +
+      (c.bloqueoDestino ? ' | destino del caso bloqueado: ' + c.bloqueoDestino : '');
   }).join('\n');
 }
 function summarizeBugsForPrompt(bugs) {
