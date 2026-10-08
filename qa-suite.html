@@ -2167,7 +2167,9 @@ function parseCasesBlock(raw) {
     var idMatch = /^###\s*(CP_\d+)/.exec(chunk);
     var id = idMatch ? idMatch[1] : ('CP_'+(i+1));
     function field(label) {
-      var re = new RegExp('^\\s*'+label+'\\s*:\\s*(.+)$', 'im');
+      // [ \t] y no \s: con \s, un campo vacio ("Detalle:") saltaba a la linea siguiente
+      // y capturaba "Pasos:" como su valor.
+      var re = new RegExp('^[ \\t]*'+label+'[ \\t]*:[ \\t]*(.+)$', 'im');
       var m = re.exec(chunk);
       return m ? m[1].trim() : '';
     }
@@ -2179,6 +2181,8 @@ function parseCasesBlock(raw) {
       // boton/llamada IA aparte) -- editable despues por el QA si no esta de acuerdo.
       complejidadEjecucion: /alto/i.test(complejidadRaw) ? 'Alto' : /bajo/i.test(complejidadRaw) ? 'Bajo' : 'Medio',
       escenario: field('Escenario'), caso: field('Caso'), objetivo: field('Objetivo'),
+      // Solo los trae la consolidacion de casos (IA + QA + Cliente); vacios en la generacion normal.
+      origen: field('Origen'), accion: field('Accion'), detalle: field('Detalle'),
       steps: parseStepsWithResults(pasosMatch ? pasosMatch[1] : ''),
       status: 'todo', evidenceNames: [], verdict: null, verdictNote: null,
     };
@@ -2391,6 +2395,156 @@ async function regenerateCasesWithTranscripts() {
   await generateCases(_caseTranscriptFiles);
 }
 
+/* ── Consolidar casos de varias fuentes (M4) ─────────────────────────────────
+   Demo 2026-10-08 (Liz): el QA sube sus propios casos y/o los del cliente (Excel con
+   CUALQUIER plantilla, CSV, Word o TXT); la IA los cruza con los generados y propone
+   UNA version final. El QA la revisa (origen/accion de cada caso + descartados) y
+   decide que aplicar -- nada reemplaza los casos sin su confirmacion. */
+var _consolidateFiles = [];     // [{filename, origen:'QA'|'Cliente', text}]
+var _consolidateResult = null;  // {cases:[...], descartados:[{origen,titulo,motivo}], accepted:{idx:true}}
+var _consolidating = false;
+var CONSOLIDATE_MAX_CHARS = 80000; // por archivo -- un Excel enorme no debe reventar el prompt
+var CONSOLIDATE_ORIGEN_BADGE = { IA:'b-gray', QA:'b-blue', Cliente:'b-orange', Combinado:'b-green' };
+var CONSOLIDATE_ACCION_BADGE = { 'Se mantiene':'b-gray', 'Mejorado':'b-blue', 'Fusionado':'b-green', 'Nuevo':'b-orange' };
+
+// Excel/CSV: cada hoja a texto CSV en el navegador (la IA identifica las columnas, sin
+// amarrarse a una plantilla). Word/TXT: texto via /api/upload (mismo extractor de M1).
+async function readConsolidateFile(file) {
+  var ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (['xlsx','xls','csv'].indexOf(ext) !== -1) {
+    var buf = await file.arrayBuffer();
+    var wb = XLSX.read(buf, { type: 'array' });
+    return wb.SheetNames.map(function(name){
+      var csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false }).replace(/^[,\s]+$/gm, '').replace(/\n{2,}/g, '\n').trim();
+      return csv ? '## Hoja: '+name+'\n'+csv : '';
+    }).filter(Boolean).join('\n\n');
+  }
+  var fd = new FormData(); fd.append('file', file);
+  var r = await fetch(API+'/api/upload', { method:'POST', body:fd });
+  var d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'Error al procesar');
+  if (d.mode === 'native') throw new Error('los PDF no traen texto extraíble aquí; sube Excel, Word o TXT');
+  return d.text || '';
+}
+async function handleConsolidateUpload(input) {
+  var files = Array.prototype.slice.call(input.files || []);
+  for (var i = 0; i < files.length; i++) {
+    try {
+      var text = (await readConsolidateFile(files[i])).trim();
+      if (!text) { toast('"'+files[i].name+'" no tiene contenido legible.','err'); continue; }
+      if (text.length > CONSOLIDATE_MAX_CHARS) { text = text.slice(0, CONSOLIDATE_MAX_CHARS); toast('"'+files[i].name+'" es muy grande: se usan los primeros '+CONSOLIDATE_MAX_CHARS.toLocaleString()+' caracteres.','err'); }
+      _consolidateFiles.push({ filename: files[i].name, origen: 'QA', text: text });
+    } catch(e) { toast('"'+files[i].name+'": '+e.message,'err'); }
+  }
+  input.value = '';
+  renderM3();
+}
+function setConsolidateOrigen(i, v) { if (_consolidateFiles[i]) _consolidateFiles[i].origen = v; }
+function removeConsolidateFile(i) { _consolidateFiles.splice(i,1); renderM3(); }
+function consolidateCardHtml() {
+  var chips = _consolidateFiles.map(function(f,i){
+    return '<div class="ev-file-chip" style="display:flex;align-items:center;gap:6px">'+esc(f.filename) +
+      '<select class="m2-select" style="font-size:10.5px;padding:2px 4px" onchange="setConsolidateOrigen('+i+',this.value)">' +
+        '<option value="QA" '+(f.origen==='QA'?'selected':'')+'>Casos del QA</option><option value="Cliente" '+(f.origen==='Cliente'?'selected':'')+'>Casos del cliente</option>' +
+      '</select><button onclick="removeConsolidateFile('+i+')" title="Quitar">&times;</button></div>';
+  }).join('');
+  return '<div class="m2-card" style="margin-bottom:14px"><div class="m2-card-hdr">Consolidar con casos del QA o del cliente</div>' +
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Sube tus propios casos o los que entregó el cliente (Excel con cualquier plantilla, CSV, Word o TXT; pueden ser solo títulos). La IA los cruza con los casos actuales y te propone una sola versión final, sin duplicados: tú revisas y decides qué aplicar.</div>' +
+    '<div class="upload-zone" style="position:relative">' +
+      '<input type="file" accept=".xlsx,.xls,.csv,.docx,.doc,.txt" multiple onchange="handleConsolidateUpload(this)">' +
+      '<div class="drop-ico">&#8679;</div>' +
+      '<div class="drop-t">Arrastra o haz clic para adjuntar casos</div>' +
+      '<div class="drop-s">Excel / CSV / Word / TXT &middot; marca en cada archivo si los casos son tuyos o del cliente</div>' +
+    '</div>' +
+    (chips ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">'+chips+'</div>' : '') +
+    '<button class="btn btn-primary" id="btn-consolidate" style="margin-top:10px" onclick="consolidateCases()" '+(_consolidateFiles.length && !_consolidating ? '' : 'disabled')+'>' +
+      (_consolidating ? '<span class="spin"></span> Consolidando...' : 'Consolidar con IA') + '</button>' +
+  '</div>';
+}
+async function consolidateCases() {
+  if (!_analysis) { toast('Analiza un requerimiento primero.','err'); return; }
+  if (!_consolidateFiles.length) { toast('Adjunta al menos un archivo con casos.','err'); return; }
+  _consolidating = true; renderM3();
+  sideConsoleStart('m3', 'Consolidando casos con '+(_engine==='claude'?'un modelo de razonamiento de IA mas alto':'Gemini (Antigravity)'));
+  var evtSrc = procConsoleSSE('sc-m3');
+  var t0 = Date.now(); var ok = false;
+  try {
+    var r = await fetch(API+'/api/consolidate-cases', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      analysisRaw: _analysis,
+      cases: S.cases.map(function(c){ return { id:c.id, requisito:c.requisito, tipo:c.tipo, escenario:c.escenario, caso:c.caso, objetivo:c.objetivo, steps:c.steps }; }),
+      sources: _consolidateFiles.map(function(f){ return { origen:f.origen, filename:f.filename, text:f.text }; }),
+      m2Context: { impactAreas: S.impactAreas },
+      engine: _engine, reqId: evtSrc.reqId,
+    }) });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error consolidando casos');
+    addAiTime((Date.now()-t0)/1000);
+    var cases = parseCasesBlock(d.raw);
+    if (!cases.length) throw new Error('La IA no devolvió casos en el formato esperado.');
+    cases.forEach(function(c){
+      c.origen = ['IA','QA','Cliente','Combinado'].filter(function(o){ return new RegExp('^'+o,'i').test(c.origen||''); })[0] || 'IA';
+      c.accion = ['Se mantiene','Mejorado','Fusionado','Nuevo'].filter(function(a){ return new RegExp('^'+a,'i').test(c.accion||''); })[0] || 'Se mantiene';
+    });
+    var desc = (parseSection(d.raw, 'DESCARTADOS') || '').split('\n').map(function(l){ return l.trim(); })
+      .filter(function(l){ return l && l.indexOf('|') !== -1; })
+      .map(function(l){ var p = l.split('|').map(function(x){ return x.trim(); }); return { origen: p[0], titulo: p[1] || '', motivo: p.slice(2).join(' | ') }; });
+    var accepted = {}; cases.forEach(function(c, i){ accepted[i] = true; });
+    _consolidateResult = { cases: cases, descartados: desc, accepted: accepted };
+    ok = true;
+    toast('Consolidación lista: revisa la propuesta antes de aplicarla.','ok');
+  } catch(e) {
+    toast(e.message,'err');
+  } finally {
+    _consolidating = false;
+    procConsoleStop('sc-m3', ok);
+    evtSrc.close();
+    renderM3();
+  }
+}
+function toggleConsolidateCase(i, v) { if (_consolidateResult) { if (v) _consolidateResult.accepted[i] = true; else delete _consolidateResult.accepted[i]; } }
+function consolidateReviewHtml() {
+  var R = _consolidateResult;
+  var count = function(key, val){ return R.cases.filter(function(c){ return c[key] === val; }).length; };
+  var resumen = ['Se mantiene','Mejorado','Fusionado','Nuevo'].map(function(a){ return '<span class="badge '+CONSOLIDATE_ACCION_BADGE[a]+'">'+a+': '+count('accion',a)+'</span>'; }).join(' ') +
+    ' &nbsp; ' + ['IA','QA','Cliente','Combinado'].map(function(o){ return '<span class="badge '+CONSOLIDATE_ORIGEN_BADGE[o]+'">'+o+': '+count('origen',o)+'</span>'; }).join(' ');
+  var rows = R.cases.map(function(c, i){
+    return '<tr><td><input type="checkbox" '+(R.accepted[i]?'checked':'')+' onchange="toggleConsolidateCase('+i+',this.checked)"></td>' +
+      '<td class="mono">'+esc(c.id)+'</td><td>'+esc(c.caso)+'<div style="font-size:10px;color:var(--text3)">'+esc(c.requisito||'')+' &middot; '+(c.steps||[]).length+' paso(s)</div></td>' +
+      '<td><span class="badge '+(CONSOLIDATE_ORIGEN_BADGE[c.origen]||'b-gray')+'">'+esc(c.origen)+'</span></td>' +
+      '<td><span class="badge '+(CONSOLIDATE_ACCION_BADGE[c.accion]||'b-gray')+'">'+esc(c.accion)+'</span></td>' +
+      '<td style="font-size:11px;color:var(--text2)">'+esc(c.detalle||'')+'</td></tr>';
+  }).join('');
+  var desc = R.descartados.length
+    ? '<div class="m2-card-hdr" style="margin-top:12px">Casos externos descartados ('+R.descartados.length+')</div>' +
+      '<ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text2);line-height:1.6">'+R.descartados.map(function(x){ return '<li><b>'+esc(x.origen)+'</b> – '+esc(x.titulo)+': '+esc(x.motivo)+'</li>'; }).join('')+'</ul>'
+    : '';
+  return '<div class="m2-card" style="margin-bottom:14px;border:1px solid var(--teal)">' +
+    '<div class="m2-card-hdr" style="color:var(--teal)">Revisión de la consolidación: '+R.cases.length+' caso(s) propuestos</div>' +
+    '<div style="margin-bottom:8px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">'+resumen+'</div>' +
+    '<div class="tbl-wrap"><table class="qa-table qa-table-narrow" style="font-size:11.5px"><thead><tr><th></th><th>ID</th><th>Caso</th><th>Origen</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>'+rows+'</tbody></table></div>' +
+    desc +
+    '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
+      '<button class="btn btn-primary" onclick="applyConsolidation()">Aplicar casos marcados</button>' +
+      '<button class="btn btn-ghost" onclick="discardConsolidation()">Descartar propuesta</button>' +
+    '</div>' +
+    '<div style="font-size:10.5px;color:var(--text3);margin-top:6px">Al aplicar, los casos marcados <b>reemplazan</b> los actuales (se renumeran CP_1, CP_2…), y hay que volver a verificar la cobertura y exportar el Excel.</div>' +
+  '</div>';
+}
+function applyConsolidation() {
+  var R = _consolidateResult; if (!R) return;
+  var picked = R.cases.filter(function(c, i){ return R.accepted[i]; });
+  if (!picked.length) { toast('Marca al menos un caso para aplicar.','err'); return; }
+  if (!confirm('Los '+picked.length+' caso(s) marcados reemplazan los '+S.cases.length+' casos actuales. ¿Continuar?')) return;
+  S.cases = picked.map(function(c, i){ c.id = 'CP_'+(i+1); return c; });
+  _selectedCaseIds = {};
+  S.coverageVerified = null;
+  S.casesExcelExported = false;
+  _consolidateResult = null; _consolidateFiles = [];
+  toast(picked.length+' casos consolidados aplicados. Verifica la cobertura con IA.','ok');
+  renderM3();
+}
+function discardConsolidation() { _consolidateResult = null; renderM3(); }
+
 function renderM3() {
   var body = document.getElementById('m3-body');
   if (!body) return;
@@ -2427,6 +2581,7 @@ function renderM3() {
         '<span class="mono" style="font-size:11px;color:var(--text3)">'+esc(c.id)+'</span>' +
         '<span class="case-card-title">'+esc(c.caso||'(sin titulo)')+'</span>' +
         '<span class="badge b-blue">'+esc(c.tipo||'-')+'</span>' +
+        (c.origen && c.origen !== 'IA' ? '<span class="badge '+(CONSOLIDATE_ORIGEN_BADGE[c.origen]||'b-gray')+'" title="Origen del caso">'+esc(c.origen)+'</span>' : '') +
         '<span class="badge '+(complexBadge[c.complejidadEjecucion]||'b-gray')+'" title="Complejidad de ejecucion">'+esc(c.complejidadEjecucion||'Medio')+'</span>' +
         '<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" onclick="editCase('+i+')">&#9998; Editar</button>' +
         '<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" onclick="deleteCase('+i+')">&#10005; Eliminar</button>' +
@@ -2456,6 +2611,8 @@ function renderM3() {
       '<div class="advance-ttl" style="color:var(--green)">&#10003; '+S.cases.length+' caso(s) generados</div>' +
       '<div class="advance-sub">Edita o elimina casos antes de continuar a Ejecucion.</div>' +
     '</div>' +
+    (_consolidateResult ? consolidateReviewHtml() : '') +
+    consolidateCardHtml() +
     caseTranscriptsHtml() +
     cards +
     coverageReportHtml() +
