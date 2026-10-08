@@ -107,8 +107,13 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 .upload-zone{border:1px dashed rgba(0,163,136,0.25);border-radius:7px;padding:18px;
   cursor:pointer;transition:all .2s;background:rgba(0,163,136,0.025);text-align:center;position:relative}
 .upload-zone:hover,.upload-zone.drag{border-color:rgba(0,163,136,0.5);background:rgba(0,163,136,0.05)}
-.upload-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.upload-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;z-index:2}
 .drop-ico{font-size:22px;margin-bottom:5px;opacity:.35}
+/* M1: zona grande y obvia -- toda el area abre el dialogo (el input la cubre). */
+.upload-zone-m1{padding:30px 18px;min-height:170px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.upload-zone-m1 .drop-ico{font-size:30px}
+.upload-zone-m1 .drop-t{font-size:13.5px}
+.drop-btn{margin:10px 0 8px;pointer-events:none}
 .drop-t{font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:2px}
 .drop-s{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace}
 
@@ -552,12 +557,13 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
 
       <!-- Upload -->
       <div class="card" id="upload-card">
-        <div class="card-hdr">Subir documento</div>
+        <div class="card-hdr" style="cursor:pointer" onclick="openFilePicker()">Subir documento</div>
         <div class="upload-body">
-          <div class="upload-zone" id="upload-zone">
+          <div class="upload-zone upload-zone-m1" id="upload-zone">
             <input type="file" id="file-input" accept=".pdf,.docx,.doc,.txt" multiple onchange="handleFileUpload(this)">
             <div class="drop-ico">&#8679;</div>
-            <div class="drop-t">Arrastra tus archivos o haz clic</div>
+            <div class="drop-t">Haz clic en cualquier parte de este recuadro o arrastra tus archivos a la pantalla</div>
+            <span class="btn btn-primary drop-btn">Seleccionar archivos</span>
             <div class="drop-s">PDF (vision nativa) &middot; DOCX/DOC (convierte a PDF) &middot; TXT &middot; puedes subir varios a la vez (ej: HU + anexo + transcripcion de reunion)</div>
           </div>
         </div>
@@ -4376,19 +4382,37 @@ document.addEventListener('DOMContentLoaded', function() {
   // nav activo, panel de consola oculto), sin depender de que haya historial.
   showModule('m1', document.getElementById('nav-m1'));
 
+  // Arrastrar y soltar en TODA la pantalla de M1 (no solo en el recuadro), con
+  // todos los archivos soltados -- antes solo se tomaba el primero.
+  var isFileDrag = function(e){ return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0; };
+  // Un archivo soltado fuera de una zona de carga NO debe abrirse en la pestana
+  // (se perderia la pantalla). Los input[type=file] de M4/M5 conservan su drop nativo.
+  ['dragover','drop'].forEach(function(ev){
+    document.addEventListener(ev, function(e){
+      if (isFileDrag(e) && !(e.target && e.target.type === 'file')) e.preventDefault();
+    });
+  });
   var zone = document.getElementById('upload-zone');
-  if (!zone) return;
-  zone.addEventListener('dragover', function(e){ e.preventDefault(); zone.classList.add('drag'); });
-  zone.addEventListener('dragleave', function(){ zone.classList.remove('drag'); });
-  zone.addEventListener('drop', function(e){
+  var area = document.getElementById('m1');
+  if (!zone || !area) return;
+  area.addEventListener('dragover', function(e){ if (!isFileDrag(e)) return; e.preventDefault(); zone.classList.add('drag'); });
+  area.addEventListener('dragleave', function(e){ if (!area.contains(e.relatedTarget)) zone.classList.remove('drag'); });
+  area.addEventListener('drop', function(e){
+    if (!isFileDrag(e)) return;
     e.preventDefault(); zone.classList.remove('drag');
-    if (_isWorking) return;
-    var f = e.dataTransfer.files[0]; if (!f) return;
-    var dt = new DataTransfer(); dt.items.add(f);
+    if (_isWorking || document.getElementById('upload-card').classList.contains('disabled')) return;
+    var files = e.dataTransfer.files; if (!files || !files.length) return;
+    var dt = new DataTransfer();
+    Array.prototype.forEach.call(files, function(f){ dt.items.add(f); });
     var inp = document.getElementById('file-input'); inp.files = dt.files;
     handleFileUpload(inp);
   });
 });
+
+function openFilePicker() {
+  if (_isWorking || document.getElementById('upload-card').classList.contains('disabled')) return;
+  document.getElementById('file-input').click();
+}
 
 </script>
 </body>
