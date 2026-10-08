@@ -1349,7 +1349,7 @@ function buildPlanPruebasPrompt(analysisRaw, m2Context, engine) {
     '---CRITERIOS_SALIDA---',
     'Lista de criterios de salida, uno por linea con "- ". Deben incluir, como base: todos los casos de prueba',
     'ejecutados, todos los bugs corregidos y re-testeados (o aceptados formalmente por el cliente), y la regresión',
-    'focalizada de los casos impactados en estado Pass; agrega los que apliquen especificamente a ESTE requerimiento.',
+    'focalizada de los casos impactados en estado Exitoso; agrega los que apliquen especificamente a ESTE requerimiento.',
   ].join('\n');
 }
 
@@ -1362,6 +1362,7 @@ function buildPlanPruebasPrompt(analysisRaw, m2Context, engine) {
 var DOCX_TEAL = '0F9B82';
 var DOCX_NAVY = '1A2E44';
 var DOCX_FONT = 'Calibri'; // fuente real de la plantilla (confirmada en footer1.xml del docx original)
+var DOCX_LANG = 'es-CO'; // idioma de revision ortografica de Word -- sin esto Word revisa con el idioma del equipo (ej. ingles) y subraya todo en rojo
 
 function docxHeading(numberedTitle) {
   return new Paragraph({
@@ -1504,7 +1505,7 @@ async function buildPlanPruebasDocxBuffer(p) {
 
   var hf = docxHeaderFooter('Plan de pruebas');
   var doc = new Document({
-    styles: { default: { document: { run: { font: DOCX_FONT, size: 21 } } } },
+    styles: { default: { document: { run: { font: DOCX_FONT, size: 21, language: { value: DOCX_LANG } } } } },
     sections: [ { properties: {}, headers: { default: hf.header }, footers: { default: hf.footer }, children: children } ],
   });
   return Packer.toBuffer(doc);
@@ -1564,7 +1565,7 @@ async function buildHUDocxBuffer(p) {
 
   var hf = docxHeaderFooter('Historia de Usuario');
   var doc = new Document({
-    styles: { default: { document: { run: { font: DOCX_FONT, size: 21 } } } },
+    styles: { default: { document: { run: { font: DOCX_FONT, size: 21, language: { value: DOCX_LANG } } } } },
     sections: [ { properties: {}, headers: { default: hf.header }, footers: { default: hf.footer }, children: children } ],
   });
   return Packer.toBuffer(doc);
@@ -1626,7 +1627,7 @@ async function buildCertificacionDocxBuffer(p) {
 
   var hf = docxHeaderFooter('Certificación de Calidad');
   var doc = new Document({
-    styles: { default: { document: { run: { font: DOCX_FONT, size: 21 } } } },
+    styles: { default: { document: { run: { font: DOCX_FONT, size: 21, language: { value: DOCX_LANG } } } } },
     sections: [ { properties: {}, headers: { default: hf.header }, footers: { default: hf.footer }, children: children } ],
   });
   return Packer.toBuffer(doc);
@@ -1734,7 +1735,7 @@ async function buildBugDocxBuffer(p) {
   ]).concat(bugCaseChildren(p.casoAsociado));
   var hf = docxHeaderFooter('Reporte de Bug');
   var doc = new Document({
-    styles: { default: { document: { run: { font: DOCX_FONT, size: 21 } } } },
+    styles: { default: { document: { run: { font: DOCX_FONT, size: 21, language: { value: DOCX_LANG } } } } },
     sections: [ { properties: {}, headers: { default: hf.header }, footers: { default: hf.footer }, children: children } ],
   });
   return Packer.toBuffer(doc);
@@ -1785,7 +1786,7 @@ async function buildEvidenceDossierDocxBuffer(p) {
   if (!cases.length) children.push(docxPara('No hay casos ejecutados todavia para incluir en el dossier.'));
   var hf = docxHeaderFooter('Dossier de Evidencias');
   var doc = new Document({
-    styles: { default: { document: { run: { font: DOCX_FONT, size: 21 } } } },
+    styles: { default: { document: { run: { font: DOCX_FONT, size: 21, language: { value: DOCX_LANG } } } } },
     sections: [ { properties: {}, headers: { default: hf.header }, footers: { default: hf.footer }, children: children } ],
   });
   return Packer.toBuffer(doc);
@@ -1875,11 +1876,15 @@ function extractAnalysisSection(raw, tag) {
   var m = (raw || '').match(re);
   return m ? m[1].trim() : '';
 }
+// Estados en espanol (decision 2026-10-08: no hay audiencia en ingles) -- la IA los
+// copia tal cual al documento del cliente.
+var ESTADOS_ES = { todo: 'Sin ejecutar', pass: 'Exitoso', retired: 'Desestimado', fail: 'Fallido', blocked: 'Bloqueado' };
 function summarizeCasesForPrompt(cases) {
   if (!cases || !cases.length) return '(sin casos registrados)';
   return cases.map(function(c){
-    return (c.id || 'CP') + ' | ' + (c.caso || c.escenario || '') + ' | estado: ' + (c.status || 'todo') +
-      (c.verdict ? ' | resultado de verificacion: ' + c.verdict : '');
+    return (c.id || 'CP') + ' | ' + (c.caso || c.escenario || '') + ' | estado: ' + (ESTADOS_ES[c.status || 'todo'] || c.status) +
+      (c.verdict ? ' | resultado de verificacion: ' + (c.verdict === 'PASS' ? 'Exitoso' : c.verdict === 'FAIL' ? 'Fallido' : c.verdict) : '') +
+      (c.estadoNota && String(c.estadoNota).trim() ? ' | motivo registrado por el QA: ' + String(c.estadoNota).trim() : '');
   }).join('\n');
 }
 function summarizeBugsForPrompt(bugs) {
@@ -1927,7 +1932,7 @@ function buildCertificationPrompt(analysisRaw, m2Context, cases, bugs, engine, p
     '',
     reglas || '(sin reglas de negocio identificadas)',
     '',
-    'RESULTADOS DE EJECUCION (' + total + ' casos totales -- Pass: ' + passN + ', Retired: ' + retiredN + ', Fail: ' + failN + ', Blocked: ' + blkN + ', To Do: ' + todoN + '):',
+    'RESULTADOS DE EJECUCION (' + total + ' casos totales -- Exitosos: ' + passN + ', Desestimados: ' + retiredN + ', Fallidos: ' + failN + ', Bloqueados: ' + blkN + ', Sin ejecutar: ' + todoN + '):',
     summarizeCasesForPrompt(cases),
     '',
     'DEFECTOS REGISTRADOS:',
@@ -1936,10 +1941,11 @@ function buildCertificationPrompt(analysisRaw, m2Context, cases, bugs, engine, p
     'INSTRUCCIONES CRITICAS:',
     '1. Basate UNICAMENTE en los resultados reales de arriba -- no inventes cifras ni resultados. Este documento certifica',
     '   la calidad ante el cliente final -- CERO informacion inventada, sin excepcion.',
-    '2. Si hay casos en To Do o Blocked, justifica su impacto en la conclusion. NO inventes el MOTIVO por el que no se',
-    '   ejecutaron (priorizacion, falta de tiempo, ambiente, ventana de pruebas...): los datos de arriba no traen motivos.',
-    '   Di solo que estan pendientes, que su cumplimiento no esta evidenciado y que impacto tiene eso. Si un caso Blocked',
-    '   tiene un bug asociado en DEFECTOS REGISTRADOS, ese bug SI es un motivo real y puedes citarlo.',
+    '2. Si hay casos Sin ejecutar, Bloqueados o Desestimados, justifica su impacto en la conclusion. Usa como motivo',
+    '   UNICAMENTE el "motivo registrado por el QA" de cada caso (si lo trae) o un bug asociado en DEFECTOS REGISTRADOS.',
+    '   Si un caso no trae motivo, NO lo inventes (priorizacion, falta de tiempo, ambiente, ventana de pruebas...): di',
+    '   solo que esta pendiente, que su cumplimiento no esta evidenciado y que impacto tiene eso.',
+    '   Usa siempre los nombres de estado en espanol (Exitoso, Fallido, Bloqueado, Desestimado, Sin ejecutar).',
     '3. La conclusion de calidad debe ser honesta: si hay fails criticos sin resolver, no certifiques como apto sin condiciones.',
     '4. NO menciones que la ejecucion de pruebas uso o se apoyo en inteligencia artificial -- este documento describe',
     '   los resultados de QA hacia el cliente, no la herramienta interna que usa TestiAlab.',

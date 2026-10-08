@@ -692,7 +692,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="content wide">
       <div class="page-tag">HISTORICO</div>
       <h1 class="page-title">Historico de Sesiones</h1>
-      <p class="page-sub">Cada requerimiento analizado queda guardado con TODO su avance (casos, ejecucion, bugs, plan, certificacion) -- no solo el analisis. Se guarda automaticamente en este navegador (IndexedDB), asi que si cerras todo o apagas el equipo, al volver podes retomar exactamente donde quedaste. Elegi una sesion para cargarla como la sesion activa.</p>
+      <p class="page-sub">Cada requerimiento analizado queda guardado con TODO su avance (casos, ejecucion, bugs, plan, certificacion) -- no solo el analisis. Se guarda automaticamente en este navegador (IndexedDB), así que si cierras todo o apagas el equipo, al volver puedes retomar exactamente donde quedaste. Elige una sesión para cargarla como la sesión activa.</p>
       <div style="display:flex;gap:8px;margin-bottom:14px">
         <button class="btn btn-ghost" style="font-size:12px" onclick="exportHistoricoJSON()">Exportar Historico (.json)</button>
         <button class="btn btn-ghost" style="font-size:12px" onclick="document.getElementById('hist-import-input').click()">Importar Historico (.json)</button>
@@ -739,7 +739,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="content wide">
       <div class="page-tag">M5 &middot; EVIDENCIAS</div>
       <h1 class="page-title">Ejecucion y Evidencias</h1>
-      <p class="page-sub">Espacio de trabajo de un caso a la vez: eleji el caso, sube una o varias capturas de evidencia y pedile el veredicto a la IA (binario: Pass o Fail, sin ambiguedad) o marca el estado manualmente entre Pass, Retired, Fail, Blocked y To Do. Un caso Fail habilita el boton para reportar el bug directo desde aca. El avance efectivo (Pass+Retired) se refleja en tiempo real en el Informe de Avance Diario.</p>
+      <p class="page-sub">Espacio de trabajo de un caso a la vez: elige el caso, sube una o varias capturas de evidencia y pídele el veredicto a la IA (Exitoso o Fallido, sin ambigüedad), o marca el caso como Bloqueado o Desestimado con su motivo. Un caso Fallido habilita el botón para reportar el bug directo desde aquí. El avance efectivo (Exitosos + Desestimados) se refleja en tiempo real en el Informe de Avance Diario.</p>
       <div id="m4-body"></div>
     </div>
   </div>
@@ -757,7 +757,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="content wide">
       <div class="page-tag">AVANCE</div>
       <h1 class="page-title">Informe de Avance Diario</h1>
-      <p class="page-sub">Dashboard tipo "Testing progress report" con el conteo Pass/Retired/Fail/Blocked/To Do y el % de avance efectivo (solo Pass y Retired suman, porque Fail/Blocked/To Do necesitan (re)ejecucion). Se actualiza en tiempo real con lo que se marca en Ejecucion y Evidencias, e incluye el detalle de bugs abiertos con su desarrollador asignado. Transversal: disponible durante toda la ejecucion.</p>
+      <p class="page-sub">Tablero de avance de pruebas con el conteo de casos Exitosos, Desestimados, Fallidos, Bloqueados y Sin ejecutar, y el % de avance efectivo (solo Exitosos y Desestimados suman, porque Fallidos, Bloqueados y Sin ejecutar necesitan (re)ejecución). Se actualiza en tiempo real con lo que se marca en Ejecucion y Evidencias, e incluye el detalle de bugs abiertos con su desarrollador asignado. Transversal: disponible durante toda la ejecucion.</p>
       <div id="mavance-body"></div>
     </div>
   </div>
@@ -1664,7 +1664,10 @@ function renderM2() {
           ['Alto','Medio','Bajo'].map(function(k){ return '<option value="'+k+'" '+(S.reqComplejidad===k?'selected':'')+'>'+k+'</option>'; }).join('') +
         '</select>' +
       '</div>' +
-      (S.reqJustificacion ? '<div style="font-size:12px;color:var(--text2);margin-top:8px;line-height:1.6">'+esc(S.reqJustificacion)+'</div>' : '');
+      (S.reqJustificacion ? '<div style="font-size:12px;color:var(--text2);margin-top:8px;line-height:1.6">'+esc(S.reqJustificacion)+'</div>' : '') +
+      // Aclaracion (demo 2026-10-08): se esperaba que cambiar la complejidad moviera las
+      // horas; es intencional que no -- la ejecucion sale del ritmo en casos por dia.
+      '<div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">&#9432; La complejidad es una referencia para el QA y para el plan: <b>no cambia las horas</b>. La ejecución se calcula con la cantidad de casos y el ritmo de casos por día (más abajo); si este requerimiento va más lento por su complejidad, baja el ritmo.</div>';
 
   var totalPhases = computeTotalPhaseHours();
   var totalHM = decHoursToHM(totalPhases);
@@ -2399,6 +2402,13 @@ function renderM3() {
         '<div class="placeholder-ttl">Aun no hay casos generados</div>' +
         '<div class="placeholder-sub">La IA usara el analisis de M1, el Plan de Pruebas y la configuracion de M2 para disenar los casos. Tipos permitidos: Smoke, Funcional, UI, UX.</div>' +
         '<button class="btn btn-primary" id="btn-gen-cases" style="margin-top:14px" onclick="generateCases()">Generar casos con '+(_engine==='claude'?'un modelo de razonamiento de IA mas alto':'Gemini (Antigravity)')+'</button>' +
+        // Sin casos tambien se puede arrancar con casos propios (Excel o a mano) sin
+        // pasar por la IA -- antes estos botones solo aparecian cuando ya habia casos.
+        '<div style="display:flex;gap:8px;justify-content:center;margin-top:10px;flex-wrap:wrap">' +
+          '<button class="btn btn-ghost" onclick="document.getElementById(\'casos-import-input\').click()">&#8593; Importar desde Excel</button>' +
+          '<button class="btn btn-ghost" onclick="addManualCase()">+ Agregar caso manual</button>' +
+          '<input type="file" id="casos-import-input" accept=".xlsx" style="display:none" onchange="importCasosExcel(this)">' +
+        '</div>' +
       '</div>';
     return;
   }
@@ -2688,7 +2698,9 @@ function coverageReportHtml() {
       : '<div class="tbl-wrap"><table class="qa-table qa-table-narrow" style="font-size:11px"><thead><tr><th style="white-space:nowrap">ID</th><th>Descripcion (CA/RN de la HU)</th><th>Casos que lo cubren</th></tr></thead><tbody>'+rows+'</tbody></table></div>' +
         (missing.length
           ? '<div style="font-size:10.5px;color:var(--red);margin-top:8px;font-weight:600">Cobertura incompleta -- TestIALab exige el 100% de RF/CA sin excepcion.</div>'
-          : '')
+          // Verificado y completo: decirlo explicito (antes no salia nada y el QA no
+          // sabia si la verificacion habia terminado o encontrado algo).
+          : (verified ? '<div style="font-size:11.5px;color:var(--green);margin-top:8px;font-weight:600;background:var(--grn-bg);border:1px solid var(--grn-b);border-radius:6px;padding:8px 10px">&#10004; Cobertura completa: '+coverageCountText(items)+' tienen al menos un caso que los valida. No hace falta generar casos adicionales.</div>' : ''))
     ) +
     '<button class="btn btn-ghost" id="btn-verify-coverage" style="margin-top:10px" onclick="verifyCoverageWithAI()">'+(verified?'&#8634; Re-verificar':'Verificar')+' cobertura con IA</button>' +
     (verified && missing.length
@@ -2696,6 +2708,16 @@ function coverageReportHtml() {
       : '') +
     (verified ? '<div style="font-size:10px;color:var(--text3);margin-top:4px">Ultima verificacion: '+esc(verified.verifiedAt)+'</div>' : '') +
   '</div>';
+}
+
+// "los 12 criterios de aceptacion y las 9 reglas de negocio" a partir de los ids CA_/RN_.
+function coverageCountText(items) {
+  var ca = items.filter(function(x){ return /^CA_/i.test(x.id); }).length;
+  var rn = items.filter(function(x){ return /^RN_/i.test(x.id); }).length;
+  var parts = [];
+  if (ca) parts.push(ca === 1 ? 'el criterio de aceptación' : 'los '+ca+' criterios de aceptación');
+  if (rn) parts.push(rn === 1 ? 'la regla de negocio' : 'las '+rn+' reglas de negocio');
+  return parts.join(' y ') || 'todos los requisitos';
 }
 
 // Verificacion REAL con IA (Opus, sin thinking alto) -- manual (boton), no en
@@ -2735,7 +2757,8 @@ async function verifyCoverageWithAI() {
     }).filter(function(x){ return /^(CA|RN)_\d+$/i.test(x.id); });
     S.coverageVerified = { items: items, verifiedAt: nowStrCO() };
     ok = true;
-    toast('Cobertura verificada con IA','ok');
+    var nMissing = items.filter(function(x){ return !x.covered; }).length;
+    toast(nMissing ? 'Cobertura verificada: '+nMissing+' requisito(s) sin cubrir' : 'Cobertura verificada: completa', nMissing ? 'err' : 'ok');
   } catch(e) {
     toast(e.message,'err');
   } finally {
@@ -3205,7 +3228,7 @@ async function exportPlanPruebas_PDF() {
    ══════════════════════════════════════════════════════════════════ */
 // Estados fijos (pedido explicito): Pass, Retired, Fail, Blocked, To Do -- sin
 // estados ambiguos intermedios. Solo Pass y Retired cuentan como avance efectivo.
-const STATUS_LABELS = { todo:'To Do', pass:'Pass', retired:'Retired', fail:'Fail', blocked:'Blocked' };
+const STATUS_LABELS = { todo:'Sin ejecutar', pass:'Exitoso', retired:'Desestimado', fail:'Fallido', blocked:'Bloqueado' };
 const STATUS_BADGE  = { todo:'b-gray', pass:'b-green', retired:'b-dark', fail:'b-red', blocked:'b-orange' };
 var _exSelectedIdx = 0;
 
@@ -3449,9 +3472,9 @@ function renderM4() {
   var statusIconMap = {
     pass:    '<span style="color:var(--green);font-size:16px;font-weight:700" title="Exitoso">&#10003;</span>',
     fail:    '<span style="color:var(--red);font-size:16px;font-weight:700" title="Fallido">&#10007;</span>',
-    blocked: '<span style="color:var(--orange);font-size:14px" title="Blocked">&#9679;</span>',
-    retired: '<span style="color:var(--text3);font-size:14px" title="Retired">&#9679;</span>',
-    todo:    '<span style="color:var(--text3);font-size:11px" title="To Do">--</span>',
+    blocked: '<span style="color:var(--orange);font-size:14px" title="Bloqueado">&#9679;</span>',
+    retired: '<span style="color:var(--text3);font-size:14px" title="Desestimado">&#9679;</span>',
+    todo:    '<span style="color:var(--text3);font-size:11px" title="Sin ejecutar">--</span>',
   };
   var statusIcon = statusIconMap[cs.status||'todo'];
 
@@ -3523,7 +3546,7 @@ function renderM4() {
     var notaVacia = !(cs.estadoNota && cs.estadoNota.trim());
     estadoNotaHtml = '<div class="m2-card" style="margin-top:10px'+(notaVacia?';border-color:var(--red-b)':'')+'">' +
       '<div class="m2-card-hdr" style="color:'+(notaVacia?'var(--red)':'inherit')+'">Detalle del estado del caso (obligatorio)</div>' +
-      '<textarea class="m2-textarea" style="width:100%;min-height:64px" placeholder="Explica por que este caso queda '+(cs.status==='blocked'?'Blocked':'Retired')+'..." onchange="onEstadoNotaChange('+_exSelectedIdx+',this.value)">'+esc(cs.estadoNota||'')+'</textarea>' +
+      '<textarea class="m2-textarea" style="width:100%;min-height:64px" placeholder="Explica por qué este caso queda '+(cs.status==='blocked'?'bloqueado':'desestimado')+'..." onchange="onEstadoNotaChange('+_exSelectedIdx+',this.value)">'+esc(cs.estadoNota||'')+'</textarea>' +
       (notaVacia ? '<div style="font-size:10px;color:var(--red);margin-top:4px">Obligatorio -- no puedes cambiar de caso hasta diligenciarlo.</div>' : '') +
     '</div>';
   }
@@ -3531,11 +3554,11 @@ function renderM4() {
   body.innerHTML =
     // Resumen compacto de conteos por estado (sin Total ni % -- eso ya vive en el Informe de Avance Diario).
     '<div class="ev-summary">' +
-      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--green)">'+c.pass+'</div><div class="ev-stat-lbl">Pass</div></div>' +
-      '<div class="ev-stat"><div class="ev-stat-n">'+c.retired+'</div><div class="ev-stat-lbl">Retired</div></div>' +
-      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--red)">'+c.fail+'</div><div class="ev-stat-lbl">Fail</div></div>' +
-      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--orange)">'+c.blocked+'</div><div class="ev-stat-lbl">Blocked</div></div>' +
-      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--text3)">'+c.todo+'</div><div class="ev-stat-lbl">To Do</div></div>' +
+      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--green)">'+c.pass+'</div><div class="ev-stat-lbl">Exitosos</div></div>' +
+      '<div class="ev-stat"><div class="ev-stat-n">'+c.retired+'</div><div class="ev-stat-lbl">Desestimados</div></div>' +
+      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--red)">'+c.fail+'</div><div class="ev-stat-lbl">Fallidos</div></div>' +
+      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--orange)">'+c.blocked+'</div><div class="ev-stat-lbl">Bloqueados</div></div>' +
+      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--text3)">'+c.todo+'</div><div class="ev-stat-lbl">Sin ejecutar</div></div>' +
     '</div>' +
 
     '<div class="m2-card"><div class="m2-card-hdr">Caso a ejecutar</div>' +
@@ -3563,7 +3586,7 @@ function renderM4() {
         '<input type="file" accept="image/*,.pdf,.docx,.doc,.txt" multiple onchange="handleEvidenceUpload('+_exSelectedIdx+',this)">' +
         '<div class="drop-ico">&#8679;</div>' +
         '<div class="drop-t">Arrastra o haz clic para subir evidencia</div>' +
-        '<div class="drop-s">Capturas de pantalla, PDF, Word o TXT &middot; puedes subir varias por caso &middot; tambien podes pegar (Ctrl+V) una captura directo del portapapeles</div>' +
+        '<div class="drop-s">Capturas de pantalla, PDF, Word o TXT &middot; puedes subir varias por caso &middot; también puedes pegar (Ctrl+V) una captura directo del portapapeles</div>' +
       '</div>' +
       (evidenceList ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">'+evidenceList+'</div>' : '') +
       // Re-ejecutar caso vive al lado de Verificar con IA (antes en una tarjeta
@@ -3580,8 +3603,8 @@ function renderM4() {
       // Blocked/Retired: unicos dos estados que el QA manual puede setear a mano
       // (marcarEstadoManual) -- Pass/Fail/To Do siguen siendo automaticos (IA/Re-ejecutar).
       '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">' +
-        '<button class="btn btn-ghost" style="color:var(--orange)" onclick="marcarEstadoManual('+_exSelectedIdx+',\'blocked\')">Marcar Blocked</button>' +
-        '<button class="btn btn-ghost" style="color:var(--text2)" onclick="marcarEstadoManual('+_exSelectedIdx+',\'retired\')">Marcar Retired</button>' +
+        '<button class="btn btn-ghost" style="color:var(--orange)" onclick="marcarEstadoManual('+_exSelectedIdx+',\'blocked\')">Marcar como bloqueado</button>' +
+        '<button class="btn btn-ghost" style="color:var(--text2)" onclick="marcarEstadoManual('+_exSelectedIdx+',\'retired\')">Marcar como desestimado</button>' +
       '</div>' +
       verdictHtml +
       estadoNotaHtml +
@@ -4001,7 +4024,7 @@ function renderAvance() {
   var pct = evEffectivePct();
 
   var pieColors = { pass:'#009E7A', retired:'#0D1828', fail:'#E14848', blocked:'#C9A227', todo:'#9aa3b1' };
-  var pieOrder = [['pass','Pass'],['retired','Retired'],['fail','Fail'],['blocked','Blocked'],['todo','To Do']];
+  var pieOrder = [['pass','Exitosos'],['retired','Desestimados'],['fail','Fallidos'],['blocked','Bloqueados'],['todo','Sin ejecutar']];
   var pieGradient;
   if (!total || (c.pass+c.retired+c.fail+c.blocked+c.todo) === 0) {
     pieGradient = '#c7cdd6'; // gris solido -- sin ningun avance todavia
@@ -4046,16 +4069,16 @@ function renderAvance() {
     '<div contenteditable="true" onblur="onAvanceEditBlur(\'intro\',this)" style="font-size:12.5px;color:var(--text2);line-height:1.7;margin-bottom:14px;outline:none;border-bottom:1px dashed var(--border2);padding-bottom:10px">'+(S.avanceEdits.intro != null ? esc(S.avanceEdits.intro) : avanceIntroHtml())+'</div>' +
 
     '<div class="tpr-wrap">' +
-      '<div class="tpr-hdr">&#128202; Testing progress report</div>' +
+      '<div class="tpr-hdr">&#128202; Avance de pruebas</div>' +
       '<div class="tpr-body">' +
         '<table class="tpr-table">' +
           '<thead><tr>' +
-            '<th class="tpr-th-cases">Test Cases</th>' +
-            '<th class="tpr-th-pass">'+c.pass+'-Pass</th>' +
-            '<th class="tpr-th-retired">'+c.retired+'-Retired</th>' +
-            '<th class="tpr-th-fail">'+c.fail+'-Fail</th>' +
-            '<th class="tpr-th-blocked">'+c.blocked+'-Blocked</th>' +
-            '<th class="tpr-th-todo">To Do</th>' +
+            '<th class="tpr-th-cases">Casos</th>' +
+            '<th class="tpr-th-pass">'+c.pass+' Exitosos</th>' +
+            '<th class="tpr-th-retired">'+c.retired+' Desestimados</th>' +
+            '<th class="tpr-th-fail">'+c.fail+' Fallidos</th>' +
+            '<th class="tpr-th-blocked">'+c.blocked+' Bloqueados</th>' +
+            '<th class="tpr-th-todo">Sin ejecutar</th>' +
           '</tr></thead>' +
           '<tbody>' +
             '<tr><td>'+total+'</td><td>'+c.pass+'</td><td>'+c.retired+'</td><td>'+c.fail+'</td><td>'+c.blocked+'</td><td>'+c.todo+'</td></tr>' +
@@ -4146,7 +4169,7 @@ async function generateCertification() {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         analysisRaw: _analysis,
-        cases: S.cases.map(function(c){ return {id:c.id, caso:c.caso, escenario:c.escenario, status:c.status, verdict:c.verdict}; }),
+        cases: S.cases.map(function(c){ return {id:c.id, caso:c.caso, escenario:c.escenario, status:c.status, verdict:c.verdict, estadoNota:c.estadoNota}; }),
         bugs: S.bugs,
         // Objetivo/Alcance ya aprobados en el Plan de Pruebas -- Certificacion los
         // reusa como referencia principal en vez de re-derivarlos del analisis crudo.
