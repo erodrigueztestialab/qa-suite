@@ -1,7 +1,7 @@
 - [Español colombiano](feedback_spanish_colombian.md) — responder siempre en español colombiano TUTEANDO (tú), nunca "usted" ni "vos"/voseo.
 - [Probar antes de decir "listo"](feedback_test_before_claiming_done.md) — verificar de verdad (navegador/reproducción), no solo revisión de código.
-- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 23 cerrada (2026-10-06): PRs #44-#55, main==develop. Próxima: confirmar que reinició el 3001 y cómo ve M2 (ritmo 10 casos/día, 5769=36.8h) y M3; luego preguntar.
-- [Identidad git QA-Suite](project_git_identity.md) — todo commit/push/PR debe ser erodriguez@testialab.com / erodrigueztestialab, nunca kaironyx ni el email de Cinemark.
+- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 24 (2026-10-08): demo Liz → 6 fases en PRs encadenados #58→#60→#61→#62→#63→#64→#65 (+#59 memoria) SIN mergear; 3001 corre la rama fase6.
+- [Identidad git QA-Suite](project_git_identity.md) — todo commit/push/PR solo con correo @testialab.com (erodriguez@testialab.com / erodrigueztestialab); nunca otro dominio ni otra cuenta.
 - [Flujo de ramas QA-Suite](project_git_workflow.md) — main/develop/feature con PR obligatorio; auto-borrado de feature/* al mergear + ruleset que impide borrar main/develop (2026-09-29).
 - [Modelo/esfuerzo preferido](feedback_model_effort.md) — Sonnet medio por defecto para fixes/desarrollo en QA Suite (mi propio razonamiento), salvo indicación contraria.
 - [Política de modelos QA Suite](project_qa_suite_model_policy.md) — modelo fuerte SOLO en M4 (ambos motores); resto estándar con --effort medium explícito en TODOS los endpoints Sonnet (2026-09-29).
@@ -12,3 +12,4 @@
 - [Descripciones de PR detalladas](feedback_pr_descriptions.md) — PRs ultra detallados: contexto, causa raíz, cambios por función, tabla de verificación, riesgos, commits; nunca bullets cortos.
 - [Estrategia QA real de TestIALab](project_testialab_qa_strategy.md) — una sola entrega completa, todos los casos, re-test de bugs + regresión focalizada; nunca ciclos/sprints/entregas parciales.
 - [Metodología genérica, sin negocio quemado](feedback_generic_methodology.md) — nunca convertir conceptos de un cliente (EAN, EDI…) en casos, reglas, ejemplos de prompt ni backlog; la metodología aplica a cualquier requerimiento.
+- [Plan demo Liz 2026-10-08](project_plan_liz_2026_10_08.md) — 6 fases (bugs, Avance gerencial/Teams, Bugs, consolidar casos M4, finalizacion, docs) + decisiones: estados en espanol, M2 solo nota, repo publico por hoy.

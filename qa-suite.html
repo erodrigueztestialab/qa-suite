@@ -107,8 +107,13 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 .upload-zone{border:1px dashed rgba(0,163,136,0.25);border-radius:7px;padding:18px;
   cursor:pointer;transition:all .2s;background:rgba(0,163,136,0.025);text-align:center;position:relative}
 .upload-zone:hover,.upload-zone.drag{border-color:rgba(0,163,136,0.5);background:rgba(0,163,136,0.05)}
-.upload-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.upload-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;z-index:2}
 .drop-ico{font-size:22px;margin-bottom:5px;opacity:.35}
+/* M1: zona grande y obvia -- toda el area abre el dialogo (el input la cubre). */
+.upload-zone-m1{padding:30px 18px;min-height:170px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.upload-zone-m1 .drop-ico{font-size:30px}
+.upload-zone-m1 .drop-t{font-size:13.5px}
+.drop-btn{margin:10px 0 8px;pointer-events:none}
 .drop-t{font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:2px}
 .drop-s{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace}
 
@@ -408,7 +413,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
 .tpr-pct-row td{font-weight:500;font-size:10.5px;color:var(--text3);background:var(--bg2)}
 .tpr-th-cases{background:var(--navy)}
 .tpr-th-pass{background:var(--green)}
-.tpr-th-retired{background:rgba(15,26,38,0.85)}
+.tpr-th-retired{background:#5B6B82}
 .tpr-th-fail{background:var(--red)}
 .tpr-th-blocked{background:#C9A227}
 .tpr-th-todo{background:#8b93a1}
@@ -552,12 +557,13 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
 
       <!-- Upload -->
       <div class="card" id="upload-card">
-        <div class="card-hdr">Subir documento</div>
+        <div class="card-hdr" style="cursor:pointer" onclick="openFilePicker()">Subir documento</div>
         <div class="upload-body">
-          <div class="upload-zone" id="upload-zone">
+          <div class="upload-zone upload-zone-m1" id="upload-zone">
             <input type="file" id="file-input" accept=".pdf,.docx,.doc,.txt" multiple onchange="handleFileUpload(this)">
             <div class="drop-ico">&#8679;</div>
-            <div class="drop-t">Arrastra tus archivos o haz clic</div>
+            <div class="drop-t">Haz clic en cualquier parte de este recuadro o arrastra tus archivos a la pantalla</div>
+            <span class="btn btn-primary drop-btn">Seleccionar archivos</span>
             <div class="drop-s">PDF (vision nativa) &middot; DOCX/DOC (convierte a PDF) &middot; TXT &middot; puedes subir varios a la vez (ej: HU + anexo + transcripcion de reunion)</div>
           </div>
         </div>
@@ -686,7 +692,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="content wide">
       <div class="page-tag">HISTORICO</div>
       <h1 class="page-title">Historico de Sesiones</h1>
-      <p class="page-sub">Cada requerimiento analizado queda guardado con TODO su avance (casos, ejecucion, bugs, plan, certificacion) -- no solo el analisis. Se guarda automaticamente en este navegador (IndexedDB), asi que si cerras todo o apagas el equipo, al volver podes retomar exactamente donde quedaste. Elegi una sesion para cargarla como la sesion activa.</p>
+      <p class="page-sub">Cada requerimiento analizado queda guardado con TODO su avance (casos, ejecucion, bugs, plan, certificacion) -- no solo el analisis. Se guarda automaticamente en este navegador (IndexedDB), así que si cierras todo o apagas el equipo, al volver puedes retomar exactamente donde quedaste. Elige una sesión para cargarla como la sesión activa.</p>
       <div style="display:flex;gap:8px;margin-bottom:14px">
         <button class="btn btn-ghost" style="font-size:12px" onclick="exportHistoricoJSON()">Exportar Historico (.json)</button>
         <button class="btn btn-ghost" style="font-size:12px" onclick="document.getElementById('hist-import-input').click()">Importar Historico (.json)</button>
@@ -733,7 +739,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="content wide">
       <div class="page-tag">M5 &middot; EVIDENCIAS</div>
       <h1 class="page-title">Ejecucion y Evidencias</h1>
-      <p class="page-sub">Espacio de trabajo de un caso a la vez: eleji el caso, sube una o varias capturas de evidencia y pedile el veredicto a la IA (binario: Pass o Fail, sin ambiguedad) o marca el estado manualmente entre Pass, Retired, Fail, Blocked y To Do. Un caso Fail habilita el boton para reportar el bug directo desde aca. El avance efectivo (Pass+Retired) se refleja en tiempo real en el Informe de Avance Diario.</p>
+      <p class="page-sub">Espacio de trabajo de un caso a la vez: elige el caso, sube una o varias capturas de evidencia y pídele el veredicto a la IA (Exitoso o Fallido, sin ambigüedad), o marca el caso como Bloqueado o Desestimado con su motivo. Un caso Fallido habilita el botón para reportar el bug directo desde aquí. El avance efectivo (Exitosos + Desestimados) se refleja en tiempo real en el Informe de Avance Diario.</p>
       <div id="m4-body"></div>
     </div>
   </div>
@@ -751,7 +757,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="content wide">
       <div class="page-tag">AVANCE</div>
       <h1 class="page-title">Informe de Avance Diario</h1>
-      <p class="page-sub">Dashboard tipo "Testing progress report" con el conteo Pass/Retired/Fail/Blocked/To Do y el % de avance efectivo (solo Pass y Retired suman, porque Fail/Blocked/To Do necesitan (re)ejecucion). Se actualiza en tiempo real con lo que se marca en Ejecucion y Evidencias, e incluye el detalle de bugs abiertos con su desarrollador asignado. Transversal: disponible durante toda la ejecucion.</p>
+      <p class="page-sub">Tablero de avance de pruebas con el conteo de casos Exitosos, Desestimados, Fallidos, Bloqueados y Sin ejecutar, y el % de avance efectivo (solo Exitosos y Desestimados suman, porque Fallidos, Bloqueados y Sin ejecutar necesitan (re)ejecución). Se actualiza en tiempo real con lo que se marca en Ejecucion y Evidencias, e incluye el detalle de bugs abiertos con su desarrollador asignado. Transversal: disponible durante toda la ejecucion.</p>
       <div id="mavance-body"></div>
     </div>
   </div>
@@ -815,10 +821,10 @@ var S = {
   planPruebasRaw : null, // respuesta cruda de /api/generate-plan (fuente original de la IA)
   planSections   : null, // {objetivo, alcanceDentro[], ...} -- version EDITABLE por el QA, se exporta desde aca
   certRaw        : null, // respuesta cruda de /api/generate-certification
-  // Textos editables del Informe de Avance -- si el QA no ha escrito nada (null),
-  // se muestra un texto calculado a partir del estado real; en cuanto edita, se
-  // guarda tal cual el QA lo dejo (no se vuelve a calcular por encima).
-  avanceEdits    : { intro: null, validacionesRealizadas: null, pendientesEspecialista: null },
+  // Lo que escribe el QA en el mensaje de avance para Teams (saludo/cierre null =
+  // texto por defecto). Las secciones por estado NO se guardan: se calculan siempre.
+  avanceNotas    : { saludo: null, observaciones: '', cierre: null },
+  finalNotas     : { saludo: null, observaciones: '', cierre: null }, // mensaje de finalizacion (Certificacion)
   // Responsables del Plan de Pruebas: 3 filas FIJAS (igual que la plantilla real de
   // TestiAlab) -- Nombre/Rol y Contacto son editables por el QA, varian por requerimiento.
   responsables: [
@@ -1408,7 +1414,8 @@ function resetDownstreamState() {
   // requerimiento NUEVO sin recargar la pagina dejaria pegado el intro/validaciones
   // del requerimiento ANTERIOR (mismo tipo de bug de "mezcla de sesiones" ya
   // corregido antes en M1).
-  S.avanceEdits = { intro: null, validacionesRealizadas: null, pendientesEspecialista: null };
+  S.avanceNotas = { saludo: null, observaciones: '', cierre: null };
+  S.finalNotas = { saludo: null, observaciones: '', cierre: null };
   _selectedCaseIds = {};
   S.responsables = [
     { equipo: 'TestiAlab', cargo: '', contacto: '' },
@@ -1468,7 +1475,7 @@ function renderAnalysis(raw) {
   renderM2();
 }
 
-// Patron tomado de Cinemark: no basta con desbloquear el nav, se pide
+// No basta con desbloquear el nav, se pide
 // confirmacion explicita antes de avanzar — el QA debe revisar a conciencia.
 // El desbloqueo real de M2 pasa ACA, no antes -- si el QA cancela el popup,
 // M2 sigue bloqueado.
@@ -1658,7 +1665,10 @@ function renderM2() {
           ['Alto','Medio','Bajo'].map(function(k){ return '<option value="'+k+'" '+(S.reqComplejidad===k?'selected':'')+'>'+k+'</option>'; }).join('') +
         '</select>' +
       '</div>' +
-      (S.reqJustificacion ? '<div style="font-size:12px;color:var(--text2);margin-top:8px;line-height:1.6">'+esc(S.reqJustificacion)+'</div>' : '');
+      (S.reqJustificacion ? '<div style="font-size:12px;color:var(--text2);margin-top:8px;line-height:1.6">'+esc(S.reqJustificacion)+'</div>' : '') +
+      // Aclaracion (demo 2026-10-08): se esperaba que cambiar la complejidad moviera las
+      // horas; es intencional que no -- la ejecucion sale del ritmo en casos por dia.
+      '<div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">&#9432; La complejidad es una referencia para el QA y para el plan: <b>no cambia las horas</b>. La ejecución se calcula con la cantidad de casos y el ritmo de casos por día (más abajo); si este requerimiento va más lento por su complejidad, baja el ritmo.</div>';
 
   var totalPhases = computeTotalPhaseHours();
   var totalHM = decHoursToHM(totalPhases);
@@ -2159,7 +2169,9 @@ function parseCasesBlock(raw) {
     var idMatch = /^###\s*(CP_\d+)/.exec(chunk);
     var id = idMatch ? idMatch[1] : ('CP_'+(i+1));
     function field(label) {
-      var re = new RegExp('^\\s*'+label+'\\s*:\\s*(.+)$', 'im');
+      // [ \t] y no \s: con \s, un campo vacio ("Detalle:") saltaba a la linea siguiente
+      // y capturaba "Pasos:" como su valor.
+      var re = new RegExp('^[ \\t]*'+label+'[ \\t]*:[ \\t]*(.+)$', 'im');
       var m = re.exec(chunk);
       return m ? m[1].trim() : '';
     }
@@ -2171,6 +2183,8 @@ function parseCasesBlock(raw) {
       // boton/llamada IA aparte) -- editable despues por el QA si no esta de acuerdo.
       complejidadEjecucion: /alto/i.test(complejidadRaw) ? 'Alto' : /bajo/i.test(complejidadRaw) ? 'Bajo' : 'Medio',
       escenario: field('Escenario'), caso: field('Caso'), objetivo: field('Objetivo'),
+      // Solo los trae la consolidacion de casos (IA + QA + Cliente); vacios en la generacion normal.
+      origen: field('Origen'), accion: field('Accion'), detalle: field('Detalle'),
       steps: parseStepsWithResults(pasosMatch ? pasosMatch[1] : ''),
       status: 'todo', evidenceNames: [], verdict: null, verdictNote: null,
     };
@@ -2383,6 +2397,156 @@ async function regenerateCasesWithTranscripts() {
   await generateCases(_caseTranscriptFiles);
 }
 
+/* ── Consolidar casos de varias fuentes (M4) ─────────────────────────────────
+   Demo 2026-10-08 (Liz): el QA sube sus propios casos y/o los del cliente (Excel con
+   CUALQUIER plantilla, CSV, Word o TXT); la IA los cruza con los generados y propone
+   UNA version final. El QA la revisa (origen/accion de cada caso + descartados) y
+   decide que aplicar -- nada reemplaza los casos sin su confirmacion. */
+var _consolidateFiles = [];     // [{filename, origen:'QA'|'Cliente', text}]
+var _consolidateResult = null;  // {cases:[...], descartados:[{origen,titulo,motivo}], accepted:{idx:true}}
+var _consolidating = false;
+var CONSOLIDATE_MAX_CHARS = 80000; // por archivo -- un Excel enorme no debe reventar el prompt
+var CONSOLIDATE_ORIGEN_BADGE = { IA:'b-gray', QA:'b-blue', Cliente:'b-orange', Combinado:'b-green' };
+var CONSOLIDATE_ACCION_BADGE = { 'Se mantiene':'b-gray', 'Mejorado':'b-blue', 'Fusionado':'b-green', 'Nuevo':'b-orange' };
+
+// Excel/CSV: cada hoja a texto CSV en el navegador (la IA identifica las columnas, sin
+// amarrarse a una plantilla). Word/TXT: texto via /api/upload (mismo extractor de M1).
+async function readConsolidateFile(file) {
+  var ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (['xlsx','xls','csv'].indexOf(ext) !== -1) {
+    var buf = await file.arrayBuffer();
+    var wb = XLSX.read(buf, { type: 'array' });
+    return wb.SheetNames.map(function(name){
+      var csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false }).replace(/^[,\s]+$/gm, '').replace(/\n{2,}/g, '\n').trim();
+      return csv ? '## Hoja: '+name+'\n'+csv : '';
+    }).filter(Boolean).join('\n\n');
+  }
+  var fd = new FormData(); fd.append('file', file);
+  var r = await fetch(API+'/api/upload', { method:'POST', body:fd });
+  var d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'Error al procesar');
+  if (d.mode === 'native') throw new Error('los PDF no traen texto extraíble aquí; sube Excel, Word o TXT');
+  return d.text || '';
+}
+async function handleConsolidateUpload(input) {
+  var files = Array.prototype.slice.call(input.files || []);
+  for (var i = 0; i < files.length; i++) {
+    try {
+      var text = (await readConsolidateFile(files[i])).trim();
+      if (!text) { toast('"'+files[i].name+'" no tiene contenido legible.','err'); continue; }
+      if (text.length > CONSOLIDATE_MAX_CHARS) { text = text.slice(0, CONSOLIDATE_MAX_CHARS); toast('"'+files[i].name+'" es muy grande: se usan los primeros '+CONSOLIDATE_MAX_CHARS.toLocaleString()+' caracteres.','err'); }
+      _consolidateFiles.push({ filename: files[i].name, origen: 'QA', text: text });
+    } catch(e) { toast('"'+files[i].name+'": '+e.message,'err'); }
+  }
+  input.value = '';
+  renderM3();
+}
+function setConsolidateOrigen(i, v) { if (_consolidateFiles[i]) _consolidateFiles[i].origen = v; }
+function removeConsolidateFile(i) { _consolidateFiles.splice(i,1); renderM3(); }
+function consolidateCardHtml() {
+  var chips = _consolidateFiles.map(function(f,i){
+    return '<div class="ev-file-chip" style="display:flex;align-items:center;gap:6px">'+esc(f.filename) +
+      '<select class="m2-select" style="font-size:10.5px;padding:2px 4px" onchange="setConsolidateOrigen('+i+',this.value)">' +
+        '<option value="QA" '+(f.origen==='QA'?'selected':'')+'>Casos del QA</option><option value="Cliente" '+(f.origen==='Cliente'?'selected':'')+'>Casos del cliente</option>' +
+      '</select><button onclick="removeConsolidateFile('+i+')" title="Quitar">&times;</button></div>';
+  }).join('');
+  return '<div class="m2-card" style="margin-bottom:14px"><div class="m2-card-hdr">Consolidar con casos del QA o del cliente</div>' +
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Sube tus propios casos o los que entregó el cliente (Excel con cualquier plantilla, CSV, Word o TXT; pueden ser solo títulos). La IA los cruza con los casos actuales y te propone una sola versión final, sin duplicados: tú revisas y decides qué aplicar.</div>' +
+    '<div class="upload-zone" style="position:relative">' +
+      '<input type="file" accept=".xlsx,.xls,.csv,.docx,.doc,.txt" multiple onchange="handleConsolidateUpload(this)">' +
+      '<div class="drop-ico">&#8679;</div>' +
+      '<div class="drop-t">Arrastra o haz clic para adjuntar casos</div>' +
+      '<div class="drop-s">Excel / CSV / Word / TXT &middot; marca en cada archivo si los casos son tuyos o del cliente</div>' +
+    '</div>' +
+    (chips ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">'+chips+'</div>' : '') +
+    '<button class="btn btn-primary" id="btn-consolidate" style="margin-top:10px" onclick="consolidateCases()" '+(_consolidateFiles.length && !_consolidating ? '' : 'disabled')+'>' +
+      (_consolidating ? '<span class="spin"></span> Consolidando...' : 'Consolidar con IA') + '</button>' +
+  '</div>';
+}
+async function consolidateCases() {
+  if (!_analysis) { toast('Analiza un requerimiento primero.','err'); return; }
+  if (!_consolidateFiles.length) { toast('Adjunta al menos un archivo con casos.','err'); return; }
+  _consolidating = true; renderM3();
+  sideConsoleStart('m3', 'Consolidando casos con '+(_engine==='claude'?'un modelo de razonamiento de IA mas alto':'Gemini (Antigravity)'));
+  var evtSrc = procConsoleSSE('sc-m3');
+  var t0 = Date.now(); var ok = false;
+  try {
+    var r = await fetch(API+'/api/consolidate-cases', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      analysisRaw: _analysis,
+      cases: S.cases.map(function(c){ return { id:c.id, requisito:c.requisito, tipo:c.tipo, escenario:c.escenario, caso:c.caso, objetivo:c.objetivo, steps:c.steps }; }),
+      sources: _consolidateFiles.map(function(f){ return { origen:f.origen, filename:f.filename, text:f.text }; }),
+      m2Context: { impactAreas: S.impactAreas },
+      engine: _engine, reqId: evtSrc.reqId,
+    }) });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error consolidando casos');
+    addAiTime((Date.now()-t0)/1000);
+    var cases = parseCasesBlock(d.raw);
+    if (!cases.length) throw new Error('La IA no devolvió casos en el formato esperado.');
+    cases.forEach(function(c){
+      c.origen = ['IA','QA','Cliente','Combinado'].filter(function(o){ return new RegExp('^'+o,'i').test(c.origen||''); })[0] || 'IA';
+      c.accion = ['Se mantiene','Mejorado','Fusionado','Nuevo'].filter(function(a){ return new RegExp('^'+a,'i').test(c.accion||''); })[0] || 'Se mantiene';
+    });
+    var desc = (parseSection(d.raw, 'DESCARTADOS') || '').split('\n').map(function(l){ return l.trim(); })
+      .filter(function(l){ return l && l.indexOf('|') !== -1; })
+      .map(function(l){ var p = l.split('|').map(function(x){ return x.trim(); }); return { origen: p[0], titulo: p[1] || '', motivo: p.slice(2).join(' | ') }; });
+    var accepted = {}; cases.forEach(function(c, i){ accepted[i] = true; });
+    _consolidateResult = { cases: cases, descartados: desc, accepted: accepted };
+    ok = true;
+    toast('Consolidación lista: revisa la propuesta antes de aplicarla.','ok');
+  } catch(e) {
+    toast(e.message,'err');
+  } finally {
+    _consolidating = false;
+    procConsoleStop('sc-m3', ok);
+    evtSrc.close();
+    renderM3();
+  }
+}
+function toggleConsolidateCase(i, v) { if (_consolidateResult) { if (v) _consolidateResult.accepted[i] = true; else delete _consolidateResult.accepted[i]; } }
+function consolidateReviewHtml() {
+  var R = _consolidateResult;
+  var count = function(key, val){ return R.cases.filter(function(c){ return c[key] === val; }).length; };
+  var resumen = ['Se mantiene','Mejorado','Fusionado','Nuevo'].map(function(a){ return '<span class="badge '+CONSOLIDATE_ACCION_BADGE[a]+'">'+a+': '+count('accion',a)+'</span>'; }).join(' ') +
+    ' &nbsp; ' + ['IA','QA','Cliente','Combinado'].map(function(o){ return '<span class="badge '+CONSOLIDATE_ORIGEN_BADGE[o]+'">'+o+': '+count('origen',o)+'</span>'; }).join(' ');
+  var rows = R.cases.map(function(c, i){
+    return '<tr><td><input type="checkbox" '+(R.accepted[i]?'checked':'')+' onchange="toggleConsolidateCase('+i+',this.checked)"></td>' +
+      '<td class="mono">'+esc(c.id)+'</td><td>'+esc(c.caso)+'<div style="font-size:10px;color:var(--text3)">'+esc(c.requisito||'')+' &middot; '+(c.steps||[]).length+' paso(s)</div></td>' +
+      '<td><span class="badge '+(CONSOLIDATE_ORIGEN_BADGE[c.origen]||'b-gray')+'">'+esc(c.origen)+'</span></td>' +
+      '<td><span class="badge '+(CONSOLIDATE_ACCION_BADGE[c.accion]||'b-gray')+'">'+esc(c.accion)+'</span></td>' +
+      '<td style="font-size:11px;color:var(--text2)">'+esc(c.detalle||'')+'</td></tr>';
+  }).join('');
+  var desc = R.descartados.length
+    ? '<div class="m2-card-hdr" style="margin-top:12px">Casos externos descartados ('+R.descartados.length+')</div>' +
+      '<ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text2);line-height:1.6">'+R.descartados.map(function(x){ return '<li><b>'+esc(x.origen)+'</b> – '+esc(x.titulo)+': '+esc(x.motivo)+'</li>'; }).join('')+'</ul>'
+    : '';
+  return '<div class="m2-card" style="margin-bottom:14px;border:1px solid var(--teal)">' +
+    '<div class="m2-card-hdr" style="color:var(--teal)">Revisión de la consolidación: '+R.cases.length+' caso(s) propuestos</div>' +
+    '<div style="margin-bottom:8px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">'+resumen+'</div>' +
+    '<div class="tbl-wrap"><table class="qa-table qa-table-narrow" style="font-size:11.5px"><thead><tr><th></th><th>ID</th><th>Caso</th><th>Origen</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>'+rows+'</tbody></table></div>' +
+    desc +
+    '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
+      '<button class="btn btn-primary" onclick="applyConsolidation()">Aplicar casos marcados</button>' +
+      '<button class="btn btn-ghost" onclick="discardConsolidation()">Descartar propuesta</button>' +
+    '</div>' +
+    '<div style="font-size:10.5px;color:var(--text3);margin-top:6px">Al aplicar, los casos marcados <b>reemplazan</b> los actuales (se renumeran CP_1, CP_2…), y hay que volver a verificar la cobertura y exportar el Excel.</div>' +
+  '</div>';
+}
+function applyConsolidation() {
+  var R = _consolidateResult; if (!R) return;
+  var picked = R.cases.filter(function(c, i){ return R.accepted[i]; });
+  if (!picked.length) { toast('Marca al menos un caso para aplicar.','err'); return; }
+  if (!confirm('Los '+picked.length+' caso(s) marcados reemplazan los '+S.cases.length+' casos actuales. ¿Continuar?')) return;
+  S.cases = picked.map(function(c, i){ c.id = 'CP_'+(i+1); return c; });
+  _selectedCaseIds = {};
+  S.coverageVerified = null;
+  S.casesExcelExported = false;
+  _consolidateResult = null; _consolidateFiles = [];
+  toast(picked.length+' casos consolidados aplicados. Verifica la cobertura con IA.','ok');
+  renderM3();
+}
+function discardConsolidation() { _consolidateResult = null; renderM3(); }
+
 function renderM3() {
   var body = document.getElementById('m3-body');
   if (!body) return;
@@ -2393,6 +2557,13 @@ function renderM3() {
         '<div class="placeholder-ttl">Aun no hay casos generados</div>' +
         '<div class="placeholder-sub">La IA usara el analisis de M1, el Plan de Pruebas y la configuracion de M2 para disenar los casos. Tipos permitidos: Smoke, Funcional, UI, UX.</div>' +
         '<button class="btn btn-primary" id="btn-gen-cases" style="margin-top:14px" onclick="generateCases()">Generar casos con '+(_engine==='claude'?'un modelo de razonamiento de IA mas alto':'Gemini (Antigravity)')+'</button>' +
+        // Sin casos tambien se puede arrancar con casos propios (Excel o a mano) sin
+        // pasar por la IA -- antes estos botones solo aparecian cuando ya habia casos.
+        '<div style="display:flex;gap:8px;justify-content:center;margin-top:10px;flex-wrap:wrap">' +
+          '<button class="btn btn-ghost" onclick="document.getElementById(\'casos-import-input\').click()">&#8593; Importar desde Excel</button>' +
+          '<button class="btn btn-ghost" onclick="addManualCase()">+ Agregar caso manual</button>' +
+          '<input type="file" id="casos-import-input" accept=".xlsx" style="display:none" onchange="importCasosExcel(this)">' +
+        '</div>' +
       '</div>';
     return;
   }
@@ -2412,6 +2583,7 @@ function renderM3() {
         '<span class="mono" style="font-size:11px;color:var(--text3)">'+esc(c.id)+'</span>' +
         '<span class="case-card-title">'+esc(c.caso||'(sin titulo)')+'</span>' +
         '<span class="badge b-blue">'+esc(c.tipo||'-')+'</span>' +
+        (c.origen && c.origen !== 'IA' ? '<span class="badge '+(CONSOLIDATE_ORIGEN_BADGE[c.origen]||'b-gray')+'" title="Origen del caso">'+esc(c.origen)+'</span>' : '') +
         '<span class="badge '+(complexBadge[c.complejidadEjecucion]||'b-gray')+'" title="Complejidad de ejecucion">'+esc(c.complejidadEjecucion||'Medio')+'</span>' +
         '<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" onclick="editCase('+i+')">&#9998; Editar</button>' +
         '<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" onclick="deleteCase('+i+')">&#10005; Eliminar</button>' +
@@ -2441,6 +2613,8 @@ function renderM3() {
       '<div class="advance-ttl" style="color:var(--green)">&#10003; '+S.cases.length+' caso(s) generados</div>' +
       '<div class="advance-sub">Edita o elimina casos antes de continuar a Ejecucion.</div>' +
     '</div>' +
+    (_consolidateResult ? consolidateReviewHtml() : '') +
+    consolidateCardHtml() +
     caseTranscriptsHtml() +
     cards +
     coverageReportHtml() +
@@ -2682,7 +2856,9 @@ function coverageReportHtml() {
       : '<div class="tbl-wrap"><table class="qa-table qa-table-narrow" style="font-size:11px"><thead><tr><th style="white-space:nowrap">ID</th><th>Descripcion (CA/RN de la HU)</th><th>Casos que lo cubren</th></tr></thead><tbody>'+rows+'</tbody></table></div>' +
         (missing.length
           ? '<div style="font-size:10.5px;color:var(--red);margin-top:8px;font-weight:600">Cobertura incompleta -- TestIALab exige el 100% de RF/CA sin excepcion.</div>'
-          : '')
+          // Verificado y completo: decirlo explicito (antes no salia nada y el QA no
+          // sabia si la verificacion habia terminado o encontrado algo).
+          : (verified ? '<div style="font-size:11.5px;color:var(--green);margin-top:8px;font-weight:600;background:var(--grn-bg);border:1px solid var(--grn-b);border-radius:6px;padding:8px 10px">&#10004; Cobertura completa: '+coverageCountText(items)+' tienen al menos un caso que los valida. No hace falta generar casos adicionales.</div>' : ''))
     ) +
     '<button class="btn btn-ghost" id="btn-verify-coverage" style="margin-top:10px" onclick="verifyCoverageWithAI()">'+(verified?'&#8634; Re-verificar':'Verificar')+' cobertura con IA</button>' +
     (verified && missing.length
@@ -2690,6 +2866,16 @@ function coverageReportHtml() {
       : '') +
     (verified ? '<div style="font-size:10px;color:var(--text3);margin-top:4px">Ultima verificacion: '+esc(verified.verifiedAt)+'</div>' : '') +
   '</div>';
+}
+
+// "los 12 criterios de aceptacion y las 9 reglas de negocio" a partir de los ids CA_/RN_.
+function coverageCountText(items) {
+  var ca = items.filter(function(x){ return /^CA_/i.test(x.id); }).length;
+  var rn = items.filter(function(x){ return /^RN_/i.test(x.id); }).length;
+  var parts = [];
+  if (ca) parts.push(ca === 1 ? 'el criterio de aceptación' : 'los '+ca+' criterios de aceptación');
+  if (rn) parts.push(rn === 1 ? 'la regla de negocio' : 'las '+rn+' reglas de negocio');
+  return parts.join(' y ') || 'todos los requisitos';
 }
 
 // Verificacion REAL con IA (Opus, sin thinking alto) -- manual (boton), no en
@@ -2729,7 +2915,8 @@ async function verifyCoverageWithAI() {
     }).filter(function(x){ return /^(CA|RN)_\d+$/i.test(x.id); });
     S.coverageVerified = { items: items, verifiedAt: nowStrCO() };
     ok = true;
-    toast('Cobertura verificada con IA','ok');
+    var nMissing = items.filter(function(x){ return !x.covered; }).length;
+    toast(nMissing ? 'Cobertura verificada: '+nMissing+' requisito(s) sin cubrir' : 'Cobertura verificada: completa', nMissing ? 'err' : 'ok');
   } catch(e) {
     toast(e.message,'err');
   } finally {
@@ -3199,7 +3386,7 @@ async function exportPlanPruebas_PDF() {
    ══════════════════════════════════════════════════════════════════ */
 // Estados fijos (pedido explicito): Pass, Retired, Fail, Blocked, To Do -- sin
 // estados ambiguos intermedios. Solo Pass y Retired cuentan como avance efectivo.
-const STATUS_LABELS = { todo:'To Do', pass:'Pass', retired:'Retired', fail:'Fail', blocked:'Blocked' };
+const STATUS_LABELS = { todo:'Sin ejecutar', pass:'Exitoso', retired:'Desestimado', fail:'Fallido', blocked:'Bloqueado' };
 const STATUS_BADGE  = { todo:'b-gray', pass:'b-green', retired:'b-dark', fail:'b-red', blocked:'b-orange' };
 var _exSelectedIdx = 0;
 
@@ -3381,7 +3568,7 @@ async function verifyEvidence(i) {
         var idx = raw.indexOf('--');
         return idx !== -1 ? raw.slice(idx+2).trim() : '';
       });
-      c.status = c.verdict === 'PASS' ? 'pass' : 'fail';
+      setCaseStatus(c, c.verdict === 'PASS' ? 'pass' : 'fail');
       checkAutoUnlockCert();
       toast('Veredicto IA: '+c.verdict, c.verdict==='FAIL'?'err':'ok');
     }
@@ -3416,8 +3603,9 @@ function reExecuteCase(i) {
   c.stepVerdicts = null;
   c.stepReasons = null;
   c.evidenciaValida = null;
-  c.status = 'todo';
+  setCaseStatus(c, 'todo');
   c.estadoNota = null;
+  c.bloqueoDestino = null;
   toast('Caso reiniciado para re-ejecucion','ok');
   renderM4();
 }
@@ -3443,9 +3631,9 @@ function renderM4() {
   var statusIconMap = {
     pass:    '<span style="color:var(--green);font-size:16px;font-weight:700" title="Exitoso">&#10003;</span>',
     fail:    '<span style="color:var(--red);font-size:16px;font-weight:700" title="Fallido">&#10007;</span>',
-    blocked: '<span style="color:var(--orange);font-size:14px" title="Blocked">&#9679;</span>',
-    retired: '<span style="color:var(--text3);font-size:14px" title="Retired">&#9679;</span>',
-    todo:    '<span style="color:var(--text3);font-size:11px" title="To Do">--</span>',
+    blocked: '<span style="color:var(--orange);font-size:14px" title="Bloqueado">&#9679;</span>',
+    retired: '<span style="color:var(--text3);font-size:14px" title="Desestimado">&#9679;</span>',
+    todo:    '<span style="color:var(--text3);font-size:11px" title="Sin ejecutar">--</span>',
   };
   var statusIcon = statusIconMap[cs.status||'todo'];
 
@@ -3510,26 +3698,33 @@ function renderM4() {
 
   // Campo obligatorio cuando el QA marco el caso Blocked/Retired manualmente --
   // es el insumo real para "Validaciones pendientes"/"Validaciones Realizadas"
-  // del Informe de Avance (ver avanceComputePendientes/avanceComputeValidacionesRealizadas).
+  // del Informe de Avance (secciones Bloqueados/Desestimados, ver avanceData).
   // selectExCase() bloquea el cambio de caso mientras este vacio.
   var estadoNotaHtml = '';
   if (cs.status === 'blocked' || cs.status === 'retired') {
     var notaVacia = !(cs.estadoNota && cs.estadoNota.trim());
     estadoNotaHtml = '<div class="m2-card" style="margin-top:10px'+(notaVacia?';border-color:var(--red-b)':'')+'">' +
       '<div class="m2-card-hdr" style="color:'+(notaVacia?'var(--red)':'inherit')+'">Detalle del estado del caso (obligatorio)</div>' +
-      '<textarea class="m2-textarea" style="width:100%;min-height:64px" placeholder="Explica por que este caso queda '+(cs.status==='blocked'?'Blocked':'Retired')+'..." onchange="onEstadoNotaChange('+_exSelectedIdx+',this.value)">'+esc(cs.estadoNota||'')+'</textarea>' +
+      '<textarea class="m2-textarea" style="width:100%;min-height:64px" placeholder="Explica por qué este caso queda '+(cs.status==='blocked'?'bloqueado':'desestimado')+'..." onchange="onEstadoNotaChange('+_exSelectedIdx+',this.value)">'+esc(cs.estadoNota||'')+'</textarea>' +
       (notaVacia ? '<div style="font-size:10px;color:var(--red);margin-top:4px">Obligatorio -- no puedes cambiar de caso hasta diligenciarlo.</div>' : '') +
+      (cs.status === 'blocked'
+        ? '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap"><span class="m2-fld-lbl">¿Qué pasa con este caso?</span>' +
+            '<select class="m2-select" style="min-width:280px" onchange="onBloqueoDestinoChange('+_exSelectedIdx+',this.value)">' +
+              '<option value="">Sin definir</option>' +
+              Object.keys(BLOQUEO_DESTINO_LABELS).map(function(k){ return '<option value="'+k+'" '+(cs.bloqueoDestino===k?'selected':'')+'>'+BLOQUEO_DESTINO_LABELS[k]+'</option>'; }).join('') +
+            '</select></div>'
+        : '') +
     '</div>';
   }
 
   body.innerHTML =
     // Resumen compacto de conteos por estado (sin Total ni % -- eso ya vive en el Informe de Avance Diario).
     '<div class="ev-summary">' +
-      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--green)">'+c.pass+'</div><div class="ev-stat-lbl">Pass</div></div>' +
-      '<div class="ev-stat"><div class="ev-stat-n">'+c.retired+'</div><div class="ev-stat-lbl">Retired</div></div>' +
-      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--red)">'+c.fail+'</div><div class="ev-stat-lbl">Fail</div></div>' +
-      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--orange)">'+c.blocked+'</div><div class="ev-stat-lbl">Blocked</div></div>' +
-      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--text3)">'+c.todo+'</div><div class="ev-stat-lbl">To Do</div></div>' +
+      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--green)">'+c.pass+'</div><div class="ev-stat-lbl">Exitosos</div></div>' +
+      '<div class="ev-stat"><div class="ev-stat-n">'+c.retired+'</div><div class="ev-stat-lbl">Desestimados</div></div>' +
+      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--red)">'+c.fail+'</div><div class="ev-stat-lbl">Fallidos</div></div>' +
+      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--orange)">'+c.blocked+'</div><div class="ev-stat-lbl">Bloqueados</div></div>' +
+      '<div class="ev-stat"><div class="ev-stat-n" style="color:var(--text3)">'+c.todo+'</div><div class="ev-stat-lbl">Sin ejecutar</div></div>' +
     '</div>' +
 
     '<div class="m2-card"><div class="m2-card-hdr">Caso a ejecutar</div>' +
@@ -3557,7 +3752,7 @@ function renderM4() {
         '<input type="file" accept="image/*,.pdf,.docx,.doc,.txt" multiple onchange="handleEvidenceUpload('+_exSelectedIdx+',this)">' +
         '<div class="drop-ico">&#8679;</div>' +
         '<div class="drop-t">Arrastra o haz clic para subir evidencia</div>' +
-        '<div class="drop-s">Capturas de pantalla, PDF, Word o TXT &middot; puedes subir varias por caso &middot; tambien podes pegar (Ctrl+V) una captura directo del portapapeles</div>' +
+        '<div class="drop-s">Capturas de pantalla, PDF, Word o TXT &middot; puedes subir varias por caso &middot; también puedes pegar (Ctrl+V) una captura directo del portapapeles</div>' +
       '</div>' +
       (evidenceList ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">'+evidenceList+'</div>' : '') +
       // Re-ejecutar caso vive al lado de Verificar con IA (antes en una tarjeta
@@ -3574,8 +3769,8 @@ function renderM4() {
       // Blocked/Retired: unicos dos estados que el QA manual puede setear a mano
       // (marcarEstadoManual) -- Pass/Fail/To Do siguen siendo automaticos (IA/Re-ejecutar).
       '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">' +
-        '<button class="btn btn-ghost" style="color:var(--orange)" onclick="marcarEstadoManual('+_exSelectedIdx+',\'blocked\')">Marcar Blocked</button>' +
-        '<button class="btn btn-ghost" style="color:var(--text2)" onclick="marcarEstadoManual('+_exSelectedIdx+',\'retired\')">Marcar Retired</button>' +
+        '<button class="btn btn-ghost" style="color:var(--orange)" onclick="marcarEstadoManual('+_exSelectedIdx+',\'blocked\')">Marcar como bloqueado</button>' +
+        '<button class="btn btn-ghost" style="color:var(--text2)" onclick="marcarEstadoManual('+_exSelectedIdx+',\'retired\')">Marcar como desestimado</button>' +
       '</div>' +
       verdictHtml +
       estadoNotaHtml +
@@ -3590,8 +3785,21 @@ function renderM4() {
 function marcarEstadoManual(i, status) {
   var c = S.cases[i];
   if (!c) return;
-  c.status = status;
+  setCaseStatus(c, status);
   renderM4();
+}
+// Unico punto que cambia el estado de un caso: guarda la hora del cambio para que el
+// Informe de Avance sepa que se valido HOY (mensaje de la jornada para Teams).
+function setCaseStatus(c, status) {
+  c.status = status;
+  c.statusTs = Date.now();
+}
+// Que pasa con un caso bloqueado (demo 2026-10-08): el bloqueo no siempre es definitivo.
+var BLOQUEO_DESTINO_LABELS = { insumo: 'Pendiente de insumo del cliente o especialista', uat: 'Se ejecutará en UAT' };
+function onBloqueoDestinoChange(i, val) {
+  var c = S.cases[i];
+  if (!c) return;
+  c.bloqueoDestino = val || null;
 }
 function onEstadoNotaChange(i, val) {
   var c = S.cases[i];
@@ -3613,9 +3821,13 @@ function reportBugFromCase(i) {
   var cs = S.cases[i];
   _bugFormEdit = null;
   var failReasons = (cs.stepReasons||[]).filter(function(r,si){ return r && cs.stepVerdicts && cs.stepVerdicts[si]===false; });
+  // La descripcion ya NO es el veredicto de la IA copiado (hablaba de capturas, no del
+  // defecto -- demo 2026-10-08): queda un borrador base y la IA lo redacta como un QA.
   S._bugDraft = {
     caseId: cs.id, titulo: 'Falla en '+(cs.caso||cs.id),
-    descripcion: cs.verdictNote || (failReasons.length ? failReasons.join(' ') : ('Resultado esperado: '+(cs.steps||[]).map(function(s){return s.resultado;}).join(' / '))),
+    descripcion: '',
+    resultadoEsperado: bugExpectedFromCase(cs),
+    resultadoObtenido: failReasons.join('\n'),
     // Autocompletado desde el caso -- Severidad/Desarrollador quedan vacios/con
     // default generico a proposito, el QA los diligencia a mano.
     pasos: (cs.steps||[]).map(function(s){ return s.paso; }),
@@ -3630,6 +3842,70 @@ function reportBugFromCase(i) {
   });
   unlockModule('m5');
   showModule('m5', document.getElementById('nav-m5'));
+  draftBugWithAI(true);
+}
+function bugExpectedFromCase(cs) {
+  return (cs && cs.steps || []).map(function(s, i){ return (i+1)+'. '+(s.resultado||''); }).join('\n');
+}
+// Redacta titulo/descripcion/resultados/pasos con IA a partir del caso vinculado.
+// auto=true (al reportar desde Ejecucion): solo llena los campos que el QA no haya
+// tocado mientras la IA respondia. Desde el boton: reemplaza todo (con confirmacion).
+var _bugDrafting = false;
+var BUG_AI_FIELDS = { titulo:'bug-titulo', descripcion:'bug-desc', resultadoEsperado:'bug-esperado', resultadoObtenido:'bug-obtenido', pasos:'bug-pasos' };
+function bugFieldValue(key) {
+  var el = document.getElementById(BUG_AI_FIELDS[key]);
+  if (el) return el.value;
+  var d = S._bugDraft || {};
+  return key === 'pasos' ? arrToNumberedLines(d.pasos) : (d[key] || '');
+}
+async function draftBugWithAI(auto) {
+  if (_bugDrafting) return;
+  var sel = document.getElementById('bug-case');
+  var caseId = sel ? sel.value : (S._bugDraft && S._bugDraft.caseId);
+  var cs = caseId ? S.cases.find(function(c){ return c.id === caseId; }) : null;
+  if (!cs) { if (!auto) toast('Elige el caso relacionado primero.','err'); return; }
+  if (!auto && (bugFieldValue('descripcion').trim() || bugFieldValue('titulo').trim()) &&
+      !confirm('Esto reemplaza el título, la descripción, los resultados y los pasos del bug por la redacción de la IA. ¿Continuar?')) return;
+  var before = {}; Object.keys(BUG_AI_FIELDS).forEach(function(k){ before[k] = bugFieldValue(k); });
+  _bugDrafting = true; renderBugDraftStatus();
+  try {
+    var r = await fetch(API+'/api/draft-bug', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      engine: _engine,
+      caso: { id: cs.id, caso: cs.caso, escenario: cs.escenario, objetivo: cs.objetivo, steps: cs.steps || [], stepVerdicts: cs.stepVerdicts || null, stepReasons: cs.stepReasons || null, verdictNote: cs.verdictNote || '' },
+    }) });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error redactando el bug');
+    var out = {
+      titulo: (parseSection(d.raw,'TITULO')||'').split('\n')[0].trim(),
+      descripcion: (parseSection(d.raw,'DESCRIPCION')||'').trim(),
+      resultadoEsperado: (parseSection(d.raw,'RESULTADO_ESPERADO')||'').trim(),
+      resultadoObtenido: (parseSection(d.raw,'RESULTADO_OBTENIDO')||'').trim(),
+      pasos: numberedLinesToArr(parseSection(d.raw,'PASOS')||''),
+    };
+    var nota = (parseSection(d.raw,'NOTA_QA')||'').trim();
+    if (!S._bugDraft) S._bugDraft = { caseId: caseId };
+    Object.keys(BUG_AI_FIELDS).forEach(function(k){
+      var v = out[k]; if (k === 'pasos' ? !v.length : !v) return;
+      if (auto && bugFieldValue(k) !== before[k]) return; // el QA ya lo edito
+      var txt = k === 'pasos' ? arrToNumberedLines(v) : v;
+      var el = document.getElementById(BUG_AI_FIELDS[k]);
+      if (el) { el.value = txt; if (el.tagName === 'TEXTAREA') autoGrowTextarea(el); }
+      S._bugDraft[k] = v;
+    });
+    S._bugDraft.notaIA = /^NINGUNA\.?$/i.test(nota) ? '' : nota;
+    toast('Bug redactado con IA. Revísalo antes de guardar.','ok');
+  } catch(e) {
+    toast(e.message,'err');
+  } finally {
+    _bugDrafting = false; renderBugDraftStatus();
+  }
+}
+function renderBugDraftStatus() {
+  var btn = document.getElementById('btn-draft-bug');
+  if (btn) { btn.disabled = _bugDrafting; btn.innerHTML = _bugDrafting ? '<span class="spin"></span> Redactando...' : '&#10024; Redactar con IA'; }
+  var nota = document.getElementById('bug-nota-ia');
+  var txt = S._bugDraft && S._bugDraft.notaIA;
+  if (nota) { nota.style.display = txt ? '' : 'none'; nota.textContent = txt ? '⚠ Revisa antes de reportar: '+txt : ''; }
 }
 function captureBugEvidenceImages(cs) {
   var imgFiles = (cs._evidenceFiles||[]).filter(function(f){ return f.type && f.type.indexOf('image')===0; });
@@ -3658,6 +3934,8 @@ function saveBugForm() {
     titulo: titulo,
     descripcion: document.getElementById('bug-desc').value.trim(),
     pasos: numberedLinesToArr(document.getElementById('bug-pasos').value),
+    resultadoEsperado: document.getElementById('bug-esperado').value.trim(),
+    resultadoObtenido: document.getElementById('bug-obtenido').value.trim(),
     tipoError: linesToArr(document.getElementById('bug-tipo-error').value),
     severidad: document.getElementById('bug-sev').value,
     dev: document.getElementById('bug-dev').value.trim(),
@@ -3706,20 +3984,20 @@ async function exportBug_Word(i) {
   toast('Generando documento Word...','ok');
   try {
     var relatedCase = b.caseId ? S.cases.find(function(c){ return c.id === b.caseId; }) : null;
-    var resultadoEsperado = relatedCase && relatedCase.steps && relatedCase.steps.length
-      ? relatedCase.steps.map(function(s,i){ return (i+1)+'. '+s.resultado; }).join('\n')
-      : '';
+    // Bugs viejos no tienen resultadoEsperado propio: se arma desde el caso como antes.
+    var resultadoEsperado = b.resultadoEsperado || (relatedCase ? bugExpectedFromCase(relatedCase) : '');
     var payload = {
       caseId: b.caseId || '--',
       titulo: b.titulo,
       descripcion: b.descripcion,
       pasos: b.pasos || [],
       resultadoEsperado: resultadoEsperado,
+      resultadoObtenido: b.resultadoObtenido || '',
+      casoTitulo: relatedCase ? relatedCase.caso : '',
       tipoError: b.tipoError || [],
       severidad: SEVERIDAD_LABELS[b.severidad] || b.severidad,
       dev: b.dev,
       evidenceImages: b.evidenceImages || [],
-      casoAsociado: relatedCase ? { caso: relatedCase.caso, objetivo: relatedCase.objetivo, steps: relatedCase.steps || [] } : null,
     };
     var r = await fetch(API+'/api/export-bug-docx', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
     if (!r.ok) { var d = await r.json().catch(function(){return {};}); throw new Error(d.error || 'Error generando el Word'); }
@@ -3757,6 +4035,8 @@ function onBugCaseSelectChange(val) {
     estado: document.getElementById('bug-estado').value,
     dev: document.getElementById('bug-dev').value,
     descripcion: document.getElementById('bug-desc').value,
+    resultadoEsperado: document.getElementById('bug-esperado').value,
+    resultadoObtenido: document.getElementById('bug-obtenido').value,
     pasos: numberedLinesToArr(document.getElementById('bug-pasos').value),
     tipoError: linesToArr(document.getElementById('bug-tipo-error').value),
   };
@@ -3780,9 +4060,13 @@ function renderM5() {
         Object.keys(BUG_ESTADO_LABELS).map(function(k){return '<option value="'+k+'" '+(draft.estado===k?'selected':'')+'>'+BUG_ESTADO_LABELS[k]+'</option>';}).join('') +
       '</select></div>' +
       '<div><label>Desarrollador asignado</label><input type="text" id="bug-dev" placeholder="Nombre del desarrollador" value="'+esc(draft.dev||'')+'"></div>' +
-      '<div class="full"><label>Caso relacionado</label><select id="bug-case" onchange="onBugCaseSelectChange(this.value)">'+caseOptions+'</select></div>' +
+      '<div class="full"><label>Caso relacionado</label><div style="display:flex;gap:8px;align-items:center"><select id="bug-case" style="flex:1" onchange="onBugCaseSelectChange(this.value)">'+caseOptions+'</select>' +
+        '<button class="btn btn-ghost" id="btn-draft-bug" style="white-space:nowrap" onclick="draftBugWithAI(false)" title="Redacta título, descripción, resultados y pasos a partir del caso">&#10024; Redactar con IA</button></div></div>' +
       '<div class="full">'+bugCaseAssocHtml(draft.caseId)+'</div>' +
-      '<div class="full"><label>Descripcion</label><textarea id="bug-desc">'+esc(draft.descripcion)+'</textarea></div>' +
+      '<div class="full" id="bug-nota-ia" style="display:none;font-size:11.5px;color:var(--orange);background:rgba(201,162,39,0.08);border:1px solid rgba(201,162,39,0.4);border-radius:6px;padding:8px 10px"></div>' +
+      '<div class="full"><label>Descripción</label><textarea id="bug-desc" placeholder="Qué ocurre, en qué funcionalidad, bajo qué condición y qué impacto tiene">'+esc(draft.descripcion)+'</textarea></div>' +
+      '<div class="full"><label>Resultado esperado</label><textarea id="bug-esperado">'+esc(draft.resultadoEsperado||'')+'</textarea></div>' +
+      '<div class="full"><label>Resultado obtenido</label><textarea id="bug-obtenido" placeholder="Qué hizo el sistema en realidad">'+esc(draft.resultadoObtenido||'')+'</textarea></div>' +
       '<div class="full"><label>Paso a paso para reproducir (uno por linea)</label><textarea id="bug-pasos" placeholder="1. Ingresar a...&#10;2. Seleccionar...&#10;3. Observar...">'+esc(arrToNumberedLines(draft.pasos))+'</textarea></div>' +
       '<div class="full"><label>Tipo de error (uno por linea)</label><textarea id="bug-tipo-error" placeholder="Error de funcionalidad&#10;Error de validacion de reglas de negocio">'+esc(arrToLines(draft.tipoError))+'</textarea></div>' +
     '</div>' +
@@ -3819,12 +4103,13 @@ function renderM5() {
   // Los textareas del formulario de bug (Descripcion/Pasos/Tipo de error) tenian
   // una altura minima fija de 60px -- con un caso de varios pasos quedaban cortados,
   // mostrando solo 2-3 lineas con scroll interno. Se autoajustan a su contenido real.
-  ['bug-desc','bug-pasos','bug-tipo-error'].forEach(function(id){
+  ['bug-desc','bug-esperado','bug-obtenido','bug-pasos','bug-tipo-error'].forEach(function(id){
     var el = document.getElementById(id);
     if (!el) return;
     autoGrowTextarea(el);
     el.addEventListener('input', function(){ autoGrowTextarea(el); });
   });
+  renderBugDraftStatus();
 }
 function autoGrowTextarea(el) {
   el.style.height = 'auto';
@@ -3925,131 +4210,158 @@ function avanceComputeRegresion() {
   return S.cases.filter(function(c){ return (c.reExecCount||0) >= 2 && c.status === 'pass'; }).length;
 }
 
-// Texto editable: mientras el QA no haya escrito nada (avanceEdits[key]==null),
-// se muestra/exporta el texto calculado; en cuanto edita, se respeta lo suyo.
-function onAvanceEditBlur(key, el) {
-  var txt = el.textContent.trim();
-  S.avanceEdits[key] = txt; // guarda incluso vacio -- "" es una edicion valida (QA borro todo a proposito)
+// Informe de Avance gerencial (demo 2026-10-08, Liz): secciones automaticas por
+// estado SIEMPRE al dia (antes eran texto editable que se congelaba con solo hacer
+// clic y salir -- por eso no aparecian los bloqueados), pendientes solo como
+// cantidad, detalle interno que no se exporta, y la salida pensada para Teams:
+// imagen compacta del tablero + mensaje con formato listo para pegar.
+function ensureAvanceNotas() {
+  if (!S.avanceNotas) S.avanceNotas = { saludo: null, observaciones: '', cierre: null };
+  return S.avanceNotas;
 }
+// Informe de finalizacion (demo 2026-10-08, Liz 1:33): mismo mecanismo que el avance
+// diario, pero anunciando que QA termino y que el requerimiento pasa al especialista/UAT.
+function ensureFinalNotas() {
+  if (!S.finalNotas) S.finalNotas = { saludo: null, observaciones: '', cierre: null };
+  return S.finalNotas;
+}
+function teamsNotas(kind) { return kind === 'final' ? ensureFinalNotas() : ensureAvanceNotas(); }
+var AVANCE_SALUDO_DEFAULT = 'Buen día, equipo.';
+var AVANCE_CIERRE_DEFAULT = 'Quedo pendiente de cualquier comentario.';
+var FINAL_CIERRE_DEFAULT = 'Por parte de QA damos por finalizadas las pruebas; el requerimiento pasa al especialista funcional para las pruebas con el usuario (UAT). Quedo pendiente de cualquier comentario.';
+function teamsCierreDefault(kind) { return kind === 'final' ? FINAL_CIERRE_DEFAULT : AVANCE_CIERRE_DEFAULT; }
 function avanceComputeIntro() {
-  return 'A continuación, comparto el avance de ejecución que tenemos a este momento con respecto al QA realizado sobre el requerimiento '+reqProjectName()+'.';
+  return 'Comparto el avance de ejecución de pruebas del requerimiento '+reqProjectName()+', con corte al '+nowStrCO().replace(/\.$/, '')+'.';
 }
-// Version HTML del intro con el nombre del requerimiento en mayuscula y negrita
-// (pedido explicito para que resalte en el mensaje) -- solo se usa mientras el QA
-// no haya editado el intro a mano; si lo edito, se respeta su texto plano tal cual
-// (mismo patron de avanceText en todo Avance).
-function avanceIntroHtml() {
-  return 'A continuación, comparto el avance de ejecución que tenemos a este momento con respecto al QA realizado sobre el requerimiento <b>'+esc(reqProjectName().toUpperCase())+'</b>.';
+// "1 caso exitoso" / "3 casos exitosos".
+function avancePlural(k, sing, plur) { return k+' '+(k === 1 ? sing : plur); }
+function avanceIsToday(ts) {
+  if (!ts) return false;
+  return new Date(ts).toDateString() === new Date().toDateString();
 }
-function avanceComputeValidacionesRealizadas() {
-  // Pass: frase corta orientada a stakeholder ("se valido correctamente...") en vez
-  // de solo listar el objetivo crudo -- sigue siendo gerencial (una linea por caso),
-  // pero ahora se lee como confirmacion de que esa funcionalidad quedo bien.
-  var pass = S.cases.filter(function(c){ return c.status === 'pass'; })
-    .map(function(c){ return '✔ Se validó correctamente: '+(c.objetivo || c.escenario || c.caso || c.id); });
-  // Retired: se incluyen aca con su justificacion (Detalle del estado, M5) --
-  // insumo pedido explicitamente por el usuario para esta seccion.
-  var retired = S.cases.filter(function(c){ return c.status === 'retired'; })
-    .map(function(c){ return '✔ Validado (retirado del alcance) -- '+(c.escenario || c.caso || c.id)+': '+(c.estadoNota && c.estadoNota.trim() ? c.estadoNota : '(sin detalle registrado)'); });
-  var all = pass.concat(retired);
-  return all.length ? all.join('\n') : '';
+function avanceCaseLabel(c) { return c.id+' – '+(c.caso || c.escenario || c.objetivo || ''); }
+// Toda la informacion del informe sale de aca -- pantalla y mensaje leen lo mismo.
+function avanceData() {
+  var by = function(st){ return S.cases.filter(function(c){ return c.status === st; }); };
+  var pass = by('pass'), retired = by('retired'), fail = by('fail'), blocked = by('blocked'), todo = by('todo');
+  return {
+    total: S.cases.length, pct: evEffectivePct(),
+    pass: pass, passHoy: pass.filter(function(c){ return avanceIsToday(c.statusTs); }),
+    retired: retired, fail: fail, blocked: blocked, todo: todo,
+    bugs: S.bugs || [],
+  };
 }
-function avanceComputePendientes() {
-  // Bloqueados: se usa el Detalle del estado (M5, obligatorio al marcar Blocked)
-  // en vez de la frase generica de "bugs reportados" -- Blocked ya no esta
-  // ligado automaticamente a un bug, es una decision manual del QA con motivo propio.
-  var blocked = S.cases.filter(function(c){ return c.status === 'blocked'; });
-  // Sin ejecutar (To Do): el usuario pidio que tambien queden reflejados aca, no
-  // solo los Bloqueados -- sin nota porque todavia no se ha intentado ejecutar.
-  var todo = S.cases.filter(function(c){ return c.status === 'todo'; });
-  if (!blocked.length && !todo.length) return '';
-  var out = [];
-  if (blocked.length) {
-    out.push('Bloqueados:');
-    blocked.forEach(function(c){
-      out.push('• '+c.id+' ('+(c.escenario || c.caso || '')+') -- '+(c.estadoNota && c.estadoNota.trim() ? c.estadoNota : '(sin detalle registrado)'));
-    });
+function avanceMotivo(c) { return (c.estadoNota && c.estadoNota.trim()) ? c.estadoNota.trim() : '(sin motivo registrado)'; }
+
+// Mensaje para Teams: HTML (Teams conserva negritas y vinetas al pegar) + texto plano
+// de respaldo. Solo cantidades y lo que el grupo necesita leer -- nada de listas largas.
+function buildAvanceMessage(kind) {
+  kind = kind || 'avance';
+  var n = teamsNotas(kind); var d = avanceData();
+  var H = [], T = [];
+  var p = function(html, text){ H.push('<p>'+html+'</p>'); T.push(text, ''); };
+  var list = function(titleHtml, titleText, items){
+    H.push('<p><b>'+titleHtml+'</b></p><ul>'+items.map(function(it){ return '<li>'+it.html+'</li>'; }).join('')+'</ul>');
+    T.push(titleText); items.forEach(function(it){ T.push('• '+it.text); }); T.push('');
+  };
+  var saludo = (n.saludo != null ? n.saludo : AVANCE_SALUDO_DEFAULT).trim();
+  if (saludo) p(esc(saludo), saludo);
+  var intro = kind === 'final'
+    ? 'Les informo que finalizamos la ejecución de pruebas de QA del requerimiento '+reqProjectName()+', con corte al '+nowStrCO().replace(/\.$/, '')+'.'
+    : avanceComputeIntro();
+  p(esc(intro).replace(esc(reqProjectName()), '<b>'+esc(reqProjectName())+'</b>'), intro);
+  var resumen = avancePlural(d.total,'caso','casos')+' en total: '+avancePlural(d.pass.length,'exitoso','exitosos')+', '+avancePlural(d.retired.length,'desestimado','desestimados')+', '+avancePlural(d.fail.length,'fallido','fallidos')+', '+avancePlural(d.blocked.length,'bloqueado','bloqueados')+' y '+d.todo.length+' sin ejecutar. Avance efectivo: '+d.pct+'%.';
+  p('<b>'+(kind === 'final' ? 'Resultado final' : 'Resumen')+':</b> '+esc(resumen), (kind === 'final' ? 'Resultado final' : 'Resumen')+': '+resumen);
+  if (kind !== 'final' && d.passHoy.length) {
+    var max = 15, shown = d.passHoy.slice(0, max);
+    var items = shown.map(function(c){ return { html: esc(avanceCaseLabel(c)), text: avanceCaseLabel(c) }; });
+    if (d.passHoy.length > max) items.push({ html: '<i>y '+(d.passHoy.length-max)+' más</i>', text: 'y '+(d.passHoy.length-max)+' más' });
+    list('Validaciones exitosas de hoy ('+d.passHoy.length+'):', 'Validaciones exitosas de hoy ('+d.passHoy.length+'):', items);
   }
-  if (todo.length) {
-    if (out.length) out.push('');
-    out.push('Sin ejecutar:');
-    todo.forEach(function(c){ out.push('• '+c.id+' ('+(c.escenario || c.caso || '')+')'); });
+  if (d.bugs.length) list('Bugs reportados ('+d.bugs.length+'):', 'Bugs reportados ('+d.bugs.length+'):', d.bugs.map(function(b){
+    var t = b.id+' – '+b.titulo+' ('+(BUG_ESTADO_LABELS[b.estado]||b.estado)+', severidad '+(SEVERIDAD_LABELS[b.severidad]||b.severidad).toLowerCase()+')';
+    return { html: esc(t), text: t };
+  }));
+  if (d.blocked.length) list('Casos bloqueados ('+d.blocked.length+'):', 'Casos bloqueados ('+d.blocked.length+'):', d.blocked.map(function(c){
+    var dest = c.bloqueoDestino ? BLOQUEO_DESTINO_LABELS[c.bloqueoDestino] : '';
+    var t = avanceCaseLabel(c)+': '+avanceMotivo(c)+(dest ? ' → '+dest : '');
+    return { html: esc(avanceCaseLabel(c))+': '+esc(avanceMotivo(c))+(dest ? ' → <i>'+esc(dest)+'</i>' : ''), text: t };
+  }));
+  if (d.retired.length) list('Casos desestimados ('+d.retired.length+'):', 'Casos desestimados ('+d.retired.length+'):', d.retired.map(function(c){
+    var t = avanceCaseLabel(c)+': '+avanceMotivo(c);
+    return { html: esc(t), text: t };
+  }));
+  if (d.todo.length || d.fail.length) {
+    var pend = [];
+    if (d.todo.length) pend.push(d.todo.length+' caso'+(d.todo.length===1?'':'s')+' sin ejecutar');
+    if (d.fail.length) pend.push(d.fail.length+' caso'+(d.fail.length===1?'':'s')+' fallido'+(d.fail.length===1?'':'s')+' a la espera de corrección para re-test');
+    var pt = pend.join(' y ')+'.';
+    p('<b>Pendientes:</b> '+esc(pt), 'Pendientes: '+pt);
   }
-  return out.join('\n');
+  var obs = (n.observaciones || '').trim();
+  if (obs) p('<b>Observaciones:</b><br>'+esc(obs).replace(/\n/g, '<br>'), 'Observaciones:\n'+obs);
+  var cierre = (n.cierre != null ? n.cierre : teamsCierreDefault(kind)).trim();
+  if (cierre) p(esc(cierre), cierre);
+  return { html: H.join(''), text: T.join('\n').replace(/\n{3,}/g, '\n\n').trim() };
 }
-function avanceText(key, computeFn) {
-  var v = S.avanceEdits[key];
-  return (v != null) ? v : computeFn();
+function onTeamsNotaInput(kind, key, el) {
+  teamsNotas(kind)[key] = el.value;
+  var prev = document.getElementById('msg-preview-'+kind);
+  if (prev) prev.innerHTML = buildAvanceMessage(kind).html;
+  schedulePersist();
+}
+async function copyTeamsMessage(kind) {
+  var m = buildAvanceMessage(kind);
+  try {
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([m.html], { type: 'text/html' }),
+      'text/plain': new Blob([m.text], { type: 'text/plain' }),
+    })]);
+    toast('Mensaje copiado. Pégalo en Teams y luego pega la imagen del tablero.','ok');
+  } catch(e) {
+    try { await navigator.clipboard.writeText(m.text); toast('Mensaje copiado como texto plano.','ok'); }
+    catch(e2) { toast('No se pudo copiar: '+e2.message,'err'); }
+  }
 }
 
-function renderAvance() {
-  var body = document.getElementById('mavance-body');
-  if (!body) return;
-  if (!S.cases.length) {
-    body.innerHTML = '<div class="placeholder-wrap"><div class="placeholder-ico">&#128202;</div>' +
-      '<div class="placeholder-ttl">Sin casos todavia</div>' +
-      '<div class="placeholder-sub">El dashboard se llena a medida que ejecutas casos en Ejecucion y Evidencias.</div></div>';
-    return;
-  }
-  var c = evCounts(); var total = S.cases.length;
-  var pct = evEffectivePct();
+// Seccion automatica de solo lectura, con su color. Las listas largas van en un
+// <details> cerrado: el QA las ve si quiere, pero no inflan la pantalla ni el mensaje.
+function avanceSectionHtml(color, icon, title, count, bodyHtml, opts) {
+  opts = opts || {};
+  return '<div class="m2-card avance-sec" style="border-left:4px solid '+color+'">' +
+    '<div class="m2-card-hdr" style="color:'+color+';display:flex;align-items:center;gap:8px">'+icon+' '+title+' <span class="badge" style="background:'+color+';color:#fff;font-size:10px">'+count+'</span>' +
+      (opts.badge ? '<span class="badge b-gray" style="font-size:9px">'+opts.badge+'</span>' : '') + '</div>' +
+    (bodyHtml || '<div style="font-size:12px;color:var(--text3)">Ninguno por ahora.</div>') +
+  '</div>';
+}
+function avanceListHtml(items) {
+  return '<ul style="margin:0;padding-left:18px;font-size:12.5px;color:var(--text2);line-height:1.7">'+items.map(function(i){ return '<li>'+i+'</li>'; }).join('')+'</ul>';
+}
+function avanceDetailsHtml(summary, items) {
+  return '<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11.5px;color:var(--text2)">'+summary+'</summary>' + avanceListHtml(items) + '</details>';
+}
 
-  var pieColors = { pass:'#009E7A', retired:'#0D1828', fail:'#E14848', blocked:'#C9A227', todo:'#9aa3b1' };
-  var pieOrder = [['pass','Pass'],['retired','Retired'],['fail','Fail'],['blocked','Blocked'],['todo','To Do']];
-  var pieGradient;
-  if (!total || (c.pass+c.retired+c.fail+c.blocked+c.todo) === 0) {
-    pieGradient = '#c7cdd6'; // gris solido -- sin ningun avance todavia
-  } else {
-    var acc = 0; var stops = [];
-    pieOrder.forEach(function(pair){
-      var n = c[pair[0]] || 0;
-      if (!n) return;
-      var deg = n/total*360;
-      stops.push(pieColors[pair[0]]+' '+acc.toFixed(1)+'deg '+(acc+deg).toFixed(1)+'deg');
-      acc += deg;
-    });
-    pieGradient = 'conic-gradient(' + stops.join(', ') + ')';
-  }
+// Tablero (tabla + torta + Re-test/Regresion/Bugs). Se usa en pantalla y como imagen
+// tanto en el Avance diario como en el informe de finalizacion.
+function avanceDashboardHtml(titulo) {
+  var c = evCounts(); var total = S.cases.length; var d = avanceData();
+  var pieOrder = [['pass','Exitosos'],['retired','Desestimados'],['fail','Fallidos'],['blocked','Bloqueados'],['todo','Sin ejecutar']];
+  var pieSvg = avancePieSvg(pieOrder.map(function(pair){ return { n: c[pair[0]] || 0, color: AVANCE_COLORS[pair[0]] }; }), total);
   var legend = pieOrder.map(function(pair){
-    return '<div><span class="tpr-legend-dot" style="background:'+pieColors[pair[0]]+'"></span>'+pair[1]+': <b>'+(c[pair[0]]||0)+'</b></div>';
+    return '<div><span class="tpr-legend-dot" style="background:'+AVANCE_COLORS[pair[0]]+'"></span>'+pair[1]+': <b>'+(c[pair[0]]||0)+'</b></div>';
   }).join('');
-  function pctOf(n) { return total ? Math.round(n/total*1000)/10 : 0; }
+  function pctOf(k) { return total ? Math.round(k/total*1000)/10 : 0; }
 
-  var validaciones = avanceText('validacionesRealizadas', avanceComputeValidacionesRealizadas);
-  var pendientes = avanceText('pendientesEspecialista', avanceComputePendientes);
-  // Tabla real (no lista de texto) para que se vea igual que el resto de la suite
-  // (mismas columnas que docxDefectosTable/addBugsTable de Certificacion) -- lee
-  // S.bugs en vivo en cada render, asi que siempre refleja lo que hay en Gestion
-  // de Bugs al momento de ver/exportar el informe.
-  var bugsRows = S.bugs.map(function(b){
-    return '<tr>' +
-      '<td class="mono" style="white-space:nowrap">'+esc(b.id)+'</td>' +
-      '<td>'+esc(b.caseId||'--')+'</td>' +
-      '<td>'+esc(b.titulo)+'</td>' +
-      '<td>'+esc(b.dev||'Sin asignar')+'</td>' +
-      '<td>'+esc(SEVERIDAD_LABELS[b.severidad]||b.severidad)+'</td>' +
-      '<td>'+esc(BUG_ESTADO_LABELS[b.estado]||b.estado)+'</td>' +
-      '<td style="font-size:10px;white-space:nowrap">'+esc(b.creadoTs||'--')+'</td>' +
-      '<td style="font-size:10px;white-space:nowrap">'+esc(b.actualizadoTs||'--')+'</td>' +
-    '</tr>';
-  }).join('');
-
-  body.innerHTML =
-    '<div id="avance-report-capture" style="background:var(--bg2);padding:18px;border-radius:var(--r);max-width:900px">' +
-
-    '<div contenteditable="true" onblur="onAvanceEditBlur(\'intro\',this)" style="font-size:12.5px;color:var(--text2);line-height:1.7;margin-bottom:14px;outline:none;border-bottom:1px dashed var(--border2);padding-bottom:10px">'+(S.avanceEdits.intro != null ? esc(S.avanceEdits.intro) : avanceIntroHtml())+'</div>' +
-
-    '<div class="tpr-wrap">' +
-      '<div class="tpr-hdr">&#128202; Testing progress report</div>' +
+  // 1) Tablero: lo unico que va en la imagen -- compacto y legible pegado en Teams.
+  return (
+    '<div style="background:#fff;padding:16px;border-radius:var(--r);border:1px solid var(--border)">' +
+      '<div style="font-size:13px;font-weight:700;color:#0D1828;margin-bottom:2px">'+esc(titulo)+' – '+esc(reqProjectName())+'</div>' +
+      '<div style="font-size:11px;color:#5B6B82;margin-bottom:10px">Corte: '+esc(nowStrCO())+'</div>' +
       '<div class="tpr-body">' +
         '<table class="tpr-table">' +
           '<thead><tr>' +
-            '<th class="tpr-th-cases">Test Cases</th>' +
-            '<th class="tpr-th-pass">'+c.pass+'-Pass</th>' +
-            '<th class="tpr-th-retired">'+c.retired+'-Retired</th>' +
-            '<th class="tpr-th-fail">'+c.fail+'-Fail</th>' +
-            '<th class="tpr-th-blocked">'+c.blocked+'-Blocked</th>' +
-            '<th class="tpr-th-todo">To Do</th>' +
+            '<th class="tpr-th-cases">Casos</th>' +
+            '<th class="tpr-th-pass">Exitosos</th><th class="tpr-th-retired">Desestimados</th><th class="tpr-th-fail">Fallidos</th><th class="tpr-th-blocked">Bloqueados</th><th class="tpr-th-todo">Sin ejecutar</th>' +
           '</tr></thead>' +
           '<tbody>' +
             '<tr><td>'+total+'</td><td>'+c.pass+'</td><td>'+c.retired+'</td><td>'+c.fail+'</td><td>'+c.blocked+'</td><td>'+c.todo+'</td></tr>' +
@@ -4057,71 +4369,148 @@ function renderAvance() {
           '</tbody>' +
         '</table>' +
         '<div class="tpr-pie-wrap">' +
-          '<div class="tpr-pie" style="background:'+pieGradient+'"></div>' +
-          '<div class="tpr-pie-center"><div class="tpr-pie-pct">'+pct+'%</div><div class="tpr-pie-lbl">Avance efectivo</div></div>' +
+          '<div class="tpr-pie">'+pieSvg+'</div>' +
+          '<div class="tpr-pie-center"><div class="tpr-pie-pct">'+d.pct+'%</div><div class="tpr-pie-lbl">Avance efectivo</div></div>' +
         '</div>' +
         '<div class="tpr-legend">'+legend+'</div>' +
       '</div>' +
-    '</div>' +
-
-    '<div class="tpr-extra">' +
-      '<span>Re-test: <b>'+avanceComputeRetest()+'</b></span>' +
-      '<span>Regresion: <b>'+avanceComputeRegresion()+'</b></span>' +
-    '</div>' +
-
-    (bugsRows ? '<div class="m2-card" style="margin-bottom:14px"><div class="m2-card-hdr" style="color:var(--red)">&#128030; Bugs identificados</div>' +
-      '<div class="tbl-wrap"><table class="qa-table qa-table-narrow" style="font-size:11px"><thead><tr>' +
-        '<th style="white-space:nowrap">ID Bug</th><th>Caso</th><th>Descripcion</th><th>Desarrollador</th><th>Severidad</th><th>Estado</th><th>Creado</th><th>Actualizado</th>' +
-      '</tr></thead><tbody>'+bugsRows+'</tbody></table></div></div>' : '') +
-
-    '<div class="m2-card" data-avance-optional="validacionesRealizadas"><div class="m2-card-hdr" style="color:var(--green)">&#9989; Validaciones Realizadas</div>' +
-      '<div class="avance-editable" contenteditable="true" onblur="onAvanceEditBlur(\'validacionesRealizadas\',this)" style="font-size:12.5px;color:var(--text2);line-height:1.7;white-space:pre-wrap;outline:none">'+esc(validaciones)+'</div></div>' +
-
-    '<div class="m2-card" data-avance-optional="pendientesEspecialista"><div class="m2-card-hdr" style="color:var(--orange)">&#8987; Validaciones pendientes</div>' +
-      '<div class="avance-editable" contenteditable="true" onblur="onAvanceEditBlur(\'pendientesEspecialista\',this)" style="font-size:12.5px;color:var(--text2);line-height:1.7;white-space:pre-wrap;outline:none">'+esc(pendientes)+'</div></div>' +
-
-    '</div>' + // /avance-report-capture
-
-    // "¿Ejecucion terminada?" migrado desde Gestion de Bugs -- vive FUERA del
-    // capture (igual que el boton Descargar PNG) para no afectar el PNG ni el
-    // resto de la funcionalidad de este modulo, es solo un apartado aparte.
-    '<div class="advance-box" style="margin-top:16px">' +
-      '<div><div class="advance-ttl">&#191;Ejecucion terminada?</div>' +
-      '<div class="advance-sub">Se generara la Certificacion de Calidad con los resultados reales de casos y bugs.</div></div>' +
-      '<button class="btn btn-primary" onclick="continueToCert()">Finalizar y generar Certificacion &rarr;</button>' +
-    '</div>' +
-
-    '<button class="btn btn-ghost" style="margin-top:12px" onclick="exportAvance_PNG()">Descargar PNG</button>';
+      '<div class="tpr-extra" style="margin-top:10px">' +
+        '<span>Re-test: <b>'+avanceComputeRetest()+'</b></span>' +
+        '<span>Regresión: <b>'+avanceComputeRegresion()+'</b></span>' +
+        '<span>Bugs: <b>'+d.bugs.length+'</b></span>' +
+      '</div>' +
+    '</div>');
+}
+var AVANCE_COLORS = { pass:'#009E7A', retired:'#5B6B82', fail:'#E14848', blocked:'#C9A227', todo:'#9aa3b1' };
+// Torta en SVG: se ve igual en pantalla y en la imagen exportada (html2canvas no
+// soporta conic-gradient y la torta salia en blanco en el PNG).
+function avancePieSvg(slices, total) {
+  var R = 59, C = 59;
+  var live = slices.filter(function(x){ return x.n > 0; });
+  if (!total || !live.length) return '<svg width="118" height="118" viewBox="0 0 118 118"><circle cx="59" cy="59" r="59" fill="#c7cdd6"/></svg>';
+  if (live.length === 1) return '<svg width="118" height="118" viewBox="0 0 118 118"><circle cx="59" cy="59" r="59" fill="'+live[0].color+'"/></svg>';
+  var acc = 0, paths = '';
+  live.forEach(function(x){
+    var a0 = acc/total*2*Math.PI - Math.PI/2; acc += x.n; var a1 = acc/total*2*Math.PI - Math.PI/2;
+    var large = (a1 - a0) > Math.PI ? 1 : 0;
+    paths += '<path d="M'+C+' '+C+' L'+(C+R*Math.cos(a0)).toFixed(2)+' '+(C+R*Math.sin(a0)).toFixed(2)+' A'+R+' '+R+' 0 '+large+' 1 '+(C+R*Math.cos(a1)).toFixed(2)+' '+(C+R*Math.sin(a1)).toFixed(2)+' Z" fill="'+x.color+'"/>';
+  });
+  return '<svg width="118" height="118" viewBox="0 0 118 118">'+paths+'</svg>';
 }
 
-// Captura el reporte tal cual quedo en pantalla (con las ediciones del QA) y
-// lo baja como imagen -- no PDF, para que sea facil de pegar en un chat/correo.
-async function exportAvance_PNG() {
-  if (!S.cases.length) { toast('No hay datos de ejecucion todavia.','err'); return; }
-  var node = document.getElementById('avance-report-capture');
-  if (!node || !window.html2canvas) { toast('No se pudo generar el PNG.','err'); return; }
-  toast('Generando PNG...','ok');
-  // Clona el nodo capturado en vez de rasterizar el que esta en pantalla: asi
-  // las secciones opcionales (Validaciones Realizadas/Pendientes) se pueden ver
-  // siempre en pantalla -- aunque esten vacias, para que el QA las diligencie --
-  // pero se ocultan del PNG final si siguen vacias al momento de exportar.
-  var clone = node.cloneNode(true);
-  clone.style.position = 'fixed'; clone.style.left = '-99999px'; clone.style.top = '0';
-  clone.querySelectorAll('[data-avance-optional]').forEach(function(sec){
-    var editable = sec.querySelector('.avance-editable');
-    if (editable && !editable.textContent.trim()) sec.remove();
-  });
-  document.body.appendChild(clone);
-  try {
-    var canvas = await html2canvas(clone, { scale: 2, backgroundColor: '#ffffff' });
-    var url = canvas.toDataURL('image/png');
-    var a = document.createElement('a'); a.href = url; a.download = reqFileSlug()+' - Informe de Avance.png'; a.click();
-    toast('PNG exportado','ok');
-  } catch(e) {
-    toast('Error exportando PNG: '+e.message, 'err');
-  } finally {
-    document.body.removeChild(clone);
+function renderAvance() {
+  var body = document.getElementById('mavance-body');
+  if (!body) return;
+  if (!S.cases.length) {
+    body.innerHTML = '<div class="placeholder-wrap"><div class="placeholder-ico">&#128202;</div>' +
+      '<div class="placeholder-ttl">Sin casos todavía</div>' +
+      '<div class="placeholder-sub">El tablero se llena a medida que ejecutas casos en Ejecución y Evidencias.</div></div>';
+    return;
   }
+  var n = ensureAvanceNotas();
+  var c = evCounts(); var total = S.cases.length;
+  var d = avanceData();
+  var dashboard = '<div id="avance-dashboard">'+avanceDashboardHtml('Avance de pruebas')+'</div>';
+
+
+  // 2) Secciones automaticas (siempre al dia, no editables).
+  var secPass = avanceSectionHtml(AVANCE_COLORS.pass, '&#9989;', 'Validaciones exitosas', d.pass.length,
+    d.pass.length ? '<div style="font-size:12.5px;color:var(--text2)">'+d.passHoy.length+' de hoy.</div>' +
+      avanceDetailsHtml('Ver casos exitosos', d.pass.map(function(x){ return esc(avanceCaseLabel(x))+(avanceIsToday(x.statusTs)?' <span class="badge b-green" style="font-size:9px">hoy</span>':''); })) : '');
+  var secRetired = avanceSectionHtml(AVANCE_COLORS.retired, '&#9898;', 'Casos desestimados', d.retired.length,
+    d.retired.length ? avanceListHtml(d.retired.map(function(x){ return '<b>'+esc(avanceCaseLabel(x))+'</b>: '+esc(avanceMotivo(x)); })) : '');
+  var secBlocked = avanceSectionHtml(AVANCE_COLORS.blocked, '&#9940;', 'Casos bloqueados', d.blocked.length,
+    d.blocked.length ? avanceListHtml(d.blocked.map(function(x){
+      var dest = x.bloqueoDestino ? BLOQUEO_DESTINO_LABELS[x.bloqueoDestino] : '';
+      return '<b>'+esc(avanceCaseLabel(x))+'</b>: '+esc(avanceMotivo(x))+(dest ? ' → <i>'+esc(dest)+'</i>' : ' <span style="color:var(--text3)">(destino sin definir en Ejecución)</span>');
+    })) : '');
+  var secFail = avanceSectionHtml(AVANCE_COLORS.fail, '&#10060;', 'Casos fallidos', d.fail.length,
+    d.fail.length ? avanceListHtml(d.fail.map(function(x){
+      var bug = d.bugs.filter(function(b){ return b.caseId === x.id; })[0];
+      return '<b>'+esc(avanceCaseLabel(x))+'</b>'+(bug ? ' — '+esc(bug.id)+' ('+esc(BUG_ESTADO_LABELS[bug.estado]||bug.estado)+')' : ' <span style="color:var(--text3)">(sin bug reportado)</span>');
+    })) : '');
+  var bugsRows = d.bugs.map(function(b){
+    return '<tr><td class="mono" style="white-space:nowrap">'+esc(b.id)+'</td><td>'+esc(b.caseId||'--')+'</td><td>'+esc(b.titulo)+'</td><td>'+esc(b.dev||'Sin asignar')+'</td>' +
+      '<td>'+esc(SEVERIDAD_LABELS[b.severidad]||b.severidad)+'</td><td>'+esc(BUG_ESTADO_LABELS[b.estado]||b.estado)+'</td>' +
+      '<td style="font-size:10px;white-space:nowrap">'+esc(b.creadoTs||'--')+'</td><td style="font-size:10px;white-space:nowrap">'+esc(b.actualizadoTs||'--')+'</td></tr>';
+  }).join('');
+  var secBugs = avanceSectionHtml(AVANCE_COLORS.fail, '&#128030;', 'Bugs identificados', d.bugs.length,
+    bugsRows ? '<div class="tbl-wrap"><table class="qa-table qa-table-narrow" style="font-size:11px"><thead><tr><th>ID</th><th>Caso</th><th>Descripción</th><th>Desarrollador</th><th>Severidad</th><th>Estado</th><th>Creado</th><th>Actualizado</th></tr></thead><tbody>'+bugsRows+'</tbody></table></div>' : '');
+  var secTodo = avanceSectionHtml(AVANCE_COLORS.todo, '&#8987;', 'Pendientes por ejecutar', d.todo.length,
+    d.todo.length ? '<div style="font-size:12.5px;color:var(--text2)">'+d.todo.length+' caso'+(d.todo.length===1?'':'s')+' sin ejecutar. En el mensaje solo va la cantidad.</div>' +
+      avanceDetailsHtml('Ver cuáles (solo para ti, no se exporta)', d.todo.map(function(x){ return esc(avanceCaseLabel(x)); })) : '');
+
+  body.innerHTML =
+    '<div style="max-width:900px">' +
+      dashboard +
+      '<div style="height:14px"></div>' +
+      secPass + secRetired + secBlocked + secFail + secBugs + secTodo +
+      teamsMessageCardHtml('avance') +
+      '<div class="advance-box" style="margin-top:16px">' +
+        '<div><div class="advance-ttl">&#191;Ejecución terminada?</div>' +
+        '<div class="advance-sub">Se generará la Certificación de Calidad con los resultados reales de casos y bugs.</div></div>' +
+        '<button class="btn btn-primary" onclick="continueToCert()">Finalizar y generar Certificación &rarr;</button>' +
+      '</div>' +
+    '</div>';
+}
+
+// Mensaje para Teams (avance diario o finalizacion): campos del QA claramente
+// editables + vista previa + copiar mensaje / imagen del tablero.
+function teamsMessageCardHtml(kind) {
+  var n = teamsNotas(kind);
+  var inputStyle = 'width:100%;border:1px solid var(--border2);border-radius:6px;padding:8px 10px;font:inherit;font-size:12.5px;background:var(--bg);color:var(--text)';
+  var obsPh = kind === 'final'
+    ? 'Escribe aquí lo que quieras resaltar del cierre: qué quedó validado, pendientes para UAT, recomendaciones...'
+    : 'Escribe aquí lo que quieras contarle al grupo: qué se validó hoy, preguntas pendientes con el usuario, bloqueos...';
+  return '<div class="m2-card" style="border:1px solid var(--teal)">' +
+      '<div class="m2-card-hdr" style="color:var(--teal)">&#128172; '+(kind === 'final' ? 'Mensaje de finalización para Teams' : 'Mensaje para Teams')+'</div>' +
+      '<div style="font-size:11.5px;color:var(--text3);margin-bottom:10px">Lo automático (resumen, bugs, bloqueados, desestimados y pendientes) se arma solo con lo que marcas en Ejecución y Bugs. Tú solo escribes el saludo, las observaciones y el cierre.</div>' +
+      '<label class="m2-fld-lbl">&#9998; Saludo</label>' +
+      '<input type="text" style="'+inputStyle+';margin-bottom:10px" value="'+esc(n.saludo != null ? n.saludo : AVANCE_SALUDO_DEFAULT)+'" oninput="onTeamsNotaInput(\''+kind+'\',\'saludo\',this)">' +
+      '<label class="m2-fld-lbl">&#9998; Observaciones (opcional)</label>' +
+      '<textarea style="'+inputStyle+';min-height:80px;margin-bottom:10px" placeholder="'+obsPh+'" oninput="onTeamsNotaInput(\''+kind+'\',\'observaciones\',this)">'+esc(n.observaciones||'')+'</textarea>' +
+      '<label class="m2-fld-lbl">&#9998; Cierre</label>' +
+      '<input type="text" style="'+inputStyle+';margin-bottom:12px" value="'+esc(n.cierre != null ? n.cierre : teamsCierreDefault(kind))+'" oninput="onTeamsNotaInput(\''+kind+'\',\'cierre\',this)">' +
+      '<div class="m2-fld-lbl">Vista previa</div>' +
+      '<style>.teams-preview p{margin:0 0 8px}.teams-preview ul{margin:0 0 8px;padding-left:20px}</style>' +
+      '<div id="msg-preview-'+kind+'" class="teams-preview" style="border:1px dashed var(--border2);border-radius:6px;padding:10px 14px;font-size:12.5px;color:var(--text);line-height:1.6;background:var(--bg2)">'+buildAvanceMessage(kind).html+'</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">' +
+        '<button class="btn btn-primary" onclick="copyTeamsMessage(\''+kind+'\')">Copiar mensaje para Teams</button>' +
+        '<button class="btn btn-ghost" onclick="copyAvanceImage(\''+kind+'\')">Copiar imagen del tablero</button>' +
+        '<button class="btn btn-ghost" onclick="exportAvance_PNG(\''+kind+'\')">Descargar imagen</button>' +
+      '</div>' +
+      '<div style="font-size:10.5px;color:var(--text3);margin-top:6px">En Teams: pega el mensaje y luego la imagen del tablero.</div>' +
+    '</div>';
+}
+
+// Imagen del tablero (solo el tablero, ancho fijo) -- legible al pegarla en Teams. Se arma
+// desde avanceDashboardHtml() y no desde la pantalla: asi funciona tambien desde la
+// Certificacion, donde el Avance no esta visible.
+async function avanceDashboardCanvas(kind) {
+  if (!window.html2canvas) throw new Error('No se pudo generar la imagen.');
+  var clone = document.createElement('div');
+  clone.innerHTML = avanceDashboardHtml(kind === 'final' ? 'Resultado final de pruebas' : 'Avance de pruebas');
+  clone.style.position = 'fixed'; clone.style.left = '-99999px'; clone.style.top = '0'; clone.style.width = '760px';
+  document.body.appendChild(clone);
+  try { return await html2canvas(clone, { scale: 2, backgroundColor: '#ffffff' }); }
+  finally { document.body.removeChild(clone); }
+}
+async function exportAvance_PNG(kind) {
+  if (!S.cases.length) { toast('No hay datos de ejecución todavía.','err'); return; }
+  try {
+    var canvas = await avanceDashboardCanvas(kind);
+    var a = document.createElement('a'); a.href = canvas.toDataURL('image/png'); a.download = reqFileSlug()+(kind === 'final' ? ' - Resultado final de pruebas.png' : ' - Informe de Avance.png'); a.click();
+    toast('Imagen descargada','ok');
+  } catch(e) { toast('Error exportando la imagen: '+e.message, 'err'); }
+}
+async function copyAvanceImage(kind) {
+  if (!S.cases.length) { toast('No hay datos de ejecución todavía.','err'); return; }
+  try {
+    var canvas = await avanceDashboardCanvas(kind);
+    var blob = await new Promise(function(res){ canvas.toBlob(res, 'image/png'); });
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    toast('Imagen del tablero copiada. Pégala en Teams.','ok');
+  } catch(e) { toast('No se pudo copiar la imagen: '+e.message+'. Usa Descargar imagen.', 'err'); }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -4140,7 +4529,7 @@ async function generateCertification() {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         analysisRaw: _analysis,
-        cases: S.cases.map(function(c){ return {id:c.id, caso:c.caso, escenario:c.escenario, status:c.status, verdict:c.verdict}; }),
+        cases: S.cases.map(function(c){ return {id:c.id, caso:c.caso, escenario:c.escenario, status:c.status, verdict:c.verdict, estadoNota:c.estadoNota, bloqueoDestino:c.status==='blocked' && c.bloqueoDestino ? BLOQUEO_DESTINO_LABELS[c.bloqueoDestino] : null}; }),
         bugs: S.bugs,
         // Objetivo/Alcance ya aprobados en el Plan de Pruebas -- Certificacion los
         // reusa como referencia principal en vez de re-derivarlos del analisis crudo.
@@ -4204,11 +4593,22 @@ function dossierBtnHtml() {
     '</div>' +
   '</div>';
 }
+// Bloque "Informe de finalizacion" (Teams) -- vive arriba en la Certificacion y no
+// depende de que el documento de certificacion ya este generado.
+function finalReportHtml() {
+  if (!S.cases.length) return '';
+  return '<div class="m2-card" style="margin-bottom:14px"><div class="m2-card-hdr">&#127937; Informe de finalización para el grupo</div>' +
+    '<div style="font-size:11.5px;color:var(--text3);margin-bottom:10px">Avísale al grupo que QA terminó: imagen del resultado final + mensaje listo para Teams. El documento formal de certificación está más abajo.</div>' +
+    avanceDashboardHtml('Resultado final de pruebas') +
+    '<div style="height:12px"></div>' +
+    teamsMessageCardHtml('final') +
+  '</div>';
+}
 function renderCert() {
   var body = document.getElementById('mcert-body');
   if (!body) return;
   if (!S.certRaw) {
-    body.innerHTML =
+    body.innerHTML = finalReportHtml() +
       '<div class="placeholder-wrap">' +
         '<div class="placeholder-ico">&#127942;</div>' +
         '<div class="placeholder-ttl">Aun no se genera la Certificacion</div>' +
@@ -4224,7 +4624,7 @@ function renderCert() {
   var bugRows = S.bugs.length
     ? S.bugs.map(function(b){ return '<tr><td>'+esc(b.id)+'</td><td>'+esc(b.caseId||'-')+'</td><td>'+esc(b.descripcion||b.titulo)+'</td><td>'+esc(BUG_ESTADO_LABELS[b.estado]||b.estado)+'</td></tr>'; }).join('')
     : '<tr><td colspan="4" style="color:var(--text3)">Ningun bug registrado.</td></tr>';
-  body.innerHTML =
+  body.innerHTML = finalReportHtml() +
     '<div class="res-block" style="margin-bottom:10px"><div class="res-block-hdr">Proyecto / Version / Responsable</div>' +
       '<div class="res-block-body" style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">' +
         '<div><span class="m2-fld-lbl">Proyecto</span><div style="font-size:12.5px">'+esc(reqProjectName())+'</div></div>' +
@@ -4376,19 +4776,37 @@ document.addEventListener('DOMContentLoaded', function() {
   // nav activo, panel de consola oculto), sin depender de que haya historial.
   showModule('m1', document.getElementById('nav-m1'));
 
+  // Arrastrar y soltar en TODA la pantalla de M1 (no solo en el recuadro), con
+  // todos los archivos soltados -- antes solo se tomaba el primero.
+  var isFileDrag = function(e){ return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0; };
+  // Un archivo soltado fuera de una zona de carga NO debe abrirse en la pestana
+  // (se perderia la pantalla). Los input[type=file] de M4/M5 conservan su drop nativo.
+  ['dragover','drop'].forEach(function(ev){
+    document.addEventListener(ev, function(e){
+      if (isFileDrag(e) && !(e.target && e.target.type === 'file')) e.preventDefault();
+    });
+  });
   var zone = document.getElementById('upload-zone');
-  if (!zone) return;
-  zone.addEventListener('dragover', function(e){ e.preventDefault(); zone.classList.add('drag'); });
-  zone.addEventListener('dragleave', function(){ zone.classList.remove('drag'); });
-  zone.addEventListener('drop', function(e){
+  var area = document.getElementById('m1');
+  if (!zone || !area) return;
+  area.addEventListener('dragover', function(e){ if (!isFileDrag(e)) return; e.preventDefault(); zone.classList.add('drag'); });
+  area.addEventListener('dragleave', function(e){ if (!area.contains(e.relatedTarget)) zone.classList.remove('drag'); });
+  area.addEventListener('drop', function(e){
+    if (!isFileDrag(e)) return;
     e.preventDefault(); zone.classList.remove('drag');
-    if (_isWorking) return;
-    var f = e.dataTransfer.files[0]; if (!f) return;
-    var dt = new DataTransfer(); dt.items.add(f);
+    if (_isWorking || document.getElementById('upload-card').classList.contains('disabled')) return;
+    var files = e.dataTransfer.files; if (!files || !files.length) return;
+    var dt = new DataTransfer();
+    Array.prototype.forEach.call(files, function(f){ dt.items.add(f); });
     var inp = document.getElementById('file-input'); inp.files = dt.files;
     handleFileUpload(inp);
   });
 });
+
+function openFilePicker() {
+  if (_isWorking || document.getElementById('upload-card').classList.contains('disabled')) return;
+  document.getElementById('file-input').click();
+}
 
 </script>
 </body>

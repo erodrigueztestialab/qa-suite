@@ -391,7 +391,7 @@ async function checkGeminiAvailable(timeoutMs) {
 
 // ── Claude CLI ───────────────────────────────────────────────────────────
 // Usa la sesion Plan Pro del usuario (sin API key). Modo headless con
-// --print --output-format stream-json, igual que en el proyecto Cinemark.
+// --print --output-format stream-json (modo headless del CLI).
 // Si hay filePath (vision nativa de PDF), se habilita --add-dir sobre la carpeta
 // que lo contiene + --allowedTools Read, y el prompt le indica la ruta exacta a leer.
 
@@ -946,6 +946,18 @@ function buildMultiFileAnalysisPrompt(files, engine, inventoryPath) {
   ].filter(function(l){ return l !== null; }).join('\n');
 }
 
+// Demo 2026-10-08 (Liz): los casos deben ser ejecutables por el QA en el ambiente de
+// pruebas, sobre flujos reales del usuario -- no pruebas que en la practica se
+// desestiman porque no se pueden hacer. Generico: aplica a cualquier requerimiento.
+var REGLA_CASOS_OPERATIVOS =
+  'CASOS OPERATIVOS Y EJECUTABLES: cada caso debe poder ejecutarlo un QA en el ambiente de pruebas siguiendo un flujo\n' +
+  '   real del usuario del negocio, con las pantallas, datos y permisos que ese ambiente normalmente ofrece. NO generes\n' +
+  '   casos de carga, estres, rendimiento con volumenes masivos, concurrencia, seguridad/penetracion, ni casos que exijan\n' +
+  '   herramientas especiales o condiciones que el QA no puede producir (caidas de servidor, millones de registros,\n' +
+  '   manipular la base de datos, esperar dias reales). Si el analisis menciona un requisito no funcional, conviertelo\n' +
+  '   SOLO en lo que el usuario puede observar al operar (ej: que un proceso se ejecuta en segundo plano sin bloquear la\n' +
+  '   pantalla), o no lo conviertas en caso si no es observable.';
+
 // ── Build prompt: Escenarios y Casos QA ────────────────────────────────────────
 // Toma el analisis crudo de M1 (todas sus secciones) + la configuracion que el
 // QA confirmo en M2 (notas/areas validadas) y pide los casos
@@ -1033,6 +1045,7 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '   EXCEPCION: el caso de validacion de un campo de la regla 3(d) agrupa a proposito todas las validaciones de ese',
     '   campo en pasos distintos -- no lo separes aunque cite 3 o mas IDs, siempre que todos sean del mismo campo.',
     '5. Cada paso a paso debe ser ejecutable por un QA sin conocimiento previo del sistema.',
+    '5.1 ' + REGLA_CASOS_OPERATIVOS,
     '6. El resultado esperado debe ser verificable, no ambiguo.',
     '7. NO inventes datos de negocio que no esten en el analisis. Esto aplica en especial a VALORES concretos (correos,',
     '   nombres, IDs, montos, fechas puntuales, cantidades/valores numericos de campos del sistema en formulas o calculos):',
@@ -1075,6 +1088,8 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '   quitala y cita su CA_N en el caso del campo.',
     '   (i) Ningun caso menciona reuniones, transcripciones, documentos o personas como fuente, ni trae IDs fuera del campo',
     '   "Requisito" -- si encuentras alguno, reescribelo.',
+    '   (j) Ningun caso es de carga, estres, volumen masivo u otra prueba que el QA no pueda ejecutar en el ambiente (regla',
+    '   5.1) -- si encuentras alguno, conviertelo en lo que el usuario puede observar o quitalo.',
     '10. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
     '',
     '---CASOS_DE_PRUEBA---',
@@ -1099,6 +1114,93 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     'Requisito=ID(s) exacto(s) de CA_N/RN_N que este caso cubre.',
     'Pasos=una linea por paso, "N. Texto del paso >> Resultado esperado especifico" -- cada paso debe tener su propio',
     'resultado esperado verificable, distinto del de los demas pasos. No fusiones varios pasos en una sola linea.',
+  ].join('\n');
+}
+
+// ── Build prompt: Consolidar casos de varias fuentes (M4) ─────────────────────
+// Demo 2026-10-08 (Liz): el QA tiene sus propios casos y a veces el cliente entrega
+// los suyos (Excel con cualquier plantilla, Word...). La IA los cruza con los que ya
+// genero la QA Suite y entrega UNA version final: sin duplicados, mejorando lo que se
+// pueda y agregando lo que salga de combinar las fuentes, con trazabilidad del origen.
+function buildConsolidateCasesPrompt(analysisRaw, existingCases, sources, m2Context) {
+  m2Context = m2Context || {};
+  var areas = (m2Context.impactAreas || []).filter(function(a){ return a.checked; })
+    .map(function(a){ return a.label + (a.desc ? ': ' + a.desc : ''); }).join('\n') || 'Ninguna area especifica marcada.';
+  var existingText = (existingCases || []).map(function(c){
+    var pasos = (c.steps || []).map(function(st, i){ return (i+1) + '. ' + (st.paso||'') + ' >> ' + (st.resultado||''); }).join(' / ') || '(sin pasos)';
+    return c.id + ' | Requisito: ' + (c.requisito||'-') + ' | Tipo: ' + (c.tipo||'-') + ' | Escenario: ' + (c.escenario||'-') +
+      ' | Caso: ' + (c.caso||'-') + ' | Objetivo: ' + (c.objetivo||'-') + ' | Pasos: ' + pasos;
+  }).join('\n') || '(no hay casos generados todavia)';
+  var sourcesText = (sources || []).map(function(src){
+    return '=== FUENTE: ' + (src.origen === 'Cliente' ? 'CLIENTE' : 'QA') + ' -- archivo "' + (src.filename||'-') + '" ===\n' + (src.text||'');
+  }).join('\n\n');
+  return [
+    'Eres un Disenador de Casos de Prueba QA senior. Debes CONSOLIDAR en un solo set final los casos de prueba de',
+    'varias fuentes para el mismo requerimiento:',
+    '- IA: los casos que ya genero la herramienta (abajo, con su ID CP_N).',
+    '- QA: casos propios del analista QA (pueden venir completos o solo como titulos/escenarios).',
+    '- Cliente: casos que entrego el cliente (pueden venir en cualquier formato o plantilla).',
+    '',
+    'ANALISIS DEL REQUERIMIENTO:',
+    analysisRaw,
+    '',
+    'CONFIGURACION DEFINIDA POR EL QA:',
+    'Areas de impacto validadas:',
+    areas,
+    '',
+    'CASOS GENERADOS POR LA IA:',
+    existingText,
+    '',
+    'CASOS EXTERNOS (texto extraido de los archivos; las hojas de calculo vienen como filas separadas por comas y la',
+    'plantilla puede ser cualquiera -- identifica tu mismo que columna es el titulo, los pasos, el resultado esperado, etc.;',
+    'ignora encabezados, logos, filas vacias y columnas de ejecucion/estado):',
+    sourcesText || '(ninguno)',
+    '',
+    'INSTRUCCIONES CRITICAS:',
+    '1. Entrega UNA version final: cada validacion distinta aparece UNA sola vez. Si un caso externo valida lo mismo que',
+    '   un caso de la IA (mismo objetivo, aunque este redactado distinto), NO lo dupliques: fusionalos en uno solo y quedate',
+    '   con lo mejor de ambos (pasos mas completos, datos o condiciones que el otro no tenia).',
+    '2. Si un caso externo cubre algo que ningun caso de la IA cubre, agregalo como caso completo. Si viene solo como',
+    '   titulo o escenario, completalo con objetivo, pasos y resultados esperados a partir del analisis.',
+    '3. Si al combinar fuentes aparece una validacion que ninguna tenia por separado (ej: el escenario del cliente con la',
+    '   condicion que propuso el QA), agregala como caso nuevo.',
+    '4. Mejora la redaccion de un caso solo si de verdad aporta (pasos ambiguos, resultado no verificable). No cambies por',
+    '   cambiar: un caso de la IA que ya esta bien se mantiene igual.',
+    '5. Descarta (no los incluyas en el set) los casos externos que esten duplicados exactos, fuera del alcance del',
+    '   requerimiento o que no sean ejecutables segun la regla 6, y listalos en DESCARTADOS con el motivo.',
+    '6. ' + REGLA_CASOS_OPERATIVOS,
+    '7. Cobertura OBLIGATORIA: al final, TODOS los CA_N y RN_N del analisis deben quedar cubiertos por al menos un caso.',
+    '   El campo "Requisito" cita el/los ID(s) exactos que cubre cada caso (si un caso externo no trae IDs, asignalos tu).',
+    '8. NO inventes datos de negocio (correos, montos, IDs, fechas, valores numericos) que no esten en el analisis ni en',
+    '   las fuentes: describe la accion de forma generica si no hay un valor exacto.',
+    '9. REDACCION NATURAL: como la escribiria un analista QA para que otra persona la ejecute, en imperativo, con el',
+    '   vocabulario del negocio. NUNCA cites la fuente dentro del caso ("segun el cliente", "el QA propuso", nombres de',
+    '   archivos o personas): el origen va SOLO en las lineas Origen/Accion/Detalle. Los IDs CA_N/RN_N van SOLO en',
+    '   "Requisito".',
+    '10. Responde UNICAMENTE con las dos secciones delimitadas. Sin texto adicional.',
+    '',
+    '---CASOS_DE_PRUEBA---',
+    'Formato EXACTO -- un bloque por caso, numerados CP_1, CP_2... en orden, cada campo en su propia linea, ninguno opcional:',
+    '### CP_1',
+    'Requisito: CA_1, RN_2',
+    'Tipo: Funcional',
+    'Complejidad: Medio',
+    'Escenario: nombre corto del escenario',
+    'Caso: titulo corto del caso',
+    'Objetivo: una frase que describe que se valida',
+    'Origen: IA',
+    'Accion: Se mantiene',
+    'Detalle: (vacio si Accion es "Se mantiene"; si no, una frase con que se hizo, ej: "Fusionado con el caso del cliente \'Alta de registro\', se agrego el paso de confirmacion")',
+    'Pasos:',
+    '1. Texto del paso >> Resultado esperado especifico',
+    '2. Texto del paso >> Resultado esperado especifico',
+    'Donde: Tipo=UNICAMENTE Smoke, Funcional, UI o UX. Complejidad=UNICAMENTE Alto, Medio o Bajo.',
+    'Origen=UNICAMENTE IA, QA, Cliente o Combinado (Combinado = salio de mezclar dos o mas fuentes).',
+    'Accion=UNICAMENTE "Se mantiene", "Mejorado", "Fusionado" o "Nuevo".',
+    '',
+    '---DESCARTADOS---',
+    'Una linea por caso externo descartado: Origen (QA o Cliente) | titulo del caso externo | motivo concreto.',
+    'Si no se descarto ninguno, escribe NINGUNO.',
   ].join('\n');
 }
 
@@ -1185,6 +1287,7 @@ function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, en
     '3. La columna "Requisito Funcional" de cada caso debe citar el/los ID(s) exacto(s) que cubre.',
     '4. Cada paso a paso debe ser ejecutable por un QA sin conocimiento previo del sistema, con resultado esperado',
     '   verificable.',
+    '4.1 ' + REGLA_CASOS_OPERATIVOS,
     '5. NO inventes datos de negocio que no esten en el analisis. Esto aplica en especial a VALORES concretos (correos,',
     '   nombres, IDs, montos, fechas puntuales, cantidades/valores numericos de campos del sistema en formulas o calculos):',
     '   si el analisis no especifica un valor exacto para un campo, describe la ACCION de forma generica orientada a la',
@@ -1349,7 +1452,7 @@ function buildPlanPruebasPrompt(analysisRaw, m2Context, engine) {
     '---CRITERIOS_SALIDA---',
     'Lista de criterios de salida, uno por linea con "- ". Deben incluir, como base: todos los casos de prueba',
     'ejecutados, todos los bugs corregidos y re-testeados (o aceptados formalmente por el cliente), y la regresión',
-    'focalizada de los casos impactados en estado Pass; agrega los que apliquen especificamente a ESTE requerimiento.',
+    'focalizada de los casos impactados en estado Exitoso; agrega los que apliquen especificamente a ESTE requerimiento.',
   ].join('\n');
 }
 
@@ -1362,6 +1465,7 @@ function buildPlanPruebasPrompt(analysisRaw, m2Context, engine) {
 var DOCX_TEAL = '0F9B82';
 var DOCX_NAVY = '1A2E44';
 var DOCX_FONT = 'Calibri'; // fuente real de la plantilla (confirmada en footer1.xml del docx original)
+var DOCX_LANG = 'es-CO'; // idioma de revision ortografica de Word -- sin esto Word revisa con el idioma del equipo (ej. ingles) y subraya todo en rojo
 
 function docxHeading(numberedTitle) {
   return new Paragraph({
@@ -1389,6 +1493,13 @@ function docxBullet(text) {
 function docxNumbered(text, n) {
   return new Paragraph({ alignment: AlignmentType.JUSTIFIED, indent: { left: 300 }, spacing: { after: 40 },
     children: [ new TextRun({ text: n + '. ' + text, size: 21, font: DOCX_FONT }) ] });
+}
+// Texto con saltos de linea -> un parrafo por linea (Word ignora los saltos dentro de
+// un TextRun: el 'Resultado esperado' del bug salia todo pegado en una sola linea).
+function docxLinesBlock(text) {
+  var lines = String(text || '').split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+  if (!lines.length) return [ docxPara('---') ];
+  return lines.map(function(l){ return docxPara(l); });
 }
 function docxBulletList(items) {
   if (!items || !items.length) return [ docxPara('---') ];
@@ -1504,7 +1615,7 @@ async function buildPlanPruebasDocxBuffer(p) {
 
   var hf = docxHeaderFooter('Plan de pruebas');
   var doc = new Document({
-    styles: { default: { document: { run: { font: DOCX_FONT, size: 21 } } } },
+    styles: { default: { document: { run: { font: DOCX_FONT, size: 21, language: { value: DOCX_LANG } } } } },
     sections: [ { properties: {}, headers: { default: hf.header }, footers: { default: hf.footer }, children: children } ],
   });
   return Packer.toBuffer(doc);
@@ -1564,7 +1675,7 @@ async function buildHUDocxBuffer(p) {
 
   var hf = docxHeaderFooter('Historia de Usuario');
   var doc = new Document({
-    styles: { default: { document: { run: { font: DOCX_FONT, size: 21 } } } },
+    styles: { default: { document: { run: { font: DOCX_FONT, size: 21, language: { value: DOCX_LANG } } } } },
     sections: [ { properties: {}, headers: { default: hf.header }, footers: { default: hf.footer }, children: children } ],
   });
   return Packer.toBuffer(doc);
@@ -1626,7 +1737,7 @@ async function buildCertificacionDocxBuffer(p) {
 
   var hf = docxHeaderFooter('Certificación de Calidad');
   var doc = new Document({
-    styles: { default: { document: { run: { font: DOCX_FONT, size: 21 } } } },
+    styles: { default: { document: { run: { font: DOCX_FONT, size: 21, language: { value: DOCX_LANG } } } } },
     sections: [ { properties: {}, headers: { default: hf.header }, footers: { default: hf.footer }, children: children } ],
   });
   return Packer.toBuffer(doc);
@@ -1693,24 +1804,6 @@ function bugEvidenceChildren(images) {
   });
   return out.length ? out : [ docxPara('(sin evidencia de imagen disponible para incrustar en este Word)') ];
 }
-// Tabla Paso/Resultado esperado del CASO DE PRUEBA vinculado al bug -- distinto del
-// "Paso a paso" del bug (que es como reproducir el bug en si). El QA pidio que el
-// Word del bug tambien deje registrado el caso completo que se estaba ejecutando.
-function bugCaseChildren(casoAsociado) {
-  if (!casoAsociado) return [ docxPara('(este bug no tiene un caso de prueba vinculado)') ];
-  var steps = casoAsociado.steps || [];
-  var header = new TableRow({ cantSplit: true, children: [
-    docxCell('#', {header:true, width:8}), docxCell('Paso', {header:true, width:46}), docxCell('Resultado esperado', {header:true, width:46}),
-  ]});
-  var body = steps.length
-    ? steps.map(function(s, i){ return new TableRow({ cantSplit: true, children: [ docxCell(String(i+1)), docxCell(s.paso||'-'), docxCell(s.resultado||'-') ] }); })
-    : [ new TableRow({ cantSplit: true, children: [ docxCell('-'), docxCell('(sin pasos definidos)'), docxCell('-') ] }) ];
-  return [
-    docxLabelPara('Caso', casoAsociado.caso),
-    docxLabelPara('Objetivo', casoAsociado.objetivo),
-    new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [header].concat(body) }),
-  ];
-}
 async function buildBugDocxBuffer(p) {
   p = p || {};
   var children = [
@@ -1718,23 +1811,25 @@ async function buildBugDocxBuffer(p) {
       new TextRun({ text: 'Bug -- ' + (p.caseId || '--'), bold: true, size: 26, color: DOCX_NAVY, font: DOCX_FONT }),
     ] }),
     docxLabelPara('Título', p.titulo),
+    docxLabelPara('Caso de prueba', p.casoTitulo ? (p.caseId + ' -- ' + p.casoTitulo) : p.caseId),
     docxSubheading('Descripción'),
     docxPara(p.descripcion),
-    docxSubheading('Paso a paso'),
+    docxSubheading('Pasos para reproducir'),
   ].concat(docxNumberedList(p.pasos)).concat([
     docxSubheading('Resultado esperado'),
-    docxPara(p.resultadoEsperado),
+  ]).concat(docxLinesBlock(p.resultadoEsperado)).concat([
+    docxSubheading('Resultado obtenido'),
+  ]).concat(docxLinesBlock(p.resultadoObtenido)).concat([
     docxSubheading('Tipo de error'),
   ]).concat(docxBulletList(p.tipoError)).concat([
     docxLabelPara('Severidad', p.severidad),
     docxSubheading('Evidencia'),
   ]).concat(bugEvidenceChildren(p.evidenceImages)).concat([
     docxLabelPara('Asignado a', p.dev),
-    docxSubheading('Caso de Prueba Asociado'),
-  ]).concat(bugCaseChildren(p.casoAsociado));
+  ]);
   var hf = docxHeaderFooter('Reporte de Bug');
   var doc = new Document({
-    styles: { default: { document: { run: { font: DOCX_FONT, size: 21 } } } },
+    styles: { default: { document: { run: { font: DOCX_FONT, size: 21, language: { value: DOCX_LANG } } } } },
     sections: [ { properties: {}, headers: { default: hf.header }, footers: { default: hf.footer }, children: children } ],
   });
   return Packer.toBuffer(doc);
@@ -1785,7 +1880,7 @@ async function buildEvidenceDossierDocxBuffer(p) {
   if (!cases.length) children.push(docxPara('No hay casos ejecutados todavia para incluir en el dossier.'));
   var hf = docxHeaderFooter('Dossier de Evidencias');
   var doc = new Document({
-    styles: { default: { document: { run: { font: DOCX_FONT, size: 21 } } } },
+    styles: { default: { document: { run: { font: DOCX_FONT, size: 21, language: { value: DOCX_LANG } } } } },
     sections: [ { properties: {}, headers: { default: hf.header }, footers: { default: hf.footer }, children: children } ],
   });
   return Packer.toBuffer(doc);
@@ -1875,11 +1970,16 @@ function extractAnalysisSection(raw, tag) {
   var m = (raw || '').match(re);
   return m ? m[1].trim() : '';
 }
+// Estados en espanol (decision 2026-10-08: no hay audiencia en ingles) -- la IA los
+// copia tal cual al documento del cliente.
+var ESTADOS_ES = { todo: 'Sin ejecutar', pass: 'Exitoso', retired: 'Desestimado', fail: 'Fallido', blocked: 'Bloqueado' };
 function summarizeCasesForPrompt(cases) {
   if (!cases || !cases.length) return '(sin casos registrados)';
   return cases.map(function(c){
-    return (c.id || 'CP') + ' | ' + (c.caso || c.escenario || '') + ' | estado: ' + (c.status || 'todo') +
-      (c.verdict ? ' | resultado de verificacion: ' + c.verdict : '');
+    return (c.id || 'CP') + ' | ' + (c.caso || c.escenario || '') + ' | estado: ' + (ESTADOS_ES[c.status || 'todo'] || c.status) +
+      (c.verdict ? ' | resultado de verificacion: ' + (c.verdict === 'PASS' ? 'Exitoso' : c.verdict === 'FAIL' ? 'Fallido' : c.verdict) : '') +
+      (c.estadoNota && String(c.estadoNota).trim() ? ' | motivo registrado por el QA: ' + String(c.estadoNota).trim() : '') +
+      (c.bloqueoDestino ? ' | destino del caso bloqueado: ' + c.bloqueoDestino : '');
   }).join('\n');
 }
 function summarizeBugsForPrompt(bugs) {
@@ -1927,7 +2027,7 @@ function buildCertificationPrompt(analysisRaw, m2Context, cases, bugs, engine, p
     '',
     reglas || '(sin reglas de negocio identificadas)',
     '',
-    'RESULTADOS DE EJECUCION (' + total + ' casos totales -- Pass: ' + passN + ', Retired: ' + retiredN + ', Fail: ' + failN + ', Blocked: ' + blkN + ', To Do: ' + todoN + '):',
+    'RESULTADOS DE EJECUCION (' + total + ' casos totales -- Exitosos: ' + passN + ', Desestimados: ' + retiredN + ', Fallidos: ' + failN + ', Bloqueados: ' + blkN + ', Sin ejecutar: ' + todoN + '):',
     summarizeCasesForPrompt(cases),
     '',
     'DEFECTOS REGISTRADOS:',
@@ -1936,10 +2036,11 @@ function buildCertificationPrompt(analysisRaw, m2Context, cases, bugs, engine, p
     'INSTRUCCIONES CRITICAS:',
     '1. Basate UNICAMENTE en los resultados reales de arriba -- no inventes cifras ni resultados. Este documento certifica',
     '   la calidad ante el cliente final -- CERO informacion inventada, sin excepcion.',
-    '2. Si hay casos en To Do o Blocked, justifica su impacto en la conclusion. NO inventes el MOTIVO por el que no se',
-    '   ejecutaron (priorizacion, falta de tiempo, ambiente, ventana de pruebas...): los datos de arriba no traen motivos.',
-    '   Di solo que estan pendientes, que su cumplimiento no esta evidenciado y que impacto tiene eso. Si un caso Blocked',
-    '   tiene un bug asociado en DEFECTOS REGISTRADOS, ese bug SI es un motivo real y puedes citarlo.',
+    '2. Si hay casos Sin ejecutar, Bloqueados o Desestimados, justifica su impacto en la conclusion. Usa como motivo',
+    '   UNICAMENTE el "motivo registrado por el QA" de cada caso (si lo trae) o un bug asociado en DEFECTOS REGISTRADOS.',
+    '   Si un caso no trae motivo, NO lo inventes (priorizacion, falta de tiempo, ambiente, ventana de pruebas...): di',
+    '   solo que esta pendiente, que su cumplimiento no esta evidenciado y que impacto tiene eso.',
+    '   Usa siempre los nombres de estado en espanol (Exitoso, Fallido, Bloqueado, Desestimado, Sin ejecutar).',
     '3. La conclusion de calidad debe ser honesta: si hay fails criticos sin resolver, no certifiques como apto sin condiciones.',
     '4. NO menciones que la ejecucion de pruebas uso o se apoyo en inteligencia artificial -- este documento describe',
     '   los resultados de QA hacia el cliente, no la herramienta interna que usa TestiAlab.',
@@ -2374,6 +2475,43 @@ app.post('/api/generate-cases', async function(req, res) {
   }
 });
 
+// ── Escenarios y Casos QA: consolidar casos de IA + QA + Cliente ──────────────
+// M4 = modelo fuerte de cada motor (misma politica que /api/generate-cases).
+app.post('/api/consolidate-cases', async function(req, res) {
+  var analysisRaw = req.body.analysisRaw;
+  var cases       = req.body.cases || [];
+  var sources     = req.body.sources || []; // [{origen:'QA'|'Cliente', filename, text}]
+  var m2Context   = req.body.m2Context || {};
+  var engine      = (req.body.engine === 'gemini' || req.body.engine === 'claude') ? req.body.engine : ENGINE_DEFAULT;
+  var engineLabel = engine === 'claude' ? 'Claude Opus' : 'Gemini (Antigravity)';
+  var reqId       = req.body.reqId || '';
+  if (!analysisRaw) return res.status(400).json({ error: 'Se requiere analysisRaw.' });
+  if (!sources.length) return res.status(400).json({ error: 'Adjunta al menos un archivo con casos.' });
+  emitProgress(reqId, 8, 'Preparando prompt para '+engineLabel+'...');
+  var stages = [
+    [20, 'Enviando a '+engineLabel+'...'],
+    [40, 'Leyendo los casos externos...'],
+    [60, 'Cruzando con los casos generados...'],
+    [80, 'Armando la version final sin duplicados...'],
+  ];
+  var stageIdx = 0;
+  var stageTimer = setInterval(function(){
+    if (stageIdx < stages.length) { emitProgress(reqId, stages[stageIdx][0], stages[stageIdx][1]); stageIdx++; }
+  }, 9000);
+  try {
+    var text = await callAI(buildConsolidateCasesPrompt(analysisRaw, cases, sources, m2Context), { engine: engine, model: 'opus' });
+    clearInterval(stageTimer);
+    emitProgress(reqId, 98, 'Procesando respuesta...');
+    emitDone(reqId);
+    return res.json({ raw: text, engine: engine });
+  } catch (err) {
+    clearInterval(stageTimer);
+    emitDone(reqId);
+    console.error('[/api/consolidate-cases]', err.message);
+    return res.status(502).json({ error: engineLabel + ': ' + err.message });
+  }
+});
+
 // ── Escenarios y Casos QA: generar SOLO los casos faltantes de una cobertura ──
 // Se dispara desde "Generar casos para lo faltante" una vez que el QA ya corrio
 // "Verificar cobertura con IA" y quedaron CA_N/RN_N sin cubrir de verdad.
@@ -2711,6 +2849,78 @@ app.post('/api/estimate-complexity', async function(req, res) {
     clearInterval(stageTimer);
     emitDone(reqId);
     console.error('[/api/estimate-complexity]', err.message);
+    return res.status(502).json({ error: engineLabel + ': ' + err.message });
+  }
+});
+
+// ── Gestion de Bugs: redactar el bug como lo escribiria un QA ────────────────────
+// Demo 2026-10-08: la descripcion del bug era el veredicto de la IA copiado (hablaba
+// de capturas y evidencias, no del defecto). Aca se redacta para el desarrollador.
+function buildDraftBugPrompt(c) {
+  c = c || {};
+  var steps = (c.steps || []).map(function(s, i){
+    var v = (c.stepVerdicts && c.stepVerdicts[i] === false) ? 'FALLO' + (c.stepReasons && c.stepReasons[i] ? ' -- ' + c.stepReasons[i] : '') :
+            (c.stepVerdicts && c.stepVerdicts[i] === true) ? 'OK' : 'sin verificar';
+    return (i+1) + '. Paso: ' + (s.paso || '-') + ' | Resultado esperado: ' + (s.resultado || '-') + ' | Ejecucion: ' + v;
+  }).join('\n');
+  return [
+    'Eres un Analista QA senior redactando el reporte de un bug para el equipo de desarrollo, a partir de un caso de',
+    'prueba que fallo durante la ejecucion.',
+    '',
+    'CASO DE PRUEBA: ' + (c.id || '-') + ' -- ' + (c.caso || '-'),
+    'Escenario: ' + (c.escenario || '-'),
+    'Objetivo: ' + (c.objetivo || '-'),
+    '',
+    'PASOS DEL CASO Y RESULTADO DE LA EJECUCION:',
+    steps || '(sin pasos)',
+    '',
+    'OBSERVACION DE LA VERIFICACION: ' + (c.verdictNote || '(ninguna)'),
+    '',
+    'INSTRUCCIONES CRITICAS:',
+    '1. Describe el DEFECTO del sistema (que falla, donde y bajo que condicion), como lo escribiria un QA para un',
+    '   desarrollador: claro, concreto y breve. NO hables de capturas, evidencias, veredictos, verificaciones ni de IA.',
+    '2. CERO informacion inventada: usa solo lo que dicen los pasos, sus resultados y las razones de falla. Si no se',
+    '   sabe con certeza que mostro el sistema, describe lo observable sin inventar datos, mensajes ni valores.',
+    '3. Los pasos para reproducir llegan hasta el punto donde se observa la falla, en orden y accionables.',
+    '4. Si la falla se debe a que la evidencia estaba incompleta o no correspondia al caso (y no a un defecto del',
+    '   sistema), dilo en NOTA_QA para que el QA lo revise antes de reportar. Si no, escribe NINGUNA.',
+    '5. ' + ORTOGRAFIA_DOC_CLIENTE,
+    '6. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
+    '',
+    '---TITULO---',
+    'Una sola linea (maximo 100 caracteres) que nombre el defecto, no el caso. MAL: "Falla en CP_3". BIEN: "El reporte no filtra por rango de fechas de vencimiento".',
+    '',
+    '---DESCRIPCION---',
+    '2 a 4 frases: que ocurre, en que funcionalidad, bajo que condicion y que impacto tiene.',
+    '',
+    '---RESULTADO_ESPERADO---',
+    '1 a 3 lineas.',
+    '',
+    '---RESULTADO_OBTENIDO---',
+    '1 a 3 lineas.',
+    '',
+    '---PASOS---',
+    'Un paso por linea, numerados (1. 2. 3.).',
+    '',
+    '---NOTA_QA---',
+    'Una linea, o NINGUNA.',
+  ].join('\n');
+}
+app.post('/api/draft-bug', async function(req, res) {
+  var c = req.body.caso;
+  var engine = (req.body.engine === 'gemini' || req.body.engine === 'claude') ? req.body.engine : ENGINE_DEFAULT;
+  var engineLabel = engine === 'claude' ? 'Claude CLI' : 'Gemini (Antigravity CLI)';
+  var reqId = req.body.reqId || '';
+  if (!c || !c.id) return res.status(400).json({ error: 'Se requiere el caso de prueba.' });
+  emitProgress(reqId, 20, 'Redactando el bug con ' + engineLabel + '...');
+  try {
+    var text = await callAI(buildDraftBugPrompt(c), { engine: engine, model: 'sonnet', effort: 'medium' });
+    emitProgress(reqId, 98, 'Procesando respuesta...');
+    emitDone(reqId);
+    return res.json({ raw: text, engine: engine });
+  } catch (err) {
+    emitDone(reqId);
+    console.error('[/api/draft-bug]', err.message);
     return res.status(502).json({ error: engineLabel + ': ' + err.message });
   }
 });
