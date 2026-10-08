@@ -45,20 +45,10 @@ Estados de caso en la UI **en español** (Exitoso, Fallido, Bloqueado, Desestima
 
 ## 1. Contexto del proyecto
 
-**TestIALab** es una empresa de QA (Lizeth Camacho / equipo QA) que está migrando/adaptando un mecanismo de automatización de pruebas con IA que ya se había construido antes para **otro cliente (Cinemark)**, hacia su propia herramienta interna: **"QA Suite IA"**.
+**TestIALab** es una empresa de QA (Lizeth Camacho / equipo QA) que está construyendo su propia herramienta interna de automatización de pruebas con IA: **"QA Suite IA"**.
 
-### El proyecto de referencia (Cinemark)
-Un mecanismo ya construido y funcional para Cinemark con esta arquitectura:
-- HTML/JS vanilla (`qa-suite.html`, ~11,900 líneas) + proxy Node.js (`proxy.js`, servidor `http` nativo, puerto 3000).
-- Motor IA: **Claude Code CLI** en modo headless (`claude --print --output-format stream-json`), usando sesión Plan Pro (sin API key).
-- 7 módulos secuenciales con bloqueo (`data-requires`): Analizador de riesgo → Análisis de impacto → Casos de prueba → Ejecución (con evidencia visual) → Reporte global/Bugs → ROI → Informe de Regresión/UAT → Certificación QA.
-- Integración nativa con **Azure DevOps** (Work Items, Test Plans, Test Manager Service).
-- Prompts fuertemente hardcodeados al dominio de Cinemark (Flutter, países LATAM, membresías Plus/Black/Fan, etc.)
-- Estimación de esfuerzo QA basada en factores calibrados con datos de Cinemark (`QA_EST`, 8 min/caso de benchmark ROI).
-- Historial persistido en IndexedDB por HU.
-
-### El proyecto actual (TestIALab)
-Se parte de un esqueleto mucho más simple que Cinemark:
+### Punto de partida (TestIALab)
+Se parte de un esqueleto simple:
 - `qa-suite.html` (~1,000 líneas iniciales) + `proxy.js` (Express, puerto **3001**).
 - Motor IA inicial: solo **Gemini CLI**.
 - Solo **M1 (Analizador)** funcional; M2-M5 eran placeholders "En construcción".
@@ -83,7 +73,7 @@ Se acordaron explícitamente estas decisiones antes de tocar el código, vía pr
 | Motor de IA | **Dual y configurable**: Gemini CLI + Claude Code CLI, seleccionable por el usuario en un dropdown del sidebar. Selector persiste en `localStorage`. |
 | Origen del requerimiento | **Solo carga de documentos** por ahora (PDF/DOCX/TXT). Se deja la puerta abierta a integrar Azure DevOps o Jira más adelante (aún no decidido cuál). |
 | Formato de salida de casos/ejecución | **Excel simplificado**: solo la hoja de casos (columnas de `TestCases`), sin fórmulas ni las demás hojas (`TestProgress`, `Bugs`, etc. quedan fuera por ahora — es temporal, mientras se decide si migran a Azure o Jira). El QA pega manualmente ese Excel simplificado en la plantilla maestra real. |
-| Persistencia | **Historial único global** (como Cinemark), sin separar por cliente — vive en IndexedDB, aunque **todavía no se ha implementado** (ver pendientes). |
+| Persistencia | **Historial único global**, sin separar por cliente — vive en IndexedDB, aunque **todavía no se ha implementado** (ver pendientes). |
 | Entrega del "informe de avance" | **Solo generar el reporte** (dashboard/HTML/Excel) para que el QA lo copie/descargue y lo envíe manualmente — **NO** envío automático por correo (no SMTP). |
 
 ### Los 3 documentos/entregables distintos identificados (importante no confundirlos)
@@ -98,9 +88,9 @@ Se acordaron explícitamente estas decisiones antes de tocar el código, vía pr
 | M1 | Analizador de riesgo | Sube documento → IA genera HU, Riesgo, Criterios de Aceptación, Reglas de Negocio, Riesgos, Impactos, Escenarios QA |
 | M2 | **Impacto y Estimación** (renombrado de "Riesgos" — ver §4) | El QA **valida** (no re-analiza) las áreas de impacto detectadas en M1, define cobertura y ambiente, ajusta estimación de horas |
 | M3 | Casos de prueba | Genera casos con IA → tabla en pantalla + exporta Excel simplificado — **NO CONSTRUIDO TODAVÍA** |
-| M4 | Ejecución | Sube evidencia, IA da veredicto por caso (críticos vs. variables, patrón de Cinemark) — **NO CONSTRUIDO** |
+| M4 | Ejecución | Sube evidencia, IA da veredicto por caso (pasos críticos vs. variables) — **NO CONSTRUIDO** |
 | M5 | Bugs | Registro de defectos — **NO CONSTRUIDO** |
-| M6 | ROI | Tiempo IA vs. manual, benchmark propio de TestIALab (no el de Cinemark) — **NO CONSTRUIDO** |
+| M6 | ROI | Tiempo IA vs. manual, benchmark propio de TestIALab — **NO CONSTRUIDO** |
 | M7a | Plan de Pruebas (Word) | **NO CONSTRUIDO** |
 | M7b | Informe de Avance (dashboard) | **NO CONSTRUIDO** |
 | M7c | Certificación QA (Word) | **NO CONSTRUIDO** |
@@ -117,7 +107,7 @@ Se acordaron explícitamente estas decisiones antes de tocar el código, vía pr
 - **M1 (bug):** el prompt de análisis ya pedía a la IA generar `RIESGOS`, `IMPACTOS` y `ESCENARIOS_QA` como secciones delimitadas, pero el HTML **nunca las renderizaba ni exportaba** — se descartaban. Se agregaron los bloques de UI (`rg-list`, `im-list`, `esc-list`) y se incluyeron en los exports a PDF y Word (que tampoco incluían nivel de riesgo/justificación antes).
 - **Motor IA dual en `proxy.js`:**
   - `callGemini()` ya existía (spawn con `shell:true`, prompt por stdin).
-  - Se portó `callClaude()` desde el proyecto Cinemark: invoca `claude --print --output-format stream-json --verbose --include-partial-messages --model <model> --append-system-prompt <...> --permission-mode bypassPermissions`, con parser de `stream-json` (`parseClaudeStreamJson`) que prioriza el evento `result` sobre `assistant` sobre `content_block_delta`.
+  - Se agregó `callClaude()`: invoca `claude --print --output-format stream-json --verbose --include-partial-messages --model <model> --append-system-prompt <...> --permission-mode bypassPermissions`, con parser de `stream-json` (`parseClaudeStreamJson`) que prioriza el evento `result` sobre `assistant` sobre `content_block_delta`.
   - `callAI(prompt, opts)` como dispatcher único: `opts.engine === 'claude' ? callClaude : callGemini`.
   - Selector de motor agregado al sidebar del frontend (`<select id="engine-select">`), con `onEngineChange()` que persiste en `localStorage['testialab_engine']`.
 
@@ -144,7 +134,7 @@ Se acordaron explícitamente estas decisiones antes de tocar el código, vía pr
   - El HTML resultante se convierte a texto plano con `htmlToPlainText()` (regex simple: cierra bloques con `\n`, quita tags, decodifica entidades básicas).
   - Se probó en vivo contra el DOCX real de Nalsani: **4,353 caracteres + 6 imágenes extraídas correctamente** (confirmado visualmente, coincide con las capturas del POS del PDF original).
 - `.doc` legacy (binario, no ZIP) da un error claro pidiendo guardar como `.docx`, porque `mammoth` no lo soporta (a diferencia de LibreOffice que sí podía con ambos).
-- Nuevo modo de análisis `docx-images`: `buildDocxAnalysisPrompt(text, imagePaths, engine)` — el texto va embebido directo en el prompt; las imágenes se referencian según el motor: `@ruta` para Gemini (sintaxis nativa), o instrucción + herramienta `Read` vía `--add-dir` para Claude (mismo patrón que Cinemark usaba en su M4 de evidencias).
+- Nuevo modo de análisis `docx-images`: `buildDocxAnalysisPrompt(text, imagePaths, engine)` — el texto va embebido directo en el prompt; las imágenes se referencian según el motor: `@ruta` para Gemini (sintaxis nativa), o instrucción + herramienta `Read` vía `--add-dir` para Claude.
 - Se refactorizó el bloque de secciones de salida (`HISTORIA_DE_USUARIO`, `NIVEL_RIESGO_GLOBAL`, etc.) a una función compartida `outputSectionsBlock()`, reusada por `buildPrompt()` (texto puro), `buildVisionPrompt()` (PDF nativo) y `buildDocxAnalysisPrompt()` (DOCX extraído).
 - **Bug de frontend encontrado en el camino:** `window._uploadedFile` **nunca se asignaba** en `handleFileUpload()` — solo se leía y se limpiaba. Esto significaba que subir cualquier archivo (PDF/DOCX/TXT) nunca llegaba realmente al análisis; siempre caía al textarea (vacío). Corregido agregando `window._uploadedFile = d;`.
 
@@ -170,7 +160,7 @@ Se acordaron explícitamente estas decisiones antes de tocar el código, vía pr
   - Checklist de áreas de impacto (checkbox por área, toggle vía `toggleM2Area(i, checked)`).
   - Selectores de **cobertura** (Feature/Regresión/UAT/Smoke/Hotfix) y **ambiente** (Laboratorio/Beta/Producción).
   - Textarea de notas/criterios de salida.
-  - **Estimación de esfuerzo QA**, modelo genérico (NO viene de la IA — a diferencia de Cinemark, el prompt actual de TestIALab no pide un bloque de esfuerzo estructurado JSON):
+  - **Estimación de esfuerzo QA**, modelo genérico (NO viene de la IA — el prompt de TestIALab no pide un bloque de esfuerzo estructurado JSON):
     ```js
     const QA_EST = {
       RISK_BASE_HOURS: {ALTO:6, MEDIO:3, BAJO:1.5},
@@ -179,17 +169,17 @@ Se acordaron explícitamente estas decisiones antes de tocar el código, vía pr
       AMB_FACTOR: {laboratorio:1.0, beta:1.1, produccion:1.3},
     };
     ```
-    Horas = `(base_por_riesgo + areas_validadas × 1.25) × factor_cobertura × factor_ambiente`, editable manualmente por el QA. Se afinará automáticamente cuando M3 exista y haya casos reales para contar (mismo patrón que Cinemark).
+    Horas = `(base_por_riesgo + areas_validadas × 1.25) × factor_cobertura × factor_ambiente`, editable manualmente por el QA. Se afinará automáticamente cuando M3 exista y haya casos reales para contar.
   - Botón "Continuar a Casos de Prueba" (ahora con confirmación, ver Ronda 8).
 
-### Ronda 8 — Patrón "botón avanzar con confirmación" (estilo Cinemark) + remoción de textarea manual
-- Se agregó una caja "¿Todo revisado?" al final del resultado de M1 con `confirm()` antes de navegar a M2 (`confirmContinueToM2()`), replicando el patrón exacto de Cinemark (`confirmContinueToImpact()`).
+### Ronda 8 — Patrón "botón avanzar con confirmación" + remoción de textarea manual
+- Se agregó una caja "¿Todo revisado?" al final del resultado de M1 con `confirm()` antes de navegar a M2 (`confirmContinueToM2()`).
 - `continueToM3()` en M2 también ahora pide confirmación antes de desbloquear M3.
 - **Se eliminó la sección "O pega el texto directamente"** completa (divider + textarea `#req-text`) — decisión del usuario: "nadie va a pegar el texto directamente". Los botones Analizar/Limpiar se movieron directo bajo la tarjeta de subida de documento. Se limpiaron todas las referencias a `#req-text` en `analyzeReq()`, `removeFile()`, `clearAll()`. CSS muerto (`.divider`, `.req-box`, etc.) removido; `.req-footer` se conservó (reutilizado para los botones).
 
 ### Ronda 9 — Fix de proporción consola/histórico + remoción de polling (repetido, confirmado)
 - **Consola de ejecución vs. Histórico de HU no compartían proporción:** la consola tenía altura fija `180px` (`flex-shrink:0`), el histórico se llevaba todo el resto (`flex:1`). Se cambió la consola también a `flex:1` con `min-height:0` en ambos contenedores y sus listas internas (fix clásico de flexbox para que el scroll interno funcione en vez de desbordarse).
-- Confirmado que el `setInterval(checkHealth, 15000)` де la Ronda 6 en efecto se había eliminado correctamente.
+- Confirmado que el `setInterval(checkHealth, 15000)` de la Ronda 6 en efecto se había eliminado correctamente.
 
 ### Ronda 10 — Batería de bugs reportados por el usuario en vivo (con capturas reales)
 Todos corregidos en una sola pasada:
@@ -222,9 +212,9 @@ El usuario dijo *"voy a probar estos fixes y te confirmo. No codees nada. Solo e
 
 ### NO construido todavía (según el plan acordado en §2)
 - **M3 — Casos de prueba**: siguiente módulo a construir. Debe generar casos de prueba con IA y exportarlos a un Excel simplificado (solo columnas de `TestCases`, sin fórmulas ni las demás hojas de la plantilla real).
-- **M4 — Ejecución** (con evidencia visual, patrón crítico/variable de Cinemark).
+- **M4 — Ejecución** (con evidencia visual, pasos críticos vs. variables).
 - **M5 — Bugs**.
-- **M6 — ROI** (benchmark propio de TestIALab, no el de Cinemark).
+- **M6 — ROI** (benchmark propio de TestIALab).
 - **M7a — Plan de Pruebas** (Word, estructura del ejemplo Totto).
 - **M7b — Informe de Avance** (dashboard diario, estructura del "Testing progress report").
 - **M7c — Certificación QA** (Word, estructura del ejemplo Nalsani/Totto, con prosa generada por IA).
