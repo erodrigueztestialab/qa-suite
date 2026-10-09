@@ -723,3 +723,6 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 
 **Proximo (sesion 25):** preguntar si reviso/mergea la cadena #58-#65 (+#59) y si probo en Teams el pegado del mensaje; pendiente opcional npm audit.
 7. Pedido posterior del usuario (mismo dia): (a) HANDOFF y comentarios de codigo SIN ninguna mencion al proyecto de referencia anterior ("aqui no aplica nada de ese proyecto"; Nalsani/Totto si se quedan) -> commit 2d5682e en #65; (b) npm audit 13 -> 0 (audit fix sin --force + overrides.mammoth.argparse=^2.0.1) -> commit a206fbe en #65, verificado con bateria de 19 pruebas antes/despues (0 diferencias) y 3001 reiniciado con las dependencias nuevas. La bateria quedo en el scratchpad (api-smoke.js), no versionada.
+8. MERGE (2026-10-08): #58,#60-#65,#59 a develop y #66 develop->main (merge 0ba012d). main == develop, sin PRs abiertos, ramas feature borradas (remoto y local). Memoria de la sesion commiteada el 2026-10-09 en feature/memoria-sesion-24 (PR a develop + develop->main).
+
+**Pendiente (sesion 25+):** confirmar si el usuario ya puso el repo privado y si probo en Teams el pegado de "Copiar mensaje" del Avance.
