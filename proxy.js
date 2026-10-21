@@ -242,9 +242,22 @@ const progressClients = new Map();
 
 // Mapeo de modelo: los endpoints ya mandan opts.model: 'sonnet'|'opus' (nomenclatura
 // de Claude) sin distincion de motor -- se reusa el mismo valor para no tener que
-// tocar cada endpoint. 'gemini-3.1-pro-low' ~ tier Sonnet (default, uso general),
-// 'gemini-3.1-pro-high' ~ tier Opus (razonamiento mas alto, casos/cobertura/gaps).
-var GEMINI_MODEL_MAP = { opus: 'gemini-3.1-pro-high', sonnet: 'gemini-3.1-pro-low' };
+// tocar cada endpoint. 'gemini-4-argon-low' ~ tier Sonnet (default, uso general),
+// 'gemini-4-argon-high' ~ tier Opus (razonamiento mas alto, casos/cobertura/gaps).
+// El 2026-10-21 agy se auto-actualizo (1.4.4) y retiro los gemini-3.1-pro-*: todas
+// las llamadas Gemini fallaban con "invalid model selection". Por eso, ademas del
+// mapa, callGemini() resuelve el modelo con "agy models" si el nombre deja de existir.
+var GEMINI_MODEL_MAP = { opus: 'gemini-4-argon-high', sonnet: 'gemini-4-argon-low' };
+var _geminiResolvedModel = {}; // tier -> modelo encontrado con "agy models" (cache del proceso)
+
+// Equivalente del tier en la lista actual de "agy models": la familia Gemini principal
+// (no Flash) con el mismo nivel (high/low) que el mapa. null si no hay ninguno.
+function pickGeminiModel(modelsStdout, tier) {
+  var level = tier === 'opus' ? 'high' : 'low';
+  var ids = String(modelsStdout || '').split('\n').map(function(l){ return l.trim().split(/\s+/)[0]; })
+    .filter(function(id){ return /^gemini-/i.test(id || '') && !/flash/i.test(id); });
+  return ids.filter(function(id){ return new RegExp('-' + level + '$', 'i').test(id); })[0] || ids[0] || null;
+}
 
 // Resolver el binario de Antigravity CLI: env var explicita, el shim de winget
 // (solo si existe en disco), la carpeta real de instalacion de winget (nombre con hash de
@@ -307,7 +320,8 @@ function spawnGeminiOnce(bin, args, timeoutMs, onProcess) {
 async function callGemini(prompt, opts) {
   opts = opts || {};
   var timeoutMs = opts.timeoutMs || 480000;
-  var model     = GEMINI_MODEL_MAP[opts.model] || GEMINI_MODEL_MAP.sonnet;
+  var tier      = GEMINI_MODEL_MAP[opts.model] ? opts.model : 'sonnet';
+  var model     = _geminiResolvedModel[tier] || GEMINI_MODEL_MAP[tier];
   var filePath  = opts.filePath || null;
   var imagePaths = opts.imagePaths || null;
   var addDir = opts.addDir || (filePath ? path.dirname(filePath)
@@ -328,6 +342,17 @@ async function callGemini(prompt, opts) {
       var text = result.stdout.trim();
       console.log('<- GEMINI/AGY  rc='+result.code+'  len='+text.length);
 
+      // Modelo retirado por una actualizacion de agy: se busca el equivalente en
+      // "agy models" y se reintenta una sola vez con ese nombre.
+      if (result.code !== 0 && /invalid model selection|not recognized as a known model/i.test(result.stderr + result.stdout) && !opts._modelRetried) {
+        var listed = await spawnGeminiOnce(bin, ['models'], 30000, null);
+        var alt = listed.code === 0 ? pickGeminiModel(listed.stdout, tier) : null;
+        if (alt && alt !== model) {
+          console.log('!! GEMINI/AGY  modelo "'+model+'" ya no existe -> usando "'+alt+'"');
+          _geminiResolvedModel[tier] = alt;
+          return await callGemini(prompt, Object.assign({}, opts, { _modelRetried: true }));
+        }
+      }
       if (result.code !== 0 || !text) {
         var signInLike = /sign in|not authenticated|please sign in/i.test(result.stderr);
         var msg = signInLike
@@ -1315,6 +1340,9 @@ function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, en
     '   "Dejar vacio el campo NIT y dar clic en Guardar >> El sistema no guarda el proveedor y muestra el mensaje de',
     '   campos obligatorios".',
     '8. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
+    '9. Si al revisar los casos existentes concluyes que NINGUN item faltante necesita un caso nuevo (ya lo cubren, o',
+    '   el analisis no da informacion suficiente para disenar un caso ejecutable), NO inventes casos: responde',
+    '   unicamente con la linea ---CASOS_DE_PRUEBA--- seguida de la linea SIN_CASOS_NUEVOS.',
     '',
     '---CASOS_DE_PRUEBA---',
     'Formato EXACTO -- un bloque por caso, cada campo en su propia linea. Tipo y Complejidad SIEMPRE van presentes',
@@ -2187,8 +2215,15 @@ function emitDone(reqId) {
 // "Integración" llega aca como "IntegraciÃ³n". Re-interpretar los bytes como
 // latin1 y decodificarlos de nuevo como utf8 revierte la corrupcion. Para un
 // nombre ya puramente ASCII esta operacion es un no-op (round-trip identico).
+// Desde multer 2.4 (npm audit fix, 2026-10-08) el nombre YA llega bien en UTF-8:
+// re-decodificarlo convertia "Integración" en "Integraci�n" y Chrome cambiaba
+// ese caracter por "_" al descargar. Solo se repara si el resultado es UTF-8 valido
+// (sin �) y distinto; si no, el nombre ya estaba bien y se deja igual.
 function fixMojibake(name) {
-  return Buffer.from(name, 'latin1').toString('utf8');
+  name = String(name || '');
+  if (/[^\u0000-ÿ]/.test(name)) return name; // tiene caracteres fuera de latin1: ya es UTF-8 real
+  var fixed = Buffer.from(name, 'latin1').toString('utf8');
+  return fixed.indexOf('�') === -1 ? fixed : name;
 }
 
 // Mismo patron de extraccion que extractDesarrolloTitle() en qa-suite.html --
@@ -2199,10 +2234,11 @@ function fixMojibake(name) {
 // encabezado a veces viene en el mismo renglon del titulo y no es parte del nombre.
 function cleanReqTitle(t) {
   return String(t || '')
+    .replace(/_+/g, ' ') // nombres de archivo con "_" en vez de espacios
     .replace(/[\s\-–—|:_]*FECHA(?![a-záéíóúñ]).*$/i, '')
     .replace(/[\s\-–—|:_]*\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\s*$/, '')
     .replace(/[\s\-–—|:_]*(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])20\d{2}\s*$/, '')
-    .replace(/(?:^|[\s\-–—_]+)v(?:ersi[oó]n)?\.?\s*\d+(?:[._]\d+)*\s*$/i, '')
+    .replace(/(?:^|[\s\-–—_]+)v(?:ersi[oó]n)?\.?\s*\d+(?:[._ ]\d+)*\s*$/i, '')
     .replace(/[\s\-–—|:_]*\b(?:Documento|Especificaci[oó]n)\s+(?:Funcional|T[eé]cnic[oa])\b[\s\-–—|:_]*/i, ' - ')
     .replace(/^[\s\-–—|:_]+|[\s\-–—|:_]+$/g, '')
     .replace(/\s+/g, ' ')
@@ -2214,9 +2250,9 @@ function extractDesarrolloTitleFromText(text) {
   for (var i = 0; i < lines.length; i++) {
     var m = /^DESARROLLO\b[\s:.\-]*(.*)$/i.exec(lines[i]);
     if (m) {
-      if (m[1]) return cleanReqTitle(m[1]).slice(0,120);
+      if (m[1]) return cleanReqTitle(m[1]).slice(0,200);
       for (var j = i+1; j < lines.length; j++) {
-        if (lines[j]) return cleanReqTitle(lines[j]).slice(0,120);
+        if (lines[j]) return cleanReqTitle(lines[j]).slice(0,200);
       }
     }
   }
@@ -2458,9 +2494,9 @@ app.post('/api/generate-cases', async function(req, res) {
 
   try {
     // M4 siempre usa el modelo mas fuerte de cada motor (Opus para Claude,
-    // gemini-3.1-pro-high para Gemini via GEMINI_MODEL_MAP) -- antes solo
+    // gemini-4-argon-high para Gemini via GEMINI_MODEL_MAP) -- antes solo
     // Claude recibia ese override; con Gemini caia al default 'sonnet'
-    // (gemini-3.1-pro-low), el modelo mas debil, sin que nadie lo pidiera asi.
+    // (gemini-4-argon-low), el modelo mas debil, sin que nadie lo pidiera asi.
     var callOpts = { engine: engine, model: 'opus' };
     var text = await callAI(prompt, callOpts);
     clearInterval(stageTimer);
@@ -2540,9 +2576,9 @@ app.post('/api/generate-gap-cases', async function(req, res) {
 
   try {
     // M4 siempre usa el modelo mas fuerte de cada motor (Opus para Claude,
-    // gemini-3.1-pro-high para Gemini via GEMINI_MODEL_MAP) -- antes solo
+    // gemini-4-argon-high para Gemini via GEMINI_MODEL_MAP) -- antes solo
     // Claude recibia ese override; con Gemini caia al default 'sonnet'
-    // (gemini-3.1-pro-low), el modelo mas debil, sin que nadie lo pidiera asi.
+    // (gemini-4-argon-low), el modelo mas debil, sin que nadie lo pidiera asi.
     var callOpts = { engine: engine, model: 'opus' };
     var text = await callAI(prompt, callOpts);
     clearInterval(stageTimer);
@@ -2583,9 +2619,9 @@ app.post('/api/verify-coverage', async function(req, res) {
 
   try {
     // M4 siempre usa el modelo mas fuerte de cada motor (Opus para Claude,
-    // gemini-3.1-pro-high para Gemini via GEMINI_MODEL_MAP) -- antes solo
+    // gemini-4-argon-high para Gemini via GEMINI_MODEL_MAP) -- antes solo
     // Claude recibia ese override; con Gemini caia al default 'sonnet'
-    // (gemini-3.1-pro-low), el modelo mas debil, sin que nadie lo pidiera asi.
+    // (gemini-4-argon-low), el modelo mas debil, sin que nadie lo pidiera asi.
     var callOpts = { engine: engine, model: 'opus' };
     var text = await callAI(prompt, callOpts);
     clearInterval(stageTimer);

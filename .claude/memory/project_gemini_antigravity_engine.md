@@ -80,7 +80,7 @@ Google AI Pro/Ultra tiene limites bastante mas generosos, que refrescan
   nombre real incluye un hash de publisher que varia, ej.
   `Google.AntigravityCLI_Microsoft.Winget.Source_8wekyb3d8bbwe` -- por eso no
   se puede hardcodear), (4) `'agy'` a secas por PATH.
-- Mapeo de modelo: `GEMINI_MODEL_MAP = { opus: 'gemini-3.1-pro-high', sonnet:
+- Mapeo de modelo (ACTUAL desde 2026-10-21, agy 1.4.4: `gemini-4-argon-high`/`gemini-4-argon-low` + fallback automatico via `agy models` en callGemini; lo de abajo es el mapeo historico): `GEMINI_MODEL_MAP = { opus: 'gemini-3.1-pro-high', sonnet:
   'gemini-3.1-pro-low' }` -- reusa el mismo `opts.model` que ya mandaba cada
   endpoint para Claude, CERO endpoints tuvieron que tocarse para pasar
   modelo.
