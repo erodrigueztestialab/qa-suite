@@ -726,3 +726,20 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 8. MERGE (2026-10-08): #58,#60-#65,#59 a develop y #66 develop->main (merge 0ba012d). main == develop, sin PRs abiertos, ramas feature borradas (remoto y local). Memoria de la sesion commiteada el 2026-10-09 en feature/memoria-sesion-24 (PR a develop + develop->main).
 
 **Pendiente (sesion 25+):** confirmar si el usuario ya puso el repo privado y si probo en Teams el pegado de "Copiar mensaje" del Avance.
+
+## Sesion 25 (2026-10-21)
+1. Congelamiento sigue (Liz no ha terminado su feature; lo tiene local). Lista nueva de Liz: casi todo (M3 Nombre/Rol, Proyecto limpio, Limpiar plan, paginacion, ortografia; M4 consolidar casos externos y mensaje de cobertura completa; M6 descripcion como QA; Avance "Validaciones pendientes", pendientes en cantidad, PNG) YA estaba en #44 y #58-#65 -> Liz probablemente corre codigo anterior al merge del 2026-10-08.
+2. Corregido SIN COMMITEAR (working tree de develop, por el congelamiento):
+   - Tildes -> "_" en nombres de descarga: causa raiz = npm audit fix (multer 2.2->2.4) ya entrega originalname en UTF-8 y fixMojibake() lo re-decodificaba (U+FFFD, Chrome lo cambia por "_"). fixMojibake ahora solo repara si hay mojibake real. Sesiones viejas con "\uFFFD" en reqDocName no se recuperan (re-subir).
+   - cleanReqTitle (front+proxy): "_" -> espacio; version "v1_0" tambien.
+   - Largo: reqProjectName/extractDesarrolloTitle 120->200; reqFileSlug 60->150 cortando en espacio (REQ_FILE_SLUG_MAX).
+   - M4 generar faltantes: prompt regla 9 -> "SIN_CASOS_NUEVOS"; front lo detecta ANTES de parseCasesBlock (que lo convertia en caso falso) y deja nota en la tarjeta (S.coverageVerified.gapNoNew).
+3. Verificado: curl upload en 3002, Chrome headless (descarga real con tildes/espacios, nota M4, caso normal se sigue agregando). Scripts en scratchpad (puppeteer-core). 3001 del usuario no se toco (necesita reinicio para el fix del proxy).
+4. Pruebas completas (2026-10-21, sin pedir permiso -- ver [[feedback-test-before-claiming-done]]): flujo real Claude en el 3001 (M1 -> 20 casos -> cobertura -> faltantes -> plan -> bug -> cert): 11 descargas con nombre correcto, Word con "Proyecto:" limpio. Faltantes reales: Claude y Gemini devuelven SIN_CASOS_NUEVOS si ya esta cubierto y SI generan el caso si el hueco es real. Ojo en pruebas: ruta scratchpad + nombre largo > 260 chars rompe la lectura del archivo (artefacto de prueba).
+5. **Gemini estaba caido**: agy se auto-actualizo el 2026-10-21 15:32 (1.4.4) y retiro gemini-3.1-pro-*. GEMINI_MODEL_MAP -> gemini-4-argon-high/low + fallback en callGemini: si "invalid model selection", consulta "agy models" (pickGeminiModel, misma familia no-Flash y nivel) y reintenta una vez. Probado real (mapa nuevo en 3001 y fallback con nombres viejos en 3002). /api/engine-status decia "disponible" aunque el modelo no existia.
+6. 3001 reiniciado con todo el codigo nuevo (sin commitear, develop).
+7. 2026-10-21: el usuario LEVANTO el congelamiento (Liz se demora; ella concilia/actualiza sus ramas cuando el usuario le avise). Se borro la memoria del congelamiento. Fixes subidos: PR #69 (feature/fixes-liz-nombres-gemini -> develop, merge bfcf015) y PR #70 develop->main (merge c003911); main == develop, sin PRs abiertos. (Este dato de PR va solo en la memoria local; viaja al repo con la proxima memoria.)
+
+8. Resumen para JIRA Timeboard entregado (ver [[feedback-jira-worklog]]). El usuario hara pruebas manuales; "continuamos luego".
+
+**Pendiente (sesion 26+):** Liz ya esta avisada (2026-10-21) de actualizar sus ramas; repo sigue PUBLICO; opcional re-medir M1/M4 con gemini-4-argon.

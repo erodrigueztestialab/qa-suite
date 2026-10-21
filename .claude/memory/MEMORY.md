@@ -1,15 +1,16 @@
 - [Español colombiano](feedback_spanish_colombian.md) — responder siempre en español colombiano TUTEANDO (tú), nunca "usted" ni "vos"/voseo.
 - [Probar antes de decir "listo"](feedback_test_before_claiming_done.md) — verificar de verdad (navegador/reproducción), no solo revisión de código.
-- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 24 (2026-10-08): demo Liz → PRs #58-#65 + #59 mergeados y #66 develop→main; main==develop; npm audit 0; repo aún público.
+- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 25 (2026-10-21): fixes nombres de archivo + aviso M4 + Gemini caído (agy 1.4.4 → argon) subidos; congelamiento levantado; Liz ya avisada.
 - [Identidad git QA-Suite](project_git_identity.md) — todo commit/push/PR solo con correo @testialab.com (erodriguez@testialab.com / erodrigueztestialab); nunca otro dominio ni otra cuenta.
 - [Flujo de ramas QA-Suite](project_git_workflow.md) — main/develop/feature con PR obligatorio; auto-borrado de feature/* al mergear + ruleset que impide borrar main/develop (2026-09-29).
 - [Modelo/esfuerzo preferido](feedback_model_effort.md) — Sonnet medio por defecto para fixes/desarrollo en QA Suite (mi propio razonamiento), salvo indicación contraria.
 - [Política de modelos QA Suite](project_qa_suite_model_policy.md) — modelo fuerte SOLO en M4 (ambos motores); resto estándar con --effort medium explícito en TODOS los endpoints Sonnet (2026-09-29).
 - [Pedidos grandes: plan mode + fases](feedback_big_requests_plan_mode.md) — para listas largas multi-módulo, plan mode + implementar/probar fase por fase contra la sesión real, sin pausar a preguntar entre fases.
-- [Motor Gemini via Antigravity CLI](project_gemini_antigravity_engine.md) — "gemini" corre sobre `agy`. Gemini no sigue exhaustividad abierta; M4 en 2 pasadas descartado, M1 en 2 pasadas IMPLEMENTADO (2026-10-02, ~14 CA vs ~8.5; high y quitar mínimos no sirven). Claude sigue recomendado para M1/M4.
+- [Motor Gemini via Antigravity CLI](project_gemini_antigravity_engine.md) — modelos desde 2026-10-21: gemini-4-argon-high/low (agy 1.4.4) con fallback automático vía "agy models". "gemini" corre sobre `agy`. Gemini no sigue exhaustividad abierta; M4 en 2 pasadas descartado, M1 en 2 pasadas IMPLEMENTADO (2026-10-02, ~14 CA vs ~8.5; high y quitar mínimos no sirven). Claude sigue recomendado para M1/M4.
 - [Revisar todas las aristas de un fix](feedback_check_all_edges.md) — al corregir un bug, buscar el mismo patrón en TODO el archivo (ambos motores, endpoints copiados), no solo el sitio reportado.
 - [Memoria espejada en el repo](project_memory_mirrored_to_repo.md) — copia versionada en `.claude/memory/` del repo; replicar ahí cada memoria nueva de project/feedback y commitearla de una (no esperar a otra feature).
 - [Descripciones de PR detalladas](feedback_pr_descriptions.md) — PRs ultra detallados: contexto, causa raíz, cambios por función, tabla de verificación, riesgos, commits; nunca bullets cortos.
 - [Estrategia QA real de TestIALab](project_testialab_qa_strategy.md) — una sola entrega completa, todos los casos, re-test de bugs + regresión focalizada; nunca ciclos/sprints/entregas parciales.
 - [Metodología genérica, sin negocio quemado](feedback_generic_methodology.md) — nunca convertir conceptos de un cliente (EAN, EDI…) en casos, reglas, ejemplos de prompt ni backlog; la metodología aplica a cualquier requerimiento.
 - [Plan demo Liz 2026-10-08](project_plan_liz_2026_10_08.md) — 6 fases (bugs, Avance gerencial/Teams, Bugs, consolidar casos M4, finalizacion, docs) + decisiones: estados en espanol, M2 solo nota, repo publico por hoy.
+- [Resumen para JIRA Timeboard](feedback_jira_worklog.md) — título + 3-4 bullets de una línea en lenguaje de negocio + bullet final de pruebas/PRs.
