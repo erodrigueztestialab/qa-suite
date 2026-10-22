@@ -469,7 +469,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
 .toast.ok{border-color:var(--grn-b);background:var(--grn-bg);color:var(--green)}
 @keyframes slideIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
 </style>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link id="nd-fonts" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <style id="nuevo-diseno">
 /* ═══════════════════════════════════════════════════════════════════════
    NUEVO DISEÑO — capa de estilos que va DESPUÉS de los estilos originales.
@@ -3332,7 +3332,10 @@ function coverageReportHtml() {
       ? '<div style="font-size:12px;color:var(--text3)">El analisis de M1 no genero Criterios de Aceptacion / Reglas de Negocio identificables para cruzar.</div>'
       : '<div class="tbl-wrap"><table class="qa-table qa-table-narrow" style="font-size:11px"><thead><tr><th style="white-space:nowrap">ID</th><th>Descripcion (CA/RN de la HU)</th><th>Casos que lo cubren</th></tr></thead><tbody>'+rows+'</tbody></table></div>' +
         (missing.length
-          ? '<div style="font-size:10.5px;color:var(--red);margin-top:8px;font-weight:600">Cobertura incompleta -- TestIALab exige el 100% de RF/CA sin excepcion.</div>'
+          ? '<div style="font-size:10.5px;color:var(--red);margin-top:8px;font-weight:600">Cobertura incompleta -- TestIALab exige el 100% de RF/CA sin excepcion.</div>' +
+            (verified && verified.gapNoNew
+              ? '<div style="font-size:11.5px;color:var(--text);margin-top:8px;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:8px 10px">&#8505; La IA revisó lo faltante y <b>no encontró casos nuevos para agregar</b> ('+esc(verified.gapNoNew)+'). Revisa si los casos existentes ya lo cubren y re-verifica la cobertura, o agrega el caso manualmente.</div>'
+              : '')
           // Verificado y completo: decirlo explicito (antes no salia nada y el QA no
           // sabia si la verificacion habia terminado o encontrado algo).
           : (verified ? '<div style="font-size:11.5px;color:var(--green);margin-top:8px;font-weight:600;background:var(--grn-bg);border:1px solid var(--grn-b);border-radius:6px;padding:8px 10px">&#10004; Cobertura completa: '+coverageCountText(items)+' tienen al menos un caso que los valida. No hace falta generar casos adicionales.</div>' : ''))
@@ -3434,8 +3437,18 @@ async function generateGapCases() {
     var d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Error generando los casos faltantes');
     addAiTime((Date.now()-t0)/1000);
-    var newCases = parseCasesBlock(d.cases);
-    if (!newCases.length) toast('La IA no devolvio casos en el formato esperado.','err');
+    // Sin casos nuevos (Liz, 2026-10-21): antes salia "formato esperado" en rojo y el
+    // QA no sabia que la IA simplemente no encontro nada que agregar. Se deja una nota
+    // visible en la tarjeta de cobertura hasta la proxima verificacion. Se revisa ANTES
+    // de parsear: parseCasesBlock() es tolerante y convertia la marca en un caso falso.
+    var sinNuevos = !/###\s*CP_/i.test(d.cases||'');
+    var newCases = sinNuevos ? [] : parseCasesBlock(d.cases);
+    if (sinNuevos && /SIN_CASOS_NUEVOS/.test(d.cases||'')) {
+      S.coverageVerified.gapNoNew = nowStrCO();
+      ok = true;
+      toast('La IA no encontró casos nuevos para agregar.','');
+    }
+    else if (!newCases.length) toast('La IA no devolvio casos en el formato esperado.','err');
     else {
       S.cases = S.cases.concat(newCases);
       S.cases.forEach(function(c,i){ c.id = 'CP_'+(i+1); }); // evita colision de IDs, sin el toast/render de renumberCases()
@@ -3736,7 +3749,7 @@ function parseNamedItemsSection(text) {
 // del documento (si se pudo extraer) > nombre del archivo subido. Solo si el
 // QA nunca subio archivo (sesion vieja) cae de vuelta a huSummary como ultimo recurso.
 function reqProjectName() {
-  return (cleanReqTitle(S.reqDocName) || S.huSummary || 'Requerimiento').slice(0,120);
+  return (cleanReqTitle(S.reqDocName) || S.huSummary || 'Requerimiento').slice(0,200);
 }
 // La linea "DESARROLLO ..." de algunos documentos trae en el mismo renglon el
 // campo de fecha del encabezado (ej. "5769 - Titulo FECHA 29/09/2026"); eso no
@@ -3747,20 +3760,32 @@ function reqProjectName() {
 // las sesiones ya guardadas con el nombre sucio salgan bien sin re-analizar.
 function cleanReqTitle(t) {
   return String(t || '')
+    .replace(/_+/g, ' ') // nombres de archivo con "_" en vez de espacios
     .replace(/[\s\-–—|:_]*FECHA(?![a-záéíóúñ]).*$/i, '')
     .replace(/[\s\-–—|:_]*\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\s*$/, '')
     .replace(/[\s\-–—|:_]*(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])20\d{2}\s*$/, '')
-    .replace(/(?:^|[\s\-–—_]+)v(?:ersi[oó]n)?\.?\s*\d+(?:[._]\d+)*\s*$/i, '')
+    .replace(/(?:^|[\s\-–—_]+)v(?:ersi[oó]n)?\.?\s*\d+(?:[._ ]\d+)*\s*$/i, '')
     .replace(/[\s\-–—|:_]*\b(?:Documento|Especificaci[oó]n)\s+(?:Funcional|T[eé]cnic[oa])\b[\s\-–—|:_]*/i, ' - ')
     .replace(/^[\s\-–—|:_]+|[\s\-–—|:_]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 // Version de reqProjectName() segura para nombre de archivo -- quita caracteres
-// invalidos en Windows (\/:*?"<>|), colapsa espacios y recorta a 60 chars para
-// no generar nombres de descarga kilometricos.
+// invalidos en Windows (\/:*?"<>|) y colapsa espacios. Antes recortaba a 60
+// chars y los nombres largos salian cortados (Liz, 2026-10-21): ahora admite 150 y,
+// si hay que cortar, se corta en un espacio -- nunca a mitad de palabra. Con la
+// carpeta Descargas y el sufijo (" - Dossier de Evidencias.pdf") queda por debajo
+// del limite de 260 caracteres de ruta de Windows.
+var REQ_FILE_SLUG_MAX = 150;
 function reqFileSlug() {
-  return reqProjectName().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim().slice(0,60) || 'Requerimiento';
+  var s = reqProjectName().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim();
+  if (s.length > REQ_FILE_SLUG_MAX) {
+    s = s.slice(0, REQ_FILE_SLUG_MAX);
+    var sp = s.lastIndexOf(' ');
+    if (sp > REQ_FILE_SLUG_MAX * 0.6) s = s.slice(0, sp);
+    s = s.replace(/[\s\-–—.,;]+$/, '');
+  }
+  return s || 'Requerimiento';
 }
 // Busca en el texto crudo del documento el encabezado "DESARROLLO" (estandar de
 // los requerimientos de TestIALab) y extrae el titulo real -- solo disponible
@@ -3776,9 +3801,9 @@ function extractDesarrolloTitle(text) {
   for (var i = 0; i < lines.length; i++) {
     var m = /^DESARROLLO\b[\s:.\-]*(.*)$/i.exec(lines[i]);
     if (m) {
-      if (m[1]) return cleanReqTitle(m[1]).slice(0,120);
+      if (m[1]) return cleanReqTitle(m[1]).slice(0,200);
       for (var j = i+1; j < lines.length; j++) {
-        if (lines[j]) return cleanReqTitle(lines[j]).slice(0,120);
+        if (lines[j]) return cleanReqTitle(lines[j]).slice(0,200);
       }
     }
   }
@@ -5286,7 +5311,7 @@ function openFilePicker() {
 }
 
 </script>
-<script>
+<script id="nd-fondo">
 /* Fondo animado "Panal luminoso azul" (versión lenta aprobada). Solo dibuja; no toca la app. */
 (function(){
   var cv=document.getElementById('nd-bg');if(!cv)return;var ctx=cv.getContext('2d'),W,H,cells=[],raf;

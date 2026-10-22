@@ -469,8 +469,485 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
 .toast.ok{border-color:var(--grn-b);background:var(--grn-bg);color:var(--green)}
 @keyframes slideIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
 </style>
+<link id="nd-fonts" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style id="nuevo-diseno">
+/* ═══════════════════════════════════════════════════════════════════════
+   NUEVO DISEÑO — capa de estilos que va DESPUÉS de los estilos originales.
+   Solo cambia colores, tipografía, bordes, sombras y animaciones.
+   No cambia anchos, alturas, orden ni posición de ningún elemento.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#03142A;
+  --bg2:rgba(10,18,36,0.62);--bg3:rgba(255,255,255,0.05);--bg4:rgba(255,255,255,0.10);
+  --border:rgba(148,163,200,0.14);--border2:rgba(148,163,200,0.24);--border3:rgba(148,163,200,0.36);
+  --text:#E8EEF8;--text2:#B4C1D6;--text3:#8597B4;
+  --teal:#5CC8F0;--teal-bg:rgba(92,200,240,0.10);--teal-b:rgba(92,200,240,0.34);
+  --green:#34D399;--grn-bg:rgba(52,211,153,.12);--grn-b:rgba(52,211,153,.35);
+  --blue:#60A5FA;--blu-bg:rgba(96,165,250,.12);--blu-b:rgba(96,165,250,.35);
+  --red:#F87171;--red-bg:rgba(248,113,113,.12);--red-b:rgba(248,113,113,.35);
+  --orange:#FBBF24;--org-bg:rgba(251,191,36,.12);--org-b:rgba(251,191,36,.35);
+  --acc2:#0EA5E9;--acc-rgb:92,200,240;
+  --font:'Inter',system-ui,sans-serif;--head:'Space Grotesk','Inter',sans-serif;--mono:'JetBrains Mono',monospace;
+}
+body{font-family:var(--font)}
+body::before{display:none}
+#nd-bg{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+[style*="'DM Mono'"],.mono{font-family:var(--mono)!important}
+
+/* Vidrio en las superficies que antes eran grises */
+.topbar,.m1-side,.card,.res-block,.hu-export,.m2-card,.case-card,.chat-wrap,.ev-stat,.roi-card,.side-console-panel,#progress-wrap,.tbl-wrap{
+  backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%)}
+.topbar{background:rgba(6,14,30,0.70)}
+.m1-side,.side-console-panel{background:rgba(6,14,30,0.66)}
+.card-hdr,.req-footer,.res-block-hdr,.case-card-hdr,.qa-table th{background:rgba(255,255,255,0.03)}
+
+/* Títulos y textos */
+.page-title{font-family:var(--head);letter-spacing:-.02em;background:linear-gradient(90deg,#FFFFFF 45%,#5CC8F0);-webkit-background-clip:text;background-clip:text;color:transparent}
+.page-tag,.topbar-crumb,.card-hdr,.res-block-hdr,.hu-lbl,.hu-export-lbl,.console-hdr-title,.m2-card-hdr,.qa-table th,.drop-s,.fp-meta,.progress-labels{font-family:var(--mono)}
+.page-tag{border-radius:999px}
+.topbar-crumb span{color:var(--teal)}
+.hu-export-hdr,.console-hdr,.tpr-hdr{background:rgba(255,255,255,0.04)}
+.console-hdr-title{color:var(--text3)}
+.console-body{background:rgba(2,8,20,0.45)}
+.upload-zone{border-color:rgba(92,200,240,.4);background:rgba(92,200,240,.04)}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--teal);background:rgba(92,200,240,.09);box-shadow:inset 0 0 30px rgba(92,200,240,.12)}
+.drop-ico{color:var(--teal);opacity:1}
+.hu-card{background:linear-gradient(135deg,rgba(92,200,240,.10),rgba(10,18,36,.6))}
+.m2-select,.m2-textarea,.bug-form input,.bug-form select,.bug-form textarea,.qa-modal input[type=text],.qa-modal select,.qa-modal textarea,.chat-input-row textarea{
+  background:rgba(2,8,20,.5);color:var(--text);border-color:var(--border2)}
+.qa-modal{background:#0B1830}
+.toast{background:#0B1830}
+
+/* Botones del contenido */
+.btn{font-family:var(--font);position:relative;overflow:hidden;transition:transform .15s,box-shadow .2s,background .2s,border-color .2s,color .2s}
+.btn:focus-visible,.tb-btn:focus-visible,.nav-item:focus-visible{outline:2px solid var(--teal);outline-offset:3px}
+.btn:active:not(:disabled){transform:scale(.97)}
+.btn-primary{color:#04111A;background:linear-gradient(135deg,#5CC8F0,#0EA5E9);border-color:transparent;box-shadow:0 4px 18px rgba(92,200,240,.3)}
+.btn-primary:hover:not(:disabled){opacity:1;transform:translateY(-1px);box-shadow:0 8px 26px rgba(92,200,240,.5)}
+.btn-primary::after{content:'';position:absolute;top:0;left:-60%;width:40%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);transform:skewX(-20deg);transition:left .55s}
+.btn-primary:hover:not(:disabled)::after{left:120%}
+.btn-ghost{color:var(--text);background:rgba(255,255,255,.04)}
+.btn-ghost:hover:not(:disabled){background:rgba(255,255,255,.07);border-color:rgba(92,200,240,.6);color:#fff;box-shadow:0 0 16px rgba(92,200,240,.2)}
+.tb-btn{font-family:var(--font);color:var(--text);background:rgba(255,255,255,.04);border-color:var(--border2)}
+.tb-btn:hover{background:rgba(92,200,240,.14);color:#fff;border-color:rgba(92,200,240,.6);box-shadow:0 0 16px rgba(92,200,240,.25)}
+.exp-pdf{color:#FCA5A5}.exp-pdf:hover{color:#fff}
+.exp-word{color:#93C5FD}.exp-word:hover{color:#fff}
+
+/* ═══ MENÚ IZQUIERDO — gris perla con botones en relieve (referencia: captura "Buttons interactions") ═══ */
+.sidebar{background:linear-gradient(180deg,#EEF2F6 0%,#DCE3EA 100%);border-right:1px solid rgba(15,23,42,.10);box-shadow:4px 0 24px rgba(0,0,0,.25)}
+.sb-brand,.sb-footer{border-color:rgba(15,23,42,.10)}
+.brand-logo img{content:url("assets/logo-light.png")}
+.brand-ver{color:#66788F;font-family:var(--mono)}
+.nav-lbl{color:#66788F;font-family:var(--mono);letter-spacing:.12em}
+
+/* Botones del menú: zona de color con el nombre + corte diagonal + zona blanca con la etiqueta (referencia images.jpg) */
+/* Colores por sección: Día a día verde, Transversal azul, Chatbot violeta, Histórico azul cielo; cada uno en degradado hacia el blanco */
+#nav-m1,#nav-m2,#nav-mpp,#nav-m3,#nav-m4,#nav-m5{--c:#22B8A7;--cd:#3E9C91;--grad:linear-gradient(90deg,#36A497 0%,#62C4B8 38%,#A9E3DB 72%,#DDF4F0 100%)}
+#nav-mavance,#nav-mcert,#nav-mroi{--c:#3B8BEB;--cd:#4A78B3;--grad:linear-gradient(90deg,#4A80C6 0%,#73A5E5 38%,#B3D0F3 72%,#E0ECFB 100%)}
+#nav-mchat{--c:#8B5CF6;--cd:#7558C2;--grad:linear-gradient(90deg,#7D5ED3 0%,#A08AEE 38%,#CDC1F8 72%,#ECE6FD 100%)}
+#nav-mhist{--c:#2F9BE0;--cd:#3F86B8;--grad:linear-gradient(90deg,#3F8CC4 0%,#66AEE0 38%,#AED7F2 72%,#E0F0FB 100%)}
+.nav-item{
+  position:relative;overflow:hidden;color:#FFFFFF;font-family:var(--font);font-weight:600;border:0;letter-spacing:-.01em;border-radius:12px;margin-bottom:6px;
+  background:var(--grad,var(--c,#3B8BEB));
+  box-shadow:0 3px 0 var(--cd,#2766B5),0 5px 10px rgba(15,23,42,.18);
+  text-shadow:0 1px 2px rgba(0,30,50,.55),0 0 6px rgba(0,30,50,.25);
+  transition:transform .18s cubic-bezier(.34,1.56,.64,1),box-shadow .18s ease,filter .2s}
+.nav-item::after{content:'';position:absolute;top:0;left:-70%;width:45%;height:100%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);transform:skewX(-20deg);transition:left .6s ease;pointer-events:none}
+.nav-item:hover:not(.locked),.nav-item.active:hover{background:var(--grad,var(--c));color:#FFFFFF;transform:translateY(-3px);filter:saturate(1.1) brightness(1.04);
+  box-shadow:0 6px 0 var(--cd,#2766B5),0 12px 20px rgba(15,23,42,.24)}
+.nav-item:hover:not(.locked)::after{left:130%}
+.nav-item:hover:not(.locked) .nav-badge{color:var(--c);text-shadow:0 0 8px var(--c)}
+.nav-item:active:not(.locked){background:var(--grad,var(--c));transform:translateY(2px);transition-duration:.06s;box-shadow:0 1px 0 var(--cd,#2766B5),0 2px 4px rgba(15,23,42,.2)}
+.nav-item.active{background:var(--grad,var(--c));color:#FFFFFF;outline:2px solid #FFFFFF;outline-offset:-2px;
+  box-shadow:0 3px 0 var(--cd,#2766B5),0 0 0 3px var(--c,#3B8BEB),0 8px 22px var(--c,#3B8BEB)}
+.nav-item.active .nav-bar{background:#FFFFFF;box-shadow:0 0 8px #FFFFFF;animation:nd-latido 1.8s ease-in-out infinite}
+@keyframes nd-latido{50%{opacity:.45}}
+.nav-item.locked{filter:grayscale(.25) opacity(.78);color:#FFFFFF;background:var(--grad,var(--c))}
+.nav-bar{background:rgba(255,255,255,.55)}
+.nav-item.locked .nav-bar{background:rgba(255,255,255,.4)}
+.nav-badge,.nav-badge.s,.nav-item.active .nav-badge{position:relative;z-index:1;font-family:var(--mono);font-weight:700;background:transparent;color:var(--cd,#2766B5);
+  box-shadow:none;text-shadow:none;align-self:stretch;display:flex;align-items:center;justify-content:center;margin:-6px -9px -6px auto;padding:0 10px 0 20px;border-radius:0;background:#FFFFFF;clip-path:polygon(11px 0,100% 0,100% 100%,0 100%);text-align:center;transition:color .2s,text-shadow .2s}
+
+.engine-dot{background:rgba(15,23,42,.2)}
+.engine-dot.on{background:#10B981;box-shadow:0 0 8px rgba(16,185,129,.7)}
+.engine-st{color:#0F1A2B}
+.engine-hint,.sb-legend{color:#4A5A70}
+#engine-select{background:linear-gradient(180deg,#FFFFFF,#EDF1F6)!important;color:#0F1A2B!important;border:1px solid rgba(15,23,42,.16)!important;
+  border-radius:999px!important;font-family:var(--mono)!important;box-shadow:inset 0 1px 0 #fff,0 1px 3px rgba(15,23,42,.10)}
+#engine-select + div button,.sb-footer button[onclick="checkHealth()"]{color:#4A5A70!important}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ═══ Espaciado del menú: más aire y bloque centrado entre el logo y el pie (se adapta a la altura de pantalla) ═══ */
+.sidebar{overflow-y:auto;overflow-x:hidden}
+.sb-brand{padding-bottom:clamp(8px,1.6vh,16px)}
+.sidebar .sb-brand + .nav-section{margin-top:auto}
+.sidebar .nav-section{padding:clamp(4px,1vh,10px) 8px clamp(2px,.5vh,6px)}
+.sidebar .nav-lbl{margin-bottom:clamp(5px,1vh,10px);padding:0 4px}
+.sidebar .nav-item{margin-bottom:clamp(6px,1.15vh,12px);padding-top:clamp(6px,.9vh,9px);padding-bottom:clamp(6px,.9vh,9px)}
+.sidebar .nav-badge{margin-top:calc(-1 * clamp(6px,.9vh,9px));margin-bottom:calc(-1 * clamp(6px,.9vh,9px))}
+.sb-footer{margin-top:auto}
+
+/* ═══ HEADER (barra superior): más alto, vidrio azul translúcido, elevado y con línea de luz ═══ */
+:root{--topbar-h:58px;--footer-h:36px}
+.topbar{
+  background:linear-gradient(180deg,rgba(16,46,84,.80) 0%,rgba(8,26,52,.68) 100%);
+  backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);
+  border-bottom:1px solid rgba(92,200,240,.06);
+  box-shadow:0 10px 30px rgba(0,8,24,.45),inset 0 1px 0 rgba(255,255,255,.08);
+  padding:0 24px}
+.topbar::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;pointer-events:none;
+  background:linear-gradient(90deg,transparent 0%,rgba(92,200,240,.0) 5%,rgba(92,200,240,.9) 35%,rgba(167,139,250,.8) 65%,transparent 100%);
+  box-shadow:none;opacity:.12}
+.topbar-crumb{font-family:var(--head);font-size:15px;font-weight:500;letter-spacing:.01em;color:#8FA7C6;gap:8px}
+.topbar-crumb span{font-family:var(--head);font-size:19px;font-weight:700;letter-spacing:-.01em;
+  background:linear-gradient(90deg,#FFFFFF 30%,#7DD8FA);-webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:none;filter:drop-shadow(0 2px 6px rgba(92,200,240,.25))}
+.tb-btn{border-radius:999px;padding:8px 20px}
+
+/* ═══ PIE DE PÁGINA: franja elegante fija abajo (solo decorativa) ═══ */
+body::after{content:'TestIALab  ·  QA Suite IA  ·  v1.0.0          Software desarrollado por Equipo QA  ·  2026  ·  Todos los derechos reservados';position:fixed;left:var(--sidebar-w);right:0;bottom:0;height:var(--footer-h);z-index:60;
+  display:flex;align-items:center;justify-content:center;pointer-events:none;
+  font-family:var(--head);font-size:12.5px;font-weight:600;letter-spacing:.08em;color:#DCEBFA;white-space:pre;text-shadow:0 0 10px rgba(92,200,240,.55),0 1px 2px rgba(0,0,0,.5);
+  background:linear-gradient(0deg,rgba(6,18,38,.92) 0%,rgba(10,30,58,.78) 100%);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border-top:1px solid rgba(92,200,240,.22);box-shadow:0 -8px 24px rgba(0,8,24,.40),inset 0 1px 0 rgba(255,255,255,.06)}
+.main{padding-bottom:var(--footer-h)}
+.m1-layout{min-height:calc(100vh - var(--topbar-h) - var(--footer-h))}
+.m1-side{height:calc(100vh - var(--topbar-h) - var(--footer-h))}
+.side-console-panel{height:calc(100vh - var(--topbar-h) - var(--footer-h))}
+.toast-wrap{bottom:calc(var(--footer-h) + 1rem)}
+
+/* "Ver Histórico completo": separado de los bordes y del pie, como botón flotante */
+.m1-side .side-top > .btn{width:calc(100% - 28px)!important;margin:12px 14px 14px!important;border-radius:999px;padding:10px 16px;
+  font-family:var(--head);font-size:13.5px;letter-spacing:.01em;
+  background:linear-gradient(180deg,rgba(92,200,240,.16),rgba(14,165,233,.08));border:1px solid rgba(92,200,240,.45);color:#E8F7FE;
+  box-shadow:0 6px 18px rgba(0,8,24,.45),inset 0 1px 0 rgba(255,255,255,.10)}
+.m1-side .side-top > .btn:hover:not(:disabled){background:linear-gradient(180deg,rgba(92,200,240,.28),rgba(14,165,233,.14));border-color:#5CC8F0;
+  transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,8,24,.5),0 0 18px rgba(92,200,240,.35)}
+
+/* ═══ Menú más ancho y en vidrio translúcido: más transparente arriba (logo) para que se funda con la página ═══ */
+:root{--sidebar-w:262px}
+.sidebar{
+  background:linear-gradient(180deg,rgba(226,234,242,.62) 0%,rgba(232,238,244,.80) 18%,rgba(236,241,246,.88) 45%,rgba(226,232,239,.92) 100%);
+  backdrop-filter:blur(22px) saturate(150%);-webkit-backdrop-filter:blur(22px) saturate(150%);
+  border-right:1px solid rgba(255,255,255,.18);box-shadow:6px 0 30px rgba(0,8,24,.30)}
+.sb-brand{border-bottom:0;background:none}
+.sb-brand::after{content:'';display:block;width:70%;height:1px;margin:clamp(8px,1.4vh,14px) auto 0;
+  background:linear-gradient(90deg,transparent,rgba(15,23,42,.18),transparent)}
+.brand-logo{width:214px;height:62px}
+.sb-brand{padding-top:clamp(12px,1.8vh,18px)}
+.sb-footer{border-top:0;position:relative}
+.sb-footer::before{content:'';position:absolute;top:0;left:15%;width:70%;height:1px;background:linear-gradient(90deg,transparent,rgba(15,23,42,.18),transparent)}
+.sidebar .nav-section{padding-left:12px;padding-right:12px}
+
+/* ═══ Logo en tarjeta clara que sobresale ═══ */
+.brand-ver{display:none}
+.brand-logo{width:228px;height:auto;padding:12px 14px;border-radius:18px;
+  background:linear-gradient(180deg,#FFFFFF 0%,#F3F7FB 100%);border:1px solid rgba(255,255,255,.95);
+  box-shadow:inset 0 1px 0 #FFFFFF,0 2px 4px rgba(15,23,42,.08),0 10px 26px rgba(15,23,42,.18);
+  transition:transform .25s ease,box-shadow .25s ease}
+.brand-logo:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 #FFFFFF,0 4px 8px rgba(15,23,42,.10),0 16px 32px rgba(15,23,42,.22)}
+.brand-logo img{height:54px}
+
+/* ═══ Bloque del motor de IA (Claude CLI / Conectado) en tarjeta ═══ */
+.sb-footer{padding:14px 12px 12px}
+.engine-row{position:relative;align-items:flex-start;gap:10px;padding:12px 12px 10px;border-radius:16px;
+  background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(241,245,250,.92));border:1px solid rgba(255,255,255,.95);
+  box-shadow:inset 0 1px 0 #FFFFFF,0 2px 4px rgba(15,23,42,.06),0 8px 20px rgba(15,23,42,.12)}
+.engine-row .engine-dot{margin-top:11px;width:9px;height:9px}
+.engine-dot.on{animation:nd-pulso 2.2s ease-in-out infinite}
+@keyframes nd-pulso{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.55)}50%{box-shadow:0 0 0 6px rgba(16,185,129,0)}}
+#engine-select{padding:7px 10px!important;font-size:12.5px!important;cursor:pointer;transition:border-color .2s,box-shadow .2s}
+#engine-select:hover,#engine-select:focus{border-color:#5CC8F0!important;box-shadow:0 0 0 3px rgba(92,200,240,.25)!important}
+.engine-st{display:inline-flex;align-items:center;margin-top:8px;padding:2px 10px;border-radius:999px;font-family:var(--head);font-size:12.5px;font-weight:600;
+  color:#0F5E46;background:rgba(16,185,129,.14);border:1px solid rgba(16,185,129,.30)}
+.sb-footer button[onclick="checkHealth()"]{margin-top:8px!important;width:22px;height:22px;border-radius:50%!important;font-size:12px!important;
+  background:rgba(15,23,42,.06)!important;transition:transform .4s,background .2s}
+.sb-footer button[onclick="checkHealth()"]:hover{transform:rotate(180deg);background:rgba(92,200,240,.25)!important;color:#0F1A2B!important}
+.engine-hint{margin-top:10px;padding:0 4px;font-size:11.5px;line-height:1.5;color:#4A5A70;text-align:center}
+.sb-legend{margin-top:6px;font-size:10.5px;color:#66788F;opacity:1;letter-spacing:.02em}
+.sb-brand::after{width:78%;height:2px;margin-top:clamp(12px,1.8vh,18px);background:linear-gradient(90deg,transparent,rgba(15,23,42,.30),transparent)}
+.engine-dot:not(.on) + div .engine-st{color:#9B2C2C;background:rgba(220,38,38,.10);border-color:rgba(220,38,38,.28)}
+.sb-legend{padding-bottom:6px}
+
+/* ═══ Ajustes: menú sin barra de desplazamiento, créditos en el pie, motor sin tarjeta blanca, logo más transparente ═══ */
+:root{--sidebar-w:270px}
+.sidebar{overflow:hidden}
+.sb-legend{display:none}
+.brand-logo{background:linear-gradient(180deg,rgba(255,255,255,.55) 0%,rgba(255,255,255,.32) 100%);border:1px solid rgba(255,255,255,.55);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 2px 4px rgba(15,23,42,.06),0 10px 24px rgba(15,23,42,.12)}
+.engine-row{padding:0 4px;border-radius:0;background:none;border:0;box-shadow:none}
+.sb-footer{padding:clamp(10px,1.6vh,16px) 14px clamp(10px,1.6vh,16px)}
+
+/* ═══ Franja superior única: el logo pasa a formar parte del header ═══ */
+:root{--topbar-h:72px;--footer-h:42px}
+.sb-brand{height:var(--topbar-h);padding:0 14px!important;justify-content:center;
+  background:linear-gradient(180deg,rgba(16,46,84,.80) 0%,rgba(8,26,52,.68) 100%);
+  backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);
+  border-bottom:1px solid rgba(92,200,240,.06);box-shadow:0 10px 30px rgba(0,8,24,.45),inset 0 1px 0 rgba(255,255,255,.08);position:relative;z-index:2}
+.sb-brand::after{display:none}
+.brand-logo{width:auto;height:auto;padding:0;background:none;border:0;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+.brand-logo:hover{transform:none;box-shadow:none}
+.brand-logo img{content:url("assets/logo-dark.png");height:50px;width:auto;filter:drop-shadow(0 2px 8px rgba(0,0,0,.35))}
+.sidebar{border-right:0}
+.topbar{border-left:1px solid rgba(255,255,255,.04)}
+
+/* ═══ Pie a todo el ancho, más alto y con el texto centrado en la pantalla ═══ */
+body::after{left:0;z-index:150}
+.sidebar{bottom:var(--footer-h)}
+
+/* ═══ Consola de ejecución: vidrio con degradado; luz verde y "Procesando…" mientras la IA trabaja ═══ */
+.m1-side,.side-console-panel{background:linear-gradient(180deg,rgba(8,22,44,.55) 0%,rgba(6,16,34,.40) 100%)}
+.console-wrap{background:linear-gradient(180deg,rgba(12,30,58,.55),rgba(4,12,28,.35))!important;border-color:rgba(92,200,240,.14)!important}
+.console-hdr{background:linear-gradient(90deg,rgba(255,255,255,.06),rgba(255,255,255,.02))!important;border-bottom:1px solid rgba(92,200,240,.12)}
+.console-hdr-title{font-family:var(--head);font-size:11.5px;letter-spacing:.14em;color:#9DB4D2}
+.console-body{background:transparent}
+.console-dot{width:9px;height:9px}
+.console-dot.running{background:#22E39A;box-shadow:0 0 0 0 rgba(34,227,154,.7),0 0 12px #22E39A;animation:nd-luz 1.4s ease-in-out infinite}
+@keyframes nd-luz{0%,100%{box-shadow:0 0 0 0 rgba(34,227,154,.6),0 0 10px #22E39A;opacity:1}50%{box-shadow:0 0 0 7px rgba(34,227,154,0),0 0 18px #22E39A;opacity:.75}}
+.console-dot.running ~ .console-hdr-title::after{content:'  ·  Procesando';color:#5FF0B5;letter-spacing:.08em;animation:nd-puntos 1.4s steps(1) infinite}
+@keyframes nd-puntos{0%{content:'  ·  Procesando'}25%{content:'  ·  Procesando.'}50%{content:'  ·  Procesando..'}75%{content:'  ·  Procesando...'}}
+.console-hdr:has(.console-dot.running){background:linear-gradient(90deg,rgba(34,227,154,.14),rgba(34,227,154,.02))!important;border-bottom-color:rgba(34,227,154,.35)}
+.console-wrap:has(.console-dot.running){border-color:rgba(34,227,154,.35)!important;box-shadow:0 0 22px rgba(34,227,154,.12)}
+.console-hdr-title{white-space:pre}
+/* Mismo fondo exacto para la zona del logo y el header → una sola franja */
+.sb-brand,.topbar{background:linear-gradient(180deg,rgba(19,58,104,.96) 0%,rgba(10,37,70,.96) 100%)!important}
+.topbar{border-left:0}
+
+/* ═══ Franja superior con degradado gris-aguamarina-blanco (21°), continuo entre logo y header ═══ */
+.sb-brand,.topbar{
+  background:-webkit-linear-gradient(21deg,#1b2c55,#3d85a9,#63cac8,#b8edff)!important;
+  background:linear-gradient(21deg,#1b2c55,#3d85a9,#63cac8,#b8edff)!important;
+  background-attachment:fixed!important;background-size:100vw var(--topbar-h)!important;background-repeat:no-repeat!important;
+  border-bottom:1px solid rgba(255,255,255,.25);box-shadow:0 8px 26px rgba(0,8,24,.40),inset 0 1px 0 rgba(255,255,255,.25)}
+.topbar-crumb{color:rgba(255,255,255,.80);text-shadow:0 1px 2px rgba(10,30,60,.45)}
+.topbar-crumb span{background:none;-webkit-background-clip:border-box;background-clip:border-box;color:#FFFFFF;filter:none;text-shadow:0 1px 3px rgba(10,30,60,.55)}
+.tb-btn{background:rgba(27,44,85,.55);color:#FFFFFF;border-color:rgba(255,255,255,.45);backdrop-filter:blur(6px)}
+.tb-btn:hover{background:rgba(27,44,85,.80);border-color:#FFFFFF;box-shadow:0 4px 14px rgba(27,44,85,.45)}
+
+/* ═══ Franja superior v2: de izquierda (blanco-aguamarina, en el logo) a derecha (azul), semitransparente ═══ */
+.sb-brand,.topbar{
+  background:linear-gradient(90deg,rgba(214,246,250,.95) 0%,rgba(160,228,224,.94) 14%,rgba(99,202,200,.86) 30%,rgba(61,133,169,.70) 58%,rgba(39,78,128,.62) 80%,rgba(27,44,85,.60) 100%)!important;
+  background-attachment:fixed!important;background-size:100vw var(--topbar-h)!important;background-repeat:no-repeat!important;
+  backdrop-filter:blur(16px) saturate(140%)!important;-webkit-backdrop-filter:blur(16px) saturate(140%)!important;
+  border-bottom:1px solid rgba(8,18,34,.45)!important;box-shadow:0 6px 18px rgba(0,8,24,.28)!important}
+.brand-logo img{content:url("assets/logo-light.png");filter:drop-shadow(0 1px 2px rgba(255,255,255,.4))}
+.topbar-crumb{color:rgba(14,40,66,.75);text-shadow:0 1px 1px rgba(255,255,255,.35)}
+.topbar-crumb span{color:#0B2340;text-shadow:0 1px 1px rgba(255,255,255,.35)}
+
+/* ═══ Franja superior v3: el menú empieza debajo del header (sin caja aparte en el logo), sin línea, más blanco junto al logo ═══ */
+.sidebar{box-shadow:none;
+  background:linear-gradient(180deg,transparent 0,transparent var(--topbar-h),rgba(228,236,243,.70) var(--topbar-h),rgba(234,240,245,.84) 26%,rgba(236,241,246,.88) 50%,rgba(226,232,239,.92) 100%)}
+.sb-brand,.topbar{
+  background:linear-gradient(90deg,rgba(255,255,255,.96) 0%,rgba(248,254,253,.94) 7%,rgba(214,244,240,.90) 14%,rgba(160,226,221,.84) 22%,rgba(99,202,200,.74) 34%,rgba(61,133,169,.60) 58%,rgba(39,78,128,.52) 80%,rgba(27,44,85,.50) 100%)!important;
+  background-attachment:fixed!important;background-size:100vw var(--topbar-h)!important;background-repeat:no-repeat!important;
+  border:0!important;box-shadow:0 6px 16px rgba(0,8,24,.16)!important}
+.sb-brand{box-shadow:none!important}
+
+/* ═══ Header más alto y más transparente a la derecha; menú en la misma paleta (blanco-aguamarina → aguamarina-acero) ═══ */
+:root{--topbar-h:84px}
+.brand-logo img{height:56px}
+.topbar-crumb{font-size:16px}
+.topbar-crumb span{font-size:20px}
+.sb-brand,.topbar{
+  background:linear-gradient(90deg,rgba(255,255,255,.96) 0%,rgba(246,253,252,.93) 7%,rgba(214,244,240,.88) 14%,rgba(160,226,221,.78) 22%,rgba(99,202,200,.62) 34%,rgba(61,133,169,.44) 56%,rgba(39,78,128,.34) 78%,rgba(27,44,85,.30) 100%)!important;
+  background-attachment:fixed!important;background-size:100vw var(--topbar-h)!important;background-repeat:no-repeat!important;
+  box-shadow:0 4px 14px rgba(0,8,24,.10)!important}
+.sb-brand{box-shadow:none!important}
+.sidebar{
+  background:linear-gradient(180deg,transparent 0,transparent var(--topbar-h),
+    rgba(244,252,251,.90) var(--topbar-h),rgba(226,244,242,.86) 30%,rgba(210,234,236,.86) 62%,rgba(196,222,232,.88) 100%);
+  border-right:1px solid rgba(255,255,255,.20)}
+.sidebar .nav-lbl{color:#4F6E7A}
+.engine-hint{color:#45616D}
+.sidebar{border-right:0!important}
+
+/* ═══ Unión header ↔ menú: los colores del header bajan dentro del menú y se desvanecen ═══ */
+.sb-brand,.topbar{box-shadow:none!important}
+.sidebar::before{content:'';position:absolute;left:0;right:0;top:var(--topbar-h);height:110px;pointer-events:none;z-index:0;
+  background:linear-gradient(90deg,rgba(255,255,255,.96) 0%,rgba(246,253,252,.93) 7%,rgba(214,244,240,.88) 14%,rgba(160,226,221,.78) 22%,rgba(99,202,200,.62) 34%,rgba(61,133,169,.44) 56%,rgba(39,78,128,.34) 78%,rgba(27,44,85,.30) 100%);
+  background-attachment:fixed;background-size:100vw 100%;
+  -webkit-mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.55) 40%,transparent 100%);mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.55) 40%,transparent 100%)}
+.sidebar > *{position:relative;z-index:1}
+
+/* ═══ Pie con el mismo degradado del header ═══ */
+body::after{
+  background:linear-gradient(90deg,rgba(255,255,255,.96) 0%,rgba(246,253,252,.93) 7%,rgba(214,244,240,.88) 14%,rgba(160,226,221,.80) 22%,rgba(99,202,200,.70) 34%,rgba(61,133,169,.62) 56%,rgba(39,78,128,.60) 78%,rgba(27,44,85,.62) 100%);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:0;box-shadow:none;
+  color:#FFFFFF;text-shadow:0 1px 3px rgba(5,25,50,.75),0 0 10px rgba(5,25,50,.35)}
+
+/* ═══ Menú degradado: aparece suave bajo el header y se vuelve transparente hacia el borde que toca la página ═══ */
+.sidebar{background:none!important}
+.sidebar::after{content:'';position:absolute;left:0;right:0;top:var(--topbar-h);bottom:0;z-index:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(236,248,247,.0) 0,rgba(236,248,247,.62) 70px,rgba(226,244,242,.86) 26%,rgba(210,234,236,.86) 60%,rgba(196,222,232,.88) 100%);
+  -webkit-mask-image:linear-gradient(90deg,#000 0%,#000 58%,rgba(0,0,0,.55) 86%,rgba(0,0,0,.18) 100%);
+          mask-image:linear-gradient(90deg,#000 0%,#000 58%,rgba(0,0,0,.55) 86%,rgba(0,0,0,.18) 100%)}
+.sidebar::before{z-index:1}
+
+/* ═══ Unión menú ↔ pie: el menú se desvanece al final y el borde superior del pie se difumina ═══ */
+.sidebar{bottom:0!important}
+.sidebar::after{
+  background:linear-gradient(180deg,rgba(236,248,247,0) 0,rgba(236,248,247,.62) 70px,rgba(226,244,242,.86) 26%,rgba(210,234,236,.86) 60%,
+    rgba(200,226,233,.86) calc(100% - var(--footer-h) - 120px),rgba(226,244,244,.92) calc(100% - var(--footer-h) - 30px),rgba(250,254,254,.96) 100%)}
+.sb-footer{margin-bottom:var(--footer-h)}
+body::after{-webkit-mask-image:linear-gradient(180deg,rgba(0,0,0,.35) 0,#000 4px);mask-image:linear-gradient(180deg,rgba(0,0,0,.35) 0,#000 4px);height:calc(var(--footer-h) + 2px)}
+
+
+/* ═══ Títulos de sección del menú: más grandes, Space Grotesk, color aguamarina profundo ═══ */
+.sidebar .nav-lbl{font-family:var(--head)!important;font-size:12.5px!important;font-weight:700!important;letter-spacing:.14em!important;color:#1F5F6B!important;
+  display:flex!important;align-items:center;gap:8px;margin-top:4px}
+.sidebar .nav-lbl::before{content:'';width:14px;height:2px;border-radius:2px;background:linear-gradient(90deg,#2DB5A8,#3D85A9)}
+
+/* ═══ Título de la consola ═══ */
+.console-hdr-title{font-family:var(--head)!important;font-size:13px!important;font-weight:700;letter-spacing:.12em;color:#CFE6F7!important}
+.console-hdr{padding-top:12px!important;padding-bottom:12px!important}
+
+/* ═══ Botón de verificar motor: ícono de dos flechas azules con estrella (mismo botón, misma acción) ═══ */
+.sb-footer button[onclick="checkHealth()"]{font-size:0!important;width:30px!important;height:30px!important;margin-top:6px!important;
+  background:#FFFFFF url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJhIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjOEVDNUY1Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMjU2M0I4Ii8+PC9saW5lYXJHcmFkaWVudD48cmFkaWFsR3JhZGllbnQgaWQ9InMiIGN4PSIuNSIgY3k9Ii40NSIgcj0iLjYiPjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI0ZGRThBMyIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI0Y1QjQwMCIvPjwvcmFkaWFsR3JhZGllbnQ+PC9kZWZzPjxwYXRoIGQ9Ik0xNCA0MCBBMjAgMjAgMCAwIDEgNDAgMTMiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNhKSIgc3Ryb2tlLXdpZHRoPSI2IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48cGF0aCBkPSJNMzYgNSBMNDggMTMgTDM2IDIxIFoiIGZpbGw9IiMyNTYzQjgiLz48cGF0aCBkPSJNNTAgMjQgQTIwIDIwIDAgMCAxIDI0IDUxIiBmaWxsPSJub25lIiBzdHJva2U9InVybCgjYSkiIHN0cm9rZS13aWR0aD0iNiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHBhdGggZD0iTTI4IDQzIEwxNiA1MSBMMjggNTkgWiIgZmlsbD0iIzI1NjNCOCIvPjxwYXRoIGQ9Ik0zMiAxOSBMMzUuNSAyNy41IEw0NC41IDI4IEwzNy41IDMzLjggTDQwIDQyLjUgTDMyIDM3LjUgTDI0IDQyLjUgTDI2LjUgMzMuOCBMMTkuNSAyOCBMMjguNSAyNy41IFoiIGZpbGw9InVybCgjcykiLz48cGF0aCBkPSJNNDUgNDAgbDEuMiAyLjggMi44IDEuMiAtMi44IDEuMiAtMS4yIDIuOCAtMS4yIC0yLjggLTIuOCAtMS4yIDIuOCAtMS4yeiIgZmlsbD0iI0Y1OUUwQiIvPjwvc3ZnPg==') center/24px 24px no-repeat!important;border:1px solid rgba(37,99,184,.25)!important;
+  box-shadow:0 2px 6px rgba(15,23,42,.15);transition:transform .6s cubic-bezier(.34,1.56,.64,1),box-shadow .2s}
+.sb-footer button[onclick="checkHealth()"]:hover{transform:rotate(180deg) scale(1.08);box-shadow:0 4px 12px rgba(37,99,184,.35)}
+.sb-footer button[onclick="checkHealth()"]:active{transform:rotate(360deg) scale(.95);transition-duration:.3s}
+.engine-st{font-size:13px!important}
+
+/* ═══ Botones del menú más cortos, con margen igual a ambos lados ═══ */
+.sidebar .nav-section{padding-left:22px!important;padding-right:22px!important}
+.sidebar .nav-lbl{padding-left:0!important}
+.sb-footer{padding-left:22px!important;padding-right:22px!important}
+.sidebar .nav-section,.sb-footer{padding-left:17px!important;padding-right:17px!important}
+.sidebar .nav-lbl{letter-spacing:.09em!important;white-space:nowrap}
+.sidebar .nav-item{white-space:nowrap}
+.nav-badge,.nav-badge.s,.nav-item.active .nav-badge{padding:0 8px 0 15px!important;clip-path:polygon(9px 0,100% 0,100% 100%,0 100%)!important}
+
+/* ═══ Encabezado de la página: etiqueta, título y descripción más legibles ═══ */
+.page-tag{font-family:var(--head)!important;font-size:12px!important;font-weight:700;letter-spacing:.14em;padding:5px 14px!important;
+  color:#EAF6FF!important;background:linear-gradient(90deg,rgba(78,59,209,.55),rgba(61,133,169,.45))!important;border:1px solid rgba(184,237,255,.45)!important;
+  box-shadow:0 4px 14px rgba(0,8,24,.35)}
+.page-title{font-size:30px!important;margin:6px 0 6px}
+.page-sub{font-family:var(--font);font-size:15.5px!important;line-height:1.65!important;color:#DCE8F5!important;max-width:1100px;
+  text-shadow:0 1px 3px rgba(0,8,24,.6)}
+
+/* ═══ Botón "Analizar con Claude" (degradado 137°) ═══ */
+#btn-analyze{background:linear-gradient(143deg,#f5f8f9,#39c3d5,#08298c)!important;background-size:180% 180%!important;background-position:0% 50%!important;
+  color:#FFFFFF!important;border:0!important;font-family:var(--head);font-size:14.5px!important;font-weight:700;letter-spacing:.02em;padding:11px 24px!important;border-radius:12px!important;
+  text-shadow:0 1px 3px rgba(4,20,70,.75),0 0 8px rgba(4,20,70,.35);box-shadow:0 6px 18px rgba(8,41,140,.45),inset 0 1px 0 rgba(255,255,255,.5);
+  transition:background-position .6s ease,transform .18s cubic-bezier(.34,1.56,.64,1),box-shadow .25s!important}
+#btn-analyze:hover:not(:disabled){background-position:100% 50%!important;transform:translateY(-3px) scale(1.02);box-shadow:0 12px 28px rgba(8,41,140,.55),0 0 0 3px rgba(57,195,213,.35),inset 0 1px 0 rgba(255,255,255,.5)}
+#btn-analyze:active:not(:disabled){transform:translateY(1px) scale(.97);box-shadow:0 3px 10px rgba(8,41,140,.5)}
+#btn-analyze:disabled{opacity:.6!important}
+
+/* ═══ Botón "Limpiar" (degradado 34°) ═══ */
+.req-footer .btn-ghost[onclick="clearAll()"]{background:linear-gradient(209deg,#ffffff,#008aca,#1d2980)!important;background-size:180% 180%!important;background-position:0% 50%!important;
+  color:#FFFFFF!important;text-shadow:0 1px 3px rgba(10,20,80,.75),0 0 8px rgba(10,20,80,.35);border:0!important;font-family:var(--head);font-size:14.5px!important;font-weight:700;padding:11px 24px!important;border-radius:12px!important;
+  box-shadow:0 6px 16px rgba(29,41,128,.40),inset 0 1px 0 rgba(255,255,255,.5);
+  transition:background-position .6s ease,transform .18s cubic-bezier(.34,1.56,.64,1),box-shadow .25s!important}
+.req-footer .btn-ghost[onclick="clearAll()"]:hover:not(:disabled){background-position:100% 50%!important;color:#FFFFFF!important;transform:translateY(-3px) scale(1.02);
+  box-shadow:0 12px 26px rgba(29,41,128,.50),0 0 0 3px rgba(0,138,202,.35)}
+.req-footer .btn-ghost[onclick="clearAll()"]:active:not(:disabled){transform:translateY(1px) scale(.97)}
+
+/* ═══ Textos de la tarjeta de subida ═══ */
+#upload-card .card-hdr{font-family:var(--head)!important;font-size:12.5px;font-weight:700;letter-spacing:.14em;color:#EAF2FB}
+.drop-t{font-family:var(--head);font-size:17px!important;font-weight:600;color:#FFFFFF!important}
+.drop-s{font-size:12.5px!important;color:#C7D6EA!important}
+.drop-ico{font-size:36px!important}
+.req-hint{font-size:13.5px!important;color:#DCE8F5!important}
+
+/* ═══ Zona de subida: durazno ═══ */
+#upload-card{--uz1:rgba(253,228,207,.22);--uz2:rgba(240,160,120,.12);--uzb:rgba(253,212,180,.70);--uzc:#FDD4B4}
+#upload-card{background:linear-gradient(160deg,var(--uz1),var(--uz2)),rgba(10,18,36,.55)!important}
+#upload-card .upload-zone{border:2px dashed var(--uzb)!important;background:linear-gradient(160deg,var(--uz1),transparent)!important;border-radius:16px}
+#upload-card .upload-zone:hover,#upload-card .upload-zone.drag{background:linear-gradient(160deg,var(--uz1),var(--uz2))!important;box-shadow:inset 0 0 40px var(--uz2),0 0 0 4px var(--uz2)}
+#upload-card .drop-ico{color:var(--uzc)!important}
+#btn-analyze,.req-footer .btn-ghost[onclick="clearAll()"]{background-size:140% 140%!important;background-position:60% 50%!important}
+#btn-analyze:hover:not(:disabled),.req-footer .btn-ghost[onclick="clearAll()"]:hover:not(:disabled){background-position:100% 50%!important}
+
+/* ═══ "Seleccionar archivos": degradado durazno-coral (combina con la zona); reacciona al pasar por la zona ═══ */
+#upload-card .drop-btn{background:linear-gradient(135deg,#FFE1C7 0%,#FDB98A 55%,#F28C6B 100%)!important;color:#3A1D0F!important;border:0!important;
+  font-family:var(--head);font-size:15px!important;font-weight:700;letter-spacing:.01em;padding:11px 26px!important;border-radius:12px!important;
+  box-shadow:0 6px 18px rgba(242,140,107,.35),inset 0 1px 0 rgba(255,255,255,.7);transition:transform .2s cubic-bezier(.34,1.56,.64,1),box-shadow .25s}
+#upload-card .drop-btn::after{display:none}
+#upload-card .upload-zone:hover .drop-btn{transform:translateY(-3px) scale(1.04);box-shadow:0 12px 26px rgba(242,140,107,.5),0 0 0 4px rgba(253,212,180,.25),inset 0 1px 0 rgba(255,255,255,.8)}
+
+/* ═══ "Importar HU desde Word": botón de vidrio con borde durazno ═══ */
+.req-footer .btn-ghost[onclick*="hu-import-input"]{font-family:var(--head);font-size:14px!important;font-weight:700;color:#FFF4EA!important;padding:10px 20px!important;border-radius:12px!important;
+  background:linear-gradient(135deg,rgba(253,228,207,.16),rgba(242,140,107,.10))!important;border:1.5px solid rgba(253,212,180,.65)!important;
+  box-shadow:0 4px 14px rgba(0,8,24,.30);transition:transform .2s cubic-bezier(.34,1.56,.64,1),background .25s,box-shadow .25s,border-color .2s}
+.req-footer .btn-ghost[onclick*="hu-import-input"]:hover:not(:disabled){background:linear-gradient(135deg,#FFE1C7,#FDB98A)!important;color:#3A1D0F!important;border-color:#FFE1C7!important;
+  transform:translateY(-2px);box-shadow:0 10px 22px rgba(242,140,107,.40)}
+.req-footer .btn-ghost[onclick*="hu-import-input"]:active:not(:disabled){transform:translateY(1px) scale(.97)}
+
+/* ═══ Textos más legibles ═══ */
+.drop-s{font-family:var(--font)!important;font-size:14px!important;font-weight:500;color:#F3E6DC!important;letter-spacing:.01em;line-height:1.6;text-shadow:0 1px 2px rgba(0,8,24,.5)}
+.req-footer > span{font-family:var(--font)!important;font-size:14.5px!important;font-weight:500;color:#EAF2FB!important;text-shadow:0 1px 2px rgba(0,8,24,.5)}
+
+/* ═══ Regla general: TODAS las zonas de carga de documentos en durazno (M1 y cualquier otro módulo) ═══ */
+.upload-zone{border:2px dashed rgba(253,212,180,.70)!important;border-radius:16px;
+  background:linear-gradient(160deg,rgba(253,228,207,.22),rgba(240,160,120,.06))!important}
+.upload-zone:hover,.upload-zone.drag{background:linear-gradient(160deg,rgba(253,228,207,.22),rgba(240,160,120,.12))!important;box-shadow:inset 0 0 40px rgba(240,160,120,.12),0 0 0 4px rgba(240,160,120,.12)}
+.upload-zone .drop-ico{color:#FDD4B4!important}
+.upload-zone .btn-primary,.upload-zone .drop-btn{background:linear-gradient(135deg,#FFE1C7 0%,#FDB98A 55%,#F28C6B 100%)!important;color:#3A1D0F!important;border:0!important;
+  font-family:var(--head);font-weight:700;border-radius:12px!important;box-shadow:0 6px 18px rgba(242,140,107,.35),inset 0 1px 0 rgba(255,255,255,.7)}
+.upload-zone .btn-primary::after{display:none}
+.upload-zone:hover .btn-primary,.upload-zone:hover .drop-btn{transform:translateY(-3px) scale(1.04);box-shadow:0 12px 26px rgba(242,140,107,.5),0 0 0 4px rgba(253,212,180,.25)}
+
+/* ═══ Consola: gris semitransparente ═══ */
+.m1-side,.side-console-panel{background:linear-gradient(180deg,rgba(92,100,112,.42),rgba(60,66,76,.48))!important;border-left:1px solid rgba(255,255,255,.10)!important;
+  backdrop-filter:blur(16px) saturate(110%)!important;-webkit-backdrop-filter:blur(16px) saturate(110%)!important}
+.console-wrap{background:transparent!important;border-color:rgba(255,255,255,.12)!important}
+.console-hdr{background:rgba(255,255,255,.06)!important;border-bottom-color:rgba(255,255,255,.12)!important}
+
+/* ═══ Analizar y Limpiar con el degradado azul de los botones "Transversal" del menú ═══ */
+#btn-analyze,.req-footer .btn-ghost[onclick="clearAll()"]{
+  background:linear-gradient(90deg,#4A80C6 0%,#73A5E5 38%,#B3D0F3 72%,#E0ECFB 100%)!important;background-size:150% 100%!important;background-position:0% 50%!important;
+  color:#FFFFFF!important;text-shadow:0 1px 2px rgba(0,30,50,.55),0 0 6px rgba(0,30,50,.25)!important;
+  box-shadow:0 4px 0 #4A78B3,0 8px 18px rgba(15,23,42,.35)!important}
+#btn-analyze:hover:not(:disabled),.req-footer .btn-ghost[onclick="clearAll()"]:hover:not(:disabled){
+  background-position:35% 50%!important;transform:translateY(-3px)!important;box-shadow:0 7px 0 #4A78B3,0 14px 24px rgba(15,23,42,.40),0 0 0 3px rgba(115,165,229,.30)!important}
+#btn-analyze:active:not(:disabled),.req-footer .btn-ghost[onclick="clearAll()"]:active:not(:disabled){
+  transform:translateY(2px)!important;box-shadow:0 1px 0 #4A78B3,0 3px 6px rgba(15,23,42,.30)!important}
+
+/* ═══ Archivo cargado: tarjeta clara y legible ═══ */
+.file-preview{background:transparent!important;border-top:1px solid rgba(255,255,255,.08)!important;padding:12px 16px;gap:10px!important}
+.file-preview .fp-row{padding:12px 16px!important;border-radius:14px;gap:14px!important;
+  background:linear-gradient(135deg,rgba(253,228,207,.14),rgba(255,255,255,.05));border:1px solid rgba(253,212,180,.35);
+  box-shadow:0 4px 14px rgba(0,8,24,.25);animation:fadeUp .3s ease both}
+.file-preview .fp-row+.fp-row{border-top:1px solid rgba(253,212,180,.35)!important}
+.fp-icon{width:44px!important;height:44px!important;border-radius:12px!important;font-family:var(--head)!important;font-size:12px!important;font-weight:700!important;
+  color:#3A1D0F!important;background:linear-gradient(135deg,#FFE1C7,#FDB98A)!important;border:0!important;box-shadow:0 3px 8px rgba(242,140,107,.35)}
+.fp-name{font-family:var(--head)!important;font-size:15px!important;font-weight:600!important;color:#FFFFFF!important;line-height:1.35!important}
+.fp-meta{font-family:var(--font)!important;font-size:12.5px!important;color:#D7E2EE!important;margin-top:3px!important}
+.fp-badge{font-family:var(--head)!important;font-size:12px!important;font-weight:700!important;padding:4px 12px!important;border-radius:999px!important;
+  color:#06301F!important;background:linear-gradient(135deg,#6EE7B7,#34D399)!important;border:0!important;box-shadow:0 2px 8px rgba(52,211,153,.35)}
+.fp-badge::before{content:'✓ '}
+.fp-rm{width:30px!important;height:30px!important;border-radius:50%!important;font-size:14px!important;font-weight:700;color:#E6EDF5!important;
+  background:rgba(255,255,255,.08)!important;border:1px solid rgba(255,255,255,.18)!important;transition:all .2s!important}
+.fp-rm:hover{color:#FFFFFF!important;background:#EF4444!important;border-color:#EF4444!important;transform:rotate(90deg)}
+
+/* ═══ Líneas de la consola: más grandes, claras y ordenadas ═══ */
+.console-body{padding:12px 14px!important;font-size:12.5px!important}
+.log-line{gap:8px!important;padding:7px 8px!important;margin-bottom:6px;border-radius:10px;background:rgba(255,255,255,.05);border-left:3px solid rgba(255,255,255,.18);line-height:1.55!important}
+.log-info{border-left-color:#60A5FA!important}.log-ok{border-left-color:#34D399!important}.log-warn{border-left-color:#FBBF24!important}.log-err{border-left-color:#F87171!important}
+.log-ts{font-family:var(--mono)!important;font-size:11px!important;color:#B8C4D2!important;opacity:1!important;padding-top:2px!important;white-space:nowrap}
+.log-tag{font-family:var(--head)!important;font-size:10.5px!important;font-weight:700!important;padding:1px 7px!important;border-radius:6px!important;margin-top:1px!important}
+.log-info .log-tag{background:rgba(96,165,250,.22)!important;color:#BFDBFE!important}
+.log-ok .log-tag{background:rgba(52,211,153,.22)!important;color:#A7F3D0!important}
+.log-warn .log-tag{background:rgba(251,191,36,.22)!important;color:#FDE68A!important}
+.log-err .log-tag{background:rgba(248,113,113,.22)!important;color:#FECACA!important}
+.log-msg{font-family:var(--font)!important;font-size:13px!important;color:#EEF3F8!important}
+.log-ok .log-msg{color:#A7F3D0!important}.log-err .log-msg{color:#FECACA!important}.log-warn .log-msg{color:#FDE68A!important}
+.console-placeholder{font-family:var(--font)!important;font-size:13px!important;color:#C7D2DE!important}
+.console-timer{font-family:var(--mono)!important;font-size:12px!important;color:#E6F7FF!important;background:rgba(255,255,255,.10);padding:2px 8px;border-radius:999px}
+.log-line{flex-wrap:wrap!important;align-items:center!important;row-gap:4px!important}
+.log-msg{flex:1 1 100%!important;padding-left:2px}
+.log-tag{order:-1}
+
+</style>
 </head>
 <body>
+<canvas id="nd-bg"></canvas>
 
 <!-- SIDEBAR -->
 <nav class="sidebar">
@@ -481,20 +958,20 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="brand-ver">QA Suite IA &middot; v1.0.0</div>
   </div>
   <div class="nav-section">
-    <span class="nav-lbl">Dia a Dia</span>
+    <span class="nav-lbl">Día a Día</span>
     <button class="nav-item active" id="nav-m1" onclick="showModule('m1',this)">
       <span class="nav-bar"></span> Procesar Requerimiento <span class="nav-badge">M1</span>
     </button>
-    <button class="nav-item locked" id="nav-m2" onclick="tryNav('m2',this)"><span class="nav-bar"></span> Impacto y Estimacion <span class="nav-badge s" id="badge-m2">M2</span></button>
+    <button class="nav-item locked" id="nav-m2" onclick="tryNav('m2',this)"><span class="nav-bar"></span> Impacto y Estimación <span class="nav-badge s" id="badge-m2">M2</span></button>
     <button class="nav-item locked" id="nav-mpp" onclick="tryNav('mpp',this)"><span class="nav-bar"></span> Plan de Pruebas <span class="nav-badge s" id="badge-mpp">M3</span></button>
     <button class="nav-item locked" id="nav-m3" onclick="tryNav('m3',this)"><span class="nav-bar"></span> Escenarios y Casos QA <span class="nav-badge s" id="badge-m3">M4</span></button>
-    <button class="nav-item locked" id="nav-m4" onclick="tryNav('m4',this)"><span class="nav-bar"></span> Ejecucion y Evidencias <span class="nav-badge s" id="badge-m4">M5</span></button>
-    <button class="nav-item locked" id="nav-m5" onclick="tryNav('m5',this)"><span class="nav-bar"></span> Gestion de Bugs <span class="nav-badge s" id="badge-m5">M6</span></button>
+    <button class="nav-item locked" id="nav-m4" onclick="tryNav('m4',this)"><span class="nav-bar"></span> Ejecución y Evidencias <span class="nav-badge s" id="badge-m4">M5</span></button>
+    <button class="nav-item locked" id="nav-m5" onclick="tryNav('m5',this)"><span class="nav-bar"></span> Gestión de Bugs <span class="nav-badge s" id="badge-m5">M6</span></button>
   </div>
   <div class="nav-section">
     <span class="nav-lbl">Transversal</span>
     <button class="nav-item locked" id="nav-mavance" onclick="tryNav('mavance',this)"><span class="nav-bar"></span> Informe de Avance Diario <span class="nav-badge s" id="badge-mavance">AVANCE</span></button>
-    <button class="nav-item locked" id="nav-mcert" onclick="tryNav('mcert',this)"><span class="nav-bar"></span> Certificacion de Calidad <span class="nav-badge s" id="badge-mcert">CIERRE</span></button>
+    <button class="nav-item locked" id="nav-mcert" onclick="tryNav('mcert',this)"><span class="nav-bar"></span> Certificación de Calidad <span class="nav-badge s" id="badge-mcert">CIERRE</span></button>
     <button class="nav-item locked" id="nav-mroi" onclick="tryNav('mroi',this)"><span class="nav-bar"></span> ROI <span class="nav-badge s" id="badge-mroi">ROI</span></button>
   </div>
   <div class="nav-section">
@@ -502,8 +979,8 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <button class="nav-item" id="nav-mchat" onclick="showModule('mchat',this)"><span class="nav-bar"></span> Chatbot QA <span class="nav-badge s">&#128172;</span></button>
   </div>
   <div class="nav-section">
-    <span class="nav-lbl">Historico de ejecuciones</span>
-    <button class="nav-item" id="nav-mhist" onclick="showModule('mhist',this)"><span class="nav-bar"></span> Historico <span class="nav-badge s">&#128337;</span></button>
+    <span class="nav-lbl">Histórico de ejecuciones</span>
+    <button class="nav-item" id="nav-mhist" onclick="showModule('mhist',this)"><span class="nav-bar"></span> Histórico <span class="nav-badge s">&#128337;</span></button>
   </div>
   <div class="sb-footer">
     <div class="engine-row">
@@ -553,7 +1030,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="m1-main">
       <div class="page-tag">M1 &middot; PROCESAR REQUERIMIENTO</div>
       <h1 class="page-title">Procesar Requerimiento</h1>
-      <p class="page-sub">Sube el documento del requerimiento y la IA actua como Ingeniero QA: entrega la Historia de Usuario, Criterios de Aceptacion, Reglas de Negocio, Riesgos, Areas de Impacto y Escenarios QA sugeridos -- la base de todo el ciclo.</p>
+      <p class="page-sub">Sube el documento del requerimiento y la IA actúa como Ingeniero QA: entrega la Historia de Usuario, Criterios de Aceptación, Reglas de Negocio, Riesgos, Áreas de Impacto y Escenarios QA sugeridos -- la base de todo el ciclo.</p>
 
       <!-- Upload -->
       <div class="card" id="upload-card">
@@ -564,7 +1041,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
             <div class="drop-ico">&#8679;</div>
             <div class="drop-t">Haz clic en cualquier parte de este recuadro o arrastra tus archivos a la pantalla</div>
             <span class="btn btn-primary drop-btn">Seleccionar archivos</span>
-            <div class="drop-s">PDF (vision nativa) &middot; DOCX/DOC (convierte a PDF) &middot; TXT &middot; puedes subir varios a la vez (ej: HU + anexo + transcripcion de reunion)</div>
+            <div class="drop-s">PDF (visión nativa) &middot; DOCX/DOC (convierte a PDF) &middot; TXT &middot; puedes subir varios a la vez (ej: HU + anexo + transcripción de reunión)</div>
           </div>
         </div>
         <div class="file-preview" id="file-preview"></div>
@@ -616,7 +1093,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
 
         <div class="res-grid">
           <div class="res-block">
-            <div class="res-block-hdr">Criterios de Aceptacion</div>
+            <div class="res-block-hdr">Criterios de Aceptación</div>
             <div class="res-block-body"><ul class="item-list" id="ca-list"><li>---</li></ul></div>
           </div>
           <div class="res-block">
@@ -643,8 +1120,8 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
 
         <div class="advance-box">
           <div><div class="advance-ttl">&#191;Todo revisado?</div>
-          <div class="advance-sub">Verifica riesgos, criterios y areas de impacto antes de continuar</div></div>
-          <button class="btn btn-primary" onclick="confirmContinueToM2()">Continuar a Impacto y Estimacion &rarr;</button>
+          <div class="advance-sub">Verifica riesgos, criterios y áreas de impacto antes de continuar</div></div>
+          <button class="btn btn-primary" onclick="confirmContinueToM2()">Continuar a Impacto y Estimación &rarr;</button>
         </div>
       </div>
     </div>
@@ -657,7 +1134,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
         <div class="console-wrap">
           <div class="console-hdr">
             <span class="console-dot" id="console-dot"></span>
-            <span class="console-hdr-title">Consola de ejecucion</span>
+            <span class="console-hdr-title">Consola de ejecución</span>
             <span class="console-timer" id="console-timer"></span>
           </div>
           <div class="console-body" id="console-body">
@@ -668,7 +1145,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
         <!-- El historico de HU vive en su propio modulo transversal ("Historico"),
              no aca -- asi es accesible desde cualquier parte de la herramienta,
              no solo desde M1. Ver renderHistorico() / #mhist. -->
-        <button class="btn btn-ghost" style="margin-top:10px;width:100%" onclick="tryNav('mhist', document.getElementById('nav-mhist'))">Ver Historico completo &rarr;</button>
+        <button class="btn btn-ghost" style="margin-top:10px;width:100%" onclick="tryNav('mhist', document.getElementById('nav-mhist'))">Ver Histórico completo &rarr;</button>
 
       </div>
     </div>
@@ -691,11 +1168,11 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
   <div class="module" id="mhist" style="display:none">
     <div class="content wide">
       <div class="page-tag">HISTORICO</div>
-      <h1 class="page-title">Historico de Sesiones</h1>
-      <p class="page-sub">Cada requerimiento analizado queda guardado con TODO su avance (casos, ejecucion, bugs, plan, certificacion) -- no solo el analisis. Se guarda automaticamente en este navegador (IndexedDB), así que si cierras todo o apagas el equipo, al volver puedes retomar exactamente donde quedaste. Elige una sesión para cargarla como la sesión activa.</p>
+      <h1 class="page-title">Histórico de Sesiones</h1>
+      <p class="page-sub">Cada requerimiento analizado queda guardado con TODO su avance (casos, ejecución, bugs, plan, certificacion) -- no solo el analisis. Se guarda automaticamente en este navegador (IndexedDB), así que si cierras todo o apagas el equipo, al volver puedes retomar exactamente donde quedaste. Elige una sesión para cargarla como la sesión activa.</p>
       <div style="display:flex;gap:8px;margin-bottom:14px">
-        <button class="btn btn-ghost" style="font-size:12px" onclick="exportHistoricoJSON()">Exportar Historico (.json)</button>
-        <button class="btn btn-ghost" style="font-size:12px" onclick="document.getElementById('hist-import-input').click()">Importar Historico (.json)</button>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="exportHistoricoJSON()">Exportar Histórico (.json)</button>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="document.getElementById('hist-import-input').click()">Importar Histórico (.json)</button>
         <input type="file" id="hist-import-input" accept=".json" style="display:none" onchange="importHistoricoJSON(this)">
       </div>
       <div id="mhist-body"></div>
@@ -706,11 +1183,11 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
   <div class="module" id="m2" style="display:none">
     <div class="content wide">
       <div class="page-tag">M2 &middot; IMPACTO</div>
-      <h1 class="page-title">Impacto y Estimacion</h1>
-      <p class="page-sub">Aqui el QA valida (no re-analiza) las areas de impacto que la IA detecto en M1, y usa el Estimador QA para dimensionar el esfuerzo del ciclo: complejidad del requerimiento (evaluada por IA, ajustable a mano), ritmo de ejecucion del QA (casos por dia) y tiempos por cada fase (reunion, transformacion a HU, plan de pruebas, diseno, ejecucion, bugs, cierre) -- todo editable, sin calculos ocultos. Al confirmar, se desbloquea el Plan de Pruebas.</p>
+      <h1 class="page-title">Impacto y Estimación</h1>
+      <p class="page-sub">Aqui el QA valida (no re-analiza) las áreas de impacto que la IA detecto en M1, y usa el Estimador QA para dimensionar el esfuerzo del ciclo: complejidad del requerimiento (evaluada por IA, ajustable a mano), ritmo de ejecución del QA (casos por dia) y tiempos por cada fase (reunión, transformacion a HU, plan de pruebas, diseno, ejecución, bugs, cierre) -- todo editable, sin calculos ocultos. Al confirmar, se desbloquea el Plan de Pruebas.</p>
       <div id="m2-empty" class="placeholder-wrap">
         <div class="placeholder-ico">&#9888;</div>
-        <div class="placeholder-ttl">Todavia no hay analisis</div>
+        <div class="placeholder-ttl">Todavía no hay analisis</div>
         <div class="placeholder-sub">Analiza primero un requerimiento en M1.</div>
       </div>
       <div id="m2-body" style="display:none"></div>
@@ -730,7 +1207,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="content wide">
       <div class="page-tag">M4 &middot; CASOS QA</div>
       <h1 class="page-title">Escenarios y Casos QA</h1>
-      <p class="page-sub">Un modelo de razonamiento de IA más alto diseña los casos de prueba a partir del analisis y el Plan de Pruebas, buscando cobertura de los Criterios de Aceptacion y Reglas de Negocio, sin redundancia entre casos. Tipos: Smoke, Funcional, UI, UX. Cada caso es una tarjeta editable (pasos, resultado esperado); tambien puedes agregar casos manualmente, renumerar, replantear con transcripciones nuevas y verificar la cobertura real con IA. Exporta a Excel en el formato de la plantilla maestra.</p>
+      <p class="page-sub">Un modelo de razonamiento de IA más alto diseña los casos de prueba a partir del analisis y el Plan de Pruebas, buscando cobertura de los Criterios de Aceptación y Reglas de Negocio, sin redundancia entre casos. Tipos: Smoke, Funcional, UI, UX. Cada caso es una tarjeta editable (pasos, resultado esperado); tambien puedes agregar casos manualmente, renumerar, replantear con transcripciones nuevas y verificar la cobertura real con IA. Exporta a Excel en el formato de la plantilla maestra.</p>
       <div id="m3-body"></div>
     </div>
   </div>
@@ -738,7 +1215,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
   <div class="module" id="m4" style="display:none">
     <div class="content wide">
       <div class="page-tag">M5 &middot; EVIDENCIAS</div>
-      <h1 class="page-title">Ejecucion y Evidencias</h1>
+      <h1 class="page-title">Ejecución y Evidencias</h1>
       <p class="page-sub">Espacio de trabajo de un caso a la vez: elige el caso, sube una o varias capturas de evidencia y pídele el veredicto a la IA (Exitoso o Fallido, sin ambigüedad), o marca el caso como Bloqueado o Desestimado con su motivo. Un caso Fallido habilita el botón para reportar el bug directo desde aquí. El avance efectivo (Exitosos + Desestimados) se refleja en tiempo real en el Informe de Avance Diario.</p>
       <div id="m4-body"></div>
     </div>
@@ -748,7 +1225,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="content wide">
       <div class="page-tag">ROI</div>
       <h1 class="page-title">Retorno de Inversion</h1>
-      <p class="page-sub">Compara el tiempo real que uso la IA en todo el ciclo contra el tiempo manual estimado en el Estimador QA de M2 (o un benchmark propio en minutos/caso). Se habilita al cerrar el ciclo con la Certificacion QA, para reflejar el ahorro real de principio a fin -- no antes.</p>
+      <p class="page-sub">Compara el tiempo real que uso la IA en todo el ciclo contra el tiempo manual estimado en el Estimador QA de M2 (o un benchmark propio en minutos/caso). Se habilita al cerrar el ciclo con la Certificación QA, para reflejar el ahorro real de principio a fin -- no antes.</p>
       <div id="mroi-body"></div>
     </div>
   </div>
@@ -757,7 +1234,7 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
     <div class="content wide">
       <div class="page-tag">AVANCE</div>
       <h1 class="page-title">Informe de Avance Diario</h1>
-      <p class="page-sub">Tablero de avance de pruebas con el conteo de casos Exitosos, Desestimados, Fallidos, Bloqueados y Sin ejecutar, y el % de avance efectivo (solo Exitosos y Desestimados suman, porque Fallidos, Bloqueados y Sin ejecutar necesitan (re)ejecución). Se actualiza en tiempo real con lo que se marca en Ejecucion y Evidencias, e incluye el detalle de bugs abiertos con su desarrollador asignado. Transversal: disponible durante toda la ejecucion.</p>
+      <p class="page-sub">Tablero de avance de pruebas con el conteo de casos Exitosos, Desestimados, Fallidos, Bloqueados y Sin ejecutar, y el % de avance efectivo (solo Exitosos y Desestimados suman, porque Fallidos, Bloqueados y Sin ejecutar necesitan (re)ejecución). Se actualiza en tiempo real con lo que se marca en Ejecución y Evidencias, e incluye el detalle de bugs abiertos con su desarrollador asignado. Transversal: disponible durante toda la ejecución.</p>
       <div id="mavance-body"></div>
     </div>
   </div>
@@ -765,8 +1242,8 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
   <div class="module" id="m5" style="display:none">
     <div class="content wide">
       <div class="page-tag">M6 &middot; BUGS</div>
-      <h1 class="page-title">Gestion de Bugs</h1>
-      <p class="page-sub">Registra y hace seguimiento de los defectos encontrados durante la ejecucion: severidad, desarrollador asignado, caso relacionado y estado (Abierto, En progreso, Resuelto, Cerrado) con historico de cada cambio de estado con fecha/hora. Cada bug se puede exportar a Word individualmente. Al terminar la ejecucion, desde aca se desbloquea (manual o automaticamente) la Certificacion QA.</p>
+      <h1 class="page-title">Gestión de Bugs</h1>
+      <p class="page-sub">Registra y hace seguimiento de los defectos encontrados durante la ejecución: severidad, desarrollador asignado, caso relacionado y estado (Abierto, En progreso, Resuelto, Cerrado) con historico de cada cambio de estado con fecha/hora. Cada bug se puede exportar a Word individualmente. Al terminar la ejecución, desde aca se desbloquea (manual o automaticamente) la Certificación QA.</p>
       <div id="m5-body"></div>
     </div>
   </div>
@@ -774,8 +1251,8 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
   <div class="module" id="mcert" style="display:none">
     <div class="content wide">
       <div class="page-tag">CIERRE</div>
-      <h1 class="page-title">Certificacion de Calidad</h1>
-      <p class="page-sub">Documento formal de cierre generado por IA en base a los resultados REALES del ciclo (nunca inventados): resumen de ejecucion, justificacion de casos no ejecutados, gestion de defectos y una conclusion de calidad honesta. Se desbloquea al terminar la ejecucion (manual desde Gestion de Bugs, o automatico si ya no quedan casos en To Do), y su generacion habilita el modulo de ROI.</p>
+      <h1 class="page-title">Certificación de Calidad</h1>
+      <p class="page-sub">Documento formal de cierre generado por IA en base a los resultados REALES del ciclo (nunca inventados): resumen de ejecución, justificacion de casos no ejecutados, gestion de defectos y una conclusion de calidad honesta. Se desbloquea al terminar la ejecución (manual desde Gestión de Bugs, o automatico si ya no quedan casos en To Do), y su generacion habilita el modulo de ROI.</p>
       <div id="mcert-body"></div>
     </div>
   </div>
@@ -4832,6 +5309,28 @@ function openFilePicker() {
   if (_isWorking || document.getElementById('upload-card').classList.contains('disabled')) return;
   document.getElementById('file-input').click();
 }
+
+</script>
+<script id="nd-fondo">
+/* Fondo animado "Panal luminoso azul" (versión lenta aprobada). Solo dibuja; no toca la app. */
+(function(){
+  var cv=document.getElementById('nd-bg');if(!cv)return;var ctx=cv.getContext('2d'),W,H,cells=[],raf;
+  var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function rnd(a,b){return a+Math.random()*(b-a)}
+  function hex(cx,cy,r){ctx.beginPath();for(var k=0;k<6;k++){var a=Math.PI/3*k+Math.PI/6,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a);k?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.closePath()}
+  function init(){cells=[];var r=36,hw=r*Math.sqrt(3),hh=r*1.5;
+    for(var row=0,y=-r;y<H+r;row++,y+=hh)for(var x=(row%2?hw/2:0)-hw;x<W+hw;x+=hw){var w=x/W*1.2-.15+(y/H)*.15+rnd(-.08,.08);
+      if(w>.12)cells.push({x:x,y:y,r:r,w:Math.min(1,w),fl:rnd(0,16),fs:rnd(9,16)})}}
+  function size(){var d=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0);init()}
+  function draw(){var g=ctx.createLinearGradient(0,0,W,H*.3);g.addColorStop(0,'#020D1E');g.addColorStop(.5,'#072745');g.addColorStop(1,'#0E5888');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+    var t=performance.now()/1000,cyc=20,ph=(t%cyc)/cyc,front=W*(1.15-ph*1.6);
+    for(var i=0;i<cells.length;i++){var c=cells[i],form=Math.max(0,Math.min(1,(c.x-front)/220)),wave=.5+.5*Math.sin(t*.55-c.x*.012+c.y*.006),
+      fl=Math.max(0,1-Math.abs(((t+c.fl)%c.fs)-.9)/.9),a=c.w*(.18+.5*wave)*Math.max(form,.25)+fl*.8,sc=.82+.18*Math.max(form,.4);
+      hex(c.x,c.y,(c.r-3)*sc);var rg=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,c.r);rg.addColorStop(0,'rgba(120,215,255,'+a*.14+')');rg.addColorStop(1,'rgba(120,215,255,'+a*.4+')');
+      ctx.fillStyle=rg;ctx.fill();ctx.strokeStyle='rgba(175,232,255,'+Math.min(1,a)+')';ctx.lineWidth=1.5;if(fl>.3||(wave>.88&&c.w>.6)){ctx.shadowBlur=18;ctx.shadowColor='rgba(120,225,255,1)'}ctx.stroke();ctx.shadowBlur=0}
+    if(!reduce)raf=requestAnimationFrame(draw)}
+  addEventListener('resize',size);size();draw();
+})();
 
 </script>
 </body>
