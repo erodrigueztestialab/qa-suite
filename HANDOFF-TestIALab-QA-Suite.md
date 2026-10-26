@@ -16,7 +16,7 @@ Doble clic en **`iniciar-qa-suite.bat`** (la primera vez corre `npm install` sol
 | Módulo (id interno) | Estado |
 |---|---|
 | Histórico (`mhist`) | Sesiones con todo su avance; exportar/importar `.json`. |
-| M1 Procesar Requerimiento (`m1`) | Varios archivos a la vez (PDF visión nativa, DOCX, TXT) → HU, CA, RN, riesgos, impactos, escenarios. Exporta HU a Word/PDF. Recuadro de carga grande con botón; arrastrar a toda la pantalla. |
+| M1 Procesar Requerimiento (`m1`) | Varios archivos a la vez (PDF visión nativa, DOCX, TXT) → HU, CA, RN, riesgos, impactos, escenarios. Exporta HU a Word/PDF. Recuadro de carga grande con botón; arrastrar a toda la pantalla. **Auditoría de alineación** (2026-10-26): inventario + glosario del requerimiento (ambos motores) → HU con trazas internas `[src]`/`[cubre]` → validador determinístico `validators/huValidator.js` (V1–V13, tests con `npm test`) → auditor IA (siempre) → una reparación acotada → recuadro "Auditoría de alineación" (no se exporta). Un HU importado desde Word se audita con `/api/audit-hu` si hay requerimiento cargado. `S.analysisHash` versiona el análisis. |
 | M2 Impacto y Estimación (`m2`) | Complejidad evaluada por IA (referencia, **no mueve horas**); ejecución = casos ÷ **casos por día** (default 10, recordado en el navegador) × 8h; diseño fijo 3h. |
 | M3 Plan de Pruebas (`mpp`) | Generado por IA con el modelo de entrega real de TestIALab; editable; Word con la plantilla real y PDF; Responsables (Nombre/Rol, Contacto). |
 | M4 Escenarios y Casos QA (`m3`) | Modelo fuerte; casos **operativos ejecutables**; verificación de cobertura con IA (mensaje explícito si está completa) y casos faltantes; replantear con transcripciones; **consolidar con casos del QA/cliente** (Excel cualquier plantilla, CSV, Word, TXT) con revisión antes de aplicar; importar Excel / caso manual aun sin casos generados. |
@@ -33,6 +33,7 @@ Estados de caso en la UI **en español** (Exitoso, Fallido, Bloqueado, Desestima
 - **Metodología genérica:** ningún concepto de un cliente puntual en prompts, reglas, ejemplos ni backlog.
 - **Modelos:** modelo fuerte **solo en M4** (generación, faltantes y consolidación de casos, en ambos motores); el resto Sonnet con `effort: medium`.
 - **Documentos para el cliente:** ortografía completa (regla `ORTOGRAFIA_DOC_CLIENTE` en los prompts) y Word con idioma `es-CO`.
+- **Entregables sin re-análisis:** todo defecto que se detecte en un entregable (HU, plan, casos) se convierte en una regla del prompt o un chequeo del validador, no en una corrección manual.
 
 ### Flujo de trabajo del repositorio
 `main` / `develop` / `feature/*` con PR obligatorio (descripciones detalladas); las ramas feature se borran al mergear. La memoria del proyecto para Claude Code está versionada en **`.claude/memory/`** (decisiones, estado de cada sesión, preferencias del equipo): es la fuente más actualizada del contexto.

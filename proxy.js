@@ -35,6 +35,7 @@ const crossSpawn = require('cross-spawn');
 const path     = require('path');
 const os       = require('os');
 const fs       = require('fs');
+const huValidator = require('./validators/huValidator.js');
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell,
   WidthType, ImageRun, AlignmentType, BorderStyle, ShadingType, Header, Footer, PageNumber,
@@ -756,10 +757,31 @@ var HU_LABELED_SECTIONS = [
   { marker: '6. Impactos', tag: 'IMPACTOS' },
   { marker: '7. Escenarios QA Sugeridos', tag: 'ESCENARIOS_QA' },
 ];
-function labeledBulletsToRawLines(items) {
+// Camino inverso de docxLabeledBulletList: "ID: campo - campo" -> "ID | campo | campo".
+// Los " - " solo se cortan donde la seccion tiene columnas fijas (nivel del riesgo,
+// tipo y titulo del escenario, area del impacto); en CA/RN el texto queda entero. Un
+// Word exportado antes del cambio ("ID: campo | campo") se sigue aceptando tal cual.
+function labeledBulletsToRawLines(items, tag) {
   return items.map(function(text){
-    var m = /^([A-Z_0-9]+):\s*(.*)/.exec(text);
-    return m ? (m[1] + ' | ' + m[2]) : text;
+    var m = tag === 'IMPACTOS' ? /^([^:|]+?):\s*(.*)$/.exec(text) : /^([A-Z_0-9]+):\s*(.*)/.exec(text);
+    if (!m) return text;
+    var id = m[1].trim(), rest = m[2];
+    if (rest.indexOf('|') >= 0) return id + ' | ' + rest;
+    var fields = [rest];
+    if (tag === 'RIESGOS') {
+      var lv = /^(Alto|Medio|Bajo)\s+-\s+([\s\S]*)$/i.exec(rest);
+      if (lv) {
+        var cut = lv[2].lastIndexOf(' - ');
+        fields = [lv[1]].concat(cut >= 0 ? [lv[2].slice(0, cut), lv[2].slice(cut + 3)] : [lv[2]]);
+      }
+    } else if (tag === 'ESCENARIOS_QA') {
+      var tp = /^(Positivo|Negativo|Borde)\s+-\s+([\s\S]*)$/i.exec(rest);
+      if (tp) {
+        var cut2 = tp[2].indexOf(' - ');
+        fields = [tp[1]].concat(cut2 >= 0 ? [tp[2].slice(0, cut2), tp[2].slice(cut2 + 3)] : [tp[2]]);
+      }
+    }
+    return id + ' | ' + fields.map(function(s){ return s.trim(); }).join(' | ');
   }).join('\n');
 }
 function parseHUDocxHtml(html) {
@@ -795,7 +817,7 @@ function parseHUDocxHtml(html) {
     '---NIVEL_RIESGO_GLOBAL---\n' + (out.nivel||'MEDIO') + '\n' +
     '---JUSTIFICACION_RIESGO---\n' + (out.justificacion||'---') + '\n';
   HU_LABELED_SECTIONS.forEach(function(s){
-    raw += '---' + s.tag + '---\n' + labeledBulletsToRawLines(out.sections[s.tag]) + '\n';
+    raw += '---' + s.tag + '---\n' + labeledBulletsToRawLines(out.sections[s.tag], s.tag) + '\n';
   });
   return raw;
 }
@@ -840,19 +862,19 @@ function outputSectionsBlock() {
     '3 a 5 oraciones especificas con elementos concretos del requerimiento.',
     '',
     '---CRITERIOS_DE_ACEPTACION---',
-    'Minimo 6. Formato por linea: CA_N | Dado que [contexto], Cuando [accion], Entonces [resultado verificable].',
+    'Minimo 6. Formato por linea: CA_N | Dado que [contexto], Cuando [accion], Entonces [resultado verificable]. [src: N,N]',
     '',
     '---REGLAS_DE_NEGOCIO---',
-    'Minimo 4. Formato por linea: RN_N | Descripcion tecnica especifica con condiciones.',
+    'Minimo 4. Formato por linea: RN_N | Descripcion tecnica especifica con condiciones. [src: N,N]',
     '',
     '---RIESGOS---',
-    'Minimo 4. Formato: R_N | Alto/Medio/Bajo | Descripcion | Impacto concreto.',
+    'Minimo 4. Formato: R_N | Alto/Medio/Bajo | Descripcion | Impacto (con "puede"/"posible" si el documento no lo declara). [src: N,N]',
     '',
     '---IMPACTOS---',
-    'Formato: AREA | Descripcion del impacto tecnico y funcional.',
+    'Formato: AREA | Descripcion del impacto tecnico y funcional (con "puede"/"posible" si el documento no lo declara).',
     '',
     '---ESCENARIOS_QA---',
-    'Minimo 6. Formato: ESC_N | Positivo/Negativo/Borde | Titulo | Descripcion con datos de prueba.',
+    'Minimo 6. Formato: ESC_N | Positivo/Negativo/Borde | Titulo | Descripcion con marcadores abstractos (N, N-1, X, valor dentro/fuera del limite). [src: N,N] [cubre: CA_N,RN_N]',
   ].join('\n');
 }
 
@@ -889,12 +911,12 @@ function buildAnalysisFileRefBlock(files) {
     : '';
 }
 
-// ── M1 con Gemini, pasada 1: inventario plano de condiciones atomicas ─────────
-// Gemini se ancla en los "Minimo N" de cada seccion aunque el prompt pida
-// exhaustividad (ver memoria del motor Gemini). Medido el 2026-10-02 sobre el demo
-// DOCX: en una sola pasada saca 7-10 CA; si primero SOLO enumera las condiciones
-// (sin formato final ni minimos) y la pasada 2 recibe ese inventario, saca 14-16.
-// Claude no lo necesita (23 CA en una pasada) y sigue en una sola llamada.
+// ── M1, pasada 1 (ambos motores): inventario de condiciones + glosario ────────
+// Nacio para Gemini, que se ancla en los "Minimo N" de cada seccion aunque el prompt
+// pida exhaustividad (medido el 2026-10-02: 7-10 CA en una pasada, 14-16 con
+// inventario previo). Desde la auditoria de alineacion del HU corre en AMBOS motores:
+// el inventario (con estado, referencia y glosario) es la base contra la que el
+// validador deterministico y el auditor comparan el HU (validators/huValidator.js).
 function buildAnalysisInventoryPrompt(files) {
   return [
     'Eres un Analista de Requerimientos senior. Lee integralmente ' +
@@ -902,15 +924,71 @@ function buildAnalysisInventoryPrompt(files) {
       ' (texto, tablas, imagenes, diagramas).',
     'Tu UNICA tarea: enumerar en una lista plana CADA condicion atomica y verificable que el requerimiento contiene o implica:',
     'reglas de negocio, validaciones, atributos de cada campo (tipo, longitud, obligatoriedad, formato, mensajes),',
-    'transiciones de estado, limites y umbrales, tiempos, mensajes del sistema, permisos, excepciones y casos limite.',
-    'Una condicion por linea, formato: N | Tipo | Condicion. No agrupes dos condiciones en una linea. No resumas.',
-    'No cites la fuente ni nombres de archivos o personas. Responde SOLO con la lista.',
+    'transiciones de estado, limites y umbrales, tiempos, mensajes del sistema, permisos, excepciones, casos limite,',
+    'dependencias, supuestos, riesgos que el documento declara y lo que el documento deja fuera del alcance.',
+    '',
+    'Formato, una condicion por linea:  N | Tipo | Estado | Ref | Condicion',
+    '- N: numero consecutivo desde 1.',
+    '- Tipo: Regla, Validacion, Campo, Estado, Limite, Mensaje, Permiso, Excepcion, Dependencia, Supuesto, Riesgo o',
+    '  EXCLUSION. EXCLUSION es SOLO para lo que el documento declara fuera del alcance.',
+    '- Estado: DEFINIDO o PENDIENTE. Es PENDIENTE todo lo que el documento marque como por definir, abierto, en',
+    '  revision, dependencia sin resolver, supuesto sin confirmar o pregunta abierta. Si el documento define un mismo',
+    '  punto de dos maneras distintas, es PENDIENTE.',
+    '- Ref: la etiqueta o codigo propio que el documento le da (por ejemplo, DEP-01 o SUP-2). Vacia si no tiene. La',
+    '  numeracion de una lista (1., 2., a), b)) NO es una Ref.',
+    '- Condicion: redactada con la MISMA fuerza que el original: conserva el modal ("puede", "debe", "deberia"), la',
+    '  premisa si la hay ("si X ocurre, podria Y") y los terminos y nombres propios tal cual los escribe el documento.',
+    '  Si el documento asigna criticidad, severidad o prioridad, agregala al final: "Criticidad: Alta".',
+    'No agrupes dos condiciones en una linea. No resumas. No agregues nada que el documento no diga.',
+    '',
+    'Despues de la lista, una linea ---GLOSARIO--- y debajo, uno por linea:  Termino | Tipo',
+    'con los terminos y nombres propios del documento escritos exactamente como el documento los escribe:',
+    'proveedores y terceros, sistemas y plataformas, pantallas, procesos, roles, documentos y codigos.',
+    'Tipo: Proveedor, Sistema, Pantalla, Proceso, Rol, Documento u Otro.',
+    '',
+    'No cites la fuente ni nombres de archivos o personas. Responde SOLO con la lista y el glosario.',
     '',
     buildAnalysisFileRefBlock(files),
   ].join('\n');
 }
 
-// inventoryPath (opcional): .txt con el inventario de la pasada 1 (solo Gemini).
+// Reglas de redaccion del HU (brief de alineacion M1). Genericas: aplican a cualquier
+// requerimiento; los ejemplos son neutros a proposito.
+var REGLAS_ALINEACION_HU = [
+  'REGLAS DE ALINEACION CON EL REQUERIMIENTO (obligatorias, se validan automaticamente despues):',
+  'A. FIDELIDAD: cada afirmacion debe tener respaldo en el requerimiento. No agregues hechos, entidades ni calificativos',
+  '   de magnitud (bajo, alto, critico, masivo, en tiempo real) que el documento no use. Usa los terminos del documento',
+  '   tal cual y los nombres propios del GLOSARIO sin cambiarlos por genericos (MAL: "un tercero". BIEN: el nombre que',
+  '   usa el documento). Las consecuencias que el documento no declara y tu infieres (columna de impacto de un riesgo,',
+  '   seccion IMPACTOS) se escriben con "puede" o "posible", nunca como hecho.',
+  'B. MODALES Y PREMISAS: conserva la fuerza del original: "puede" no es "debe"; "sin esperas por X" no es "sin X".',
+  '   Si la fuente plantea algo con premisa ("si X ocurre, podria Y"), el item conserva la premisa y el modal.',
+  'C. PENDIENTES: todo CA, RN o ESC que derive de un item PENDIENTE del inventario termina con "Condicionado a <Ref>"',
+  '   (o una descripcion corta si no tiene Ref). Todo ESC que cubre un CA o RN condicionado lleva esa MISMA condicion.',
+  '   La justificacion del riesgo no puede contradecir el estado del inventario (no digas que algo "sigue sin',
+  '   definirse" si esta DEFINIDO, ni lo trates como definido si esta PENDIENTE). Si el documento define un mismo',
+  '   punto de dos maneras, no elijas en silencio: marcalo condicionado y registra un riesgo.',
+  'D. ABSOLUTOS: "solo", "siempre", "nunca", "unicamente" en un CA o RN exigen que ninguna otra regla lo exceptue.',
+  '   Si existe una excepcion, va en el MISMO enunciado ("solo cuando X, salvo Y").',
+  'E. RIESGOS: si el documento asigna criticidad a un elemento, el nivel del R_N la hereda (Alta=Alto, Media=Medio,',
+  '   Baja=Bajo). Todo PENDIENTE aparece en al menos un R_N.',
+  'F. ESCENARIOS: usa marcadores abstractos (N, N-1, X, "valor dentro del limite", "valor fuera del limite") en lugar',
+  '   de cifras inventadas; solo usa cifras que el requerimiento defina literalmente. Un ESC por alternativa: no',
+  '   combines con "o" condiciones de prueba distintas. Todo CA tiene al menos un ESC. Todo PENDIENTE que afecte',
+  '   comportamiento observable tiene al menos un ESC condicionado.',
+  'G. COBERTURA: todo item del inventario queda en al menos un CA, RN, R o ESC. Los items EXCLUSION se reflejan como',
+  '   una RN de alcance ("... queda fuera del alcance"), sin ESC.',
+  'H. CODIGOS DEL DOCUMENTO: la prohibicion de citar la fuente es para meta-citas, NO para los codigos propios del',
+  '   requerimiento (dependencias, supuestos, riesgos del documento), que si deben aparecer. MAL: "Segun el documento,',
+  '   la notificacion depende del proveedor". BIEN: "La notificacion por correo se envia al aprobar. Condicionado a DEP-01".',
+  'I. CONVENCIONES: "Por ejemplo," con coma despues de "ejemplo"; "Cliente" con mayuscula cuando es un rol; sin rayas',
+  '   largas (em dash).',
+  'J. TRAZABILIDAD: cada linea de CA, RN, R y ESC termina con [src: N,N] (los numeros N del inventario de los que sale).',
+  '   Cada ESC termina ademas con [cubre: CA_N,RN_N] (los CA/RN que valida). Estas marcas son internas: la herramienta',
+  '   las quita antes de mostrar el HU. No las pongas en HISTORIA_DE_USUARIO, JUSTIFICACION_RIESGO ni IMPACTOS.',
+].join('\n');
+
+// inventoryPath: .txt con el inventario + glosario de la pasada 1 (ambos motores).
 function buildMultiFileAnalysisPrompt(files, engine, inventoryPath) {
   var refBlock = buildAnalysisFileRefBlock(files);
   var multi = files.length > 1;
@@ -926,14 +1004,17 @@ function buildMultiFileAnalysisPrompt(files, engine, inventoryPath) {
     'Comprende el requerimiento en su totalidad, incluyendo lo implicito, y produce un analisis tecnico objetivo, detallado y accionable.',
     '',
     inventoryPath
-      ? 'INVENTARIO PREVIO: en ' + inventoryPath + ' hay un inventario de las condiciones atomicas del requerimiento (leelo ' +
-        'tambien). Cada condicion del inventario debe quedar reflejada en al menos un CA_N o RN_N de tu analisis, una ' +
-        'condicion verificable por ID. No copies el inventario tal cual: redactalo en el formato de cada seccion.\n'
+      ? 'INVENTARIO PREVIO: en ' + inventoryPath + ' hay un inventario numerado de las condiciones atomicas del requerimiento ' +
+        '(N | Tipo | Estado | Ref | Condicion) y, despues de ---GLOSARIO---, los terminos y nombres propios del documento. ' +
+        'Leelo tambien. Cada item del inventario debe quedar reflejado en tu analisis (regla G) y citado por su N en [src]. ' +
+        'No copies el inventario tal cual: redactalo en el formato de cada seccion.\n'
       : null,
     'INSTRUCCIONES CRITICAS:',
     '1. NO uses plantillas genericas ni frases de relleno.',
-    '2. NO asumas que el riesgo siempre es ALTO. Evalua el riesgo real basandote en: complejidad tecnica, integracion de',
-    '   sistemas, impacto financiero/operativo, usuarios afectados, reversibilidad, dependencias externas, cobertura de datos.',
+    '2. NO asumas que el riesgo siempre es ALTO. Evalua el riesgo solo con factores que el documento permita sustentar',
+    '   (complejidad tecnica, integraciones, dependencias, pendientes, criticidades declaradas, etc.). Si el documento no',
+    '   trata un factor (por ejemplo, impacto financiero, usuarios afectados o reversibilidad), no lo afirmes ni lo niegues.',
+    '   Cada factor que cites en la justificacion debe existir en el documento.',
     '3. TODOS los criterios de aceptacion deben ser verificables, medibles y especificos.',
     '4. Las reglas de negocio deben surgir de los documentos, no inventarse.',
     '5. COBERTURA EXHAUSTIVA, sin techo: en Criterios de Aceptacion, Reglas de Negocio, Riesgos y Escenarios QA, el "Minimo" que',
@@ -952,8 +1033,8 @@ function buildMultiFileAnalysisPrompt(files, engine, inventoryPath) {
     '   editable o de solo lectura, validaciones y mensajes de error. Ejemplo: RN_12 | Campo "Razon social" (pantalla Alta',
     '   de proveedor): texto, maximo 100 caracteres, obligatorio, admite letras, numeros y espacios. NO inventes atributos',
     '   que el cuadro no trae, y no omitas ningun campo del cuadro.',
-    '7. REDACCION: escribe los criterios, reglas, riesgos y escenarios como hechos sobre el comportamiento del sistema, en',
-    '   lenguaje claro y natural. NUNCA cites ni atribuyas la fuente de la informacion: prohibido escribir cosas como "en la',
+    '7. REDACCION: escribe los criterios, reglas, riesgos y escenarios como enunciados sobre el comportamiento del sistema,',
+    '   en lenguaje claro y natural, con la misma fuerza que el original (regla B). NUNCA cites ni atribuyas la fuente de la informacion: prohibido escribir cosas como "en la',
     '   reunion se dijo", "segun la transcripcion", "el documento indica", "el cliente menciono", "se acordo que", ni',
     '   nombres de personas o de archivos. MAL: "Segun lo conversado en la reunion, el NIT es obligatorio". BIEN: "El NIT',
     '   es obligatorio para registrar el proveedor".',
@@ -961,14 +1042,97 @@ function buildMultiFileAnalysisPrompt(files, engine, inventoryPath) {
       ? '8. Si dos archivos se contradicen entre si, prioriza el mas especifico o mas reciente (ej: una transcripcion de reunion ' +
         'posterior prevalece sobre el documento inicial) y deja en los CA/RN solo la version que prevalece, redactada como ' +
         'hecho (regla 7). Si la discrepancia es relevante, mencionala solo en la justificacion de riesgo, sin atribuirla a ' +
-        'personas ni a reuniones.'
+        'personas ni a reuniones. Si no es claro cual prevalece, aplica la regla C (condicionado + riesgo).'
       : null,
     (multi ? '9' : '8') + '. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
+    '',
+    REGLAS_ALINEACION_HU,
+    '',
+    ORTOGRAFIA_DOC_CLIENTE,
     '',
     refBlock,
     '',
     outputSectionsBlock(),
   ].filter(function(l){ return l !== null; }).join('\n');
+}
+
+// ── M1: auditor semantico del HU (una llamada, Sonnet medium, ambos motores) ───
+// Recibe por RUTA (agy recibe el prompt por argumento: ENAMETOOLONG) el inventario,
+// el HU con trazas y los hallazgos del validador deterministico, y busca lo que un
+// regex no puede decidir: contradicciones, afirmaciones sin sustento o mas fuertes
+// que la fuente y pendientes no marcados. Devuelve JSON.
+function buildHUAuditorPrompt(files, inventoryPath, huPath, findingsPath) {
+  return [
+    'Eres un auditor de calidad de Historias de Usuario. Tu tarea es verificar que el HU este alineado con el requerimiento',
+    'fuente. NO reescribas el HU: solo reporta defectos concretos.',
+    '',
+    'Lee estos archivos:',
+    '- Inventario numerado del requerimiento (N | Tipo | Estado | Ref | Condicion) y glosario: ' + inventoryPath,
+    '- HU a auditar (cada linea trae [src: N] con los items del inventario de los que sale, y los ESC [cubre: ...]): ' + huPath,
+    '- Hallazgos del validador automatico (JSON; los de severidad "juicio" necesitan tu decision): ' + findingsPath,
+    '- El requerimiento original, si necesitas confirmar algo:',
+    buildAnalysisFileRefBlock(files),
+    '',
+    'Busca SOLO estos tipos de defecto:',
+    '- CONTRADICCION: dos secciones o items se contradicen (por ejemplo, la justificacion dice que algo sigue sin',
+    '  definirse y un CA/RN ya lo define; una RN dice "solo cuando X" y otra agrega un caso adicional sin que la primera',
+    '  lo mencione). Revisa en especial la justificacion del riesgo contra los CA/RN y contra el Estado del inventario.',
+    '- SIN_SUSTENTO: afirmaciones, entidades, calificativos o valores que el requerimiento no respalda; nombres propios',
+    '  del glosario cambiados por un generico; terminos del documento parafraseados con otro sentido; consecuencias',
+    '  inferidas escritas como hecho (sin "puede"/"posible").',
+    '- MAS_FUERTE_QUE_FUENTE: el item es mas categorico que la fuente ("puede" -> "debe", "sin esperas por X" -> "sin X",',
+    '  una premisa "si X, podria Y" escrita como hecho).',
+    '- PENDIENTE_NO_MARCADO: un item describe como firme algo que el inventario tiene PENDIENTE, sin "Condicionado a".',
+    'Para cada hallazgo "juicio" del validador decide si es un defecto real; si lo es, reportalo con uno de estos tipos.',
+    'No reportes estilo, ni cosas que el requerimiento si respalda. Si no hay defectos, responde [].',
+    '',
+    'Responde SOLO con un arreglo JSON, sin texto adicional ni bloque de codigo:',
+    '[{"id":"<ID del item, ej. RN_2, o JUSTIFICACION_RIESGO>","tipo":"<CONTRADICCION|SIN_SUSTENTO|MAS_FUERTE_QUE_FUENTE|PENDIENTE_NO_MARCADO>",',
+    '  "evidencia":"<que dice el HU y que dice la fuente>","correccion_propuesta":"<como deberia quedar>"}]',
+  ].join('\n');
+}
+
+// ── M1: reparacion acotada del HU (una llamada, maximo una iteracion) ──────────
+// Aplica SOLO las correcciones de los hallazgos aceptados; el resto del HU debe salir
+// identico. No es una regeneracion.
+function buildHURepairPrompt(files, inventoryPath, huPath, findingsPath) {
+  return [
+    'Eres un Analista de Requerimientos senior. Debes CORREGIR un HU aplicando unicamente los hallazgos indicados.',
+    '',
+    'Lee estos archivos:',
+    '- Inventario numerado del requerimiento y glosario: ' + inventoryPath,
+    '- HU actual, con marcas [src: N] y [cubre: ...]: ' + huPath,
+    '- Hallazgos a corregir (JSON): ' + findingsPath,
+    '- El requerimiento original, si necesitas confirmar algo:',
+    buildAnalysisFileRefBlock(files),
+    '',
+    'REGLAS DE LA CORRECCION:',
+    '1. Corrige SOLO los items que mencionan los hallazgos. Todas las demas lineas deben quedar EXACTAMENTE iguales.',
+    '2. Si un hallazgo pide cobertura que falta (un CA sin escenario, un item del inventario sin reflejo, un pendiente',
+    '   sin riesgo o sin escenario condicionado), agrega el item nuevo al final de su seccion con el siguiente numero.',
+    '3. Si eliminas un item, renumera la seccion para que los IDs queden continuos y actualiza las referencias a esos IDs',
+    '   (en el texto y en [cubre]).',
+    '4. Conserva el formato de cada seccion y las marcas [src: N] y [cubre: ...] en cada linea de CA, RN, R y ESC.',
+    '5. Respeta estas reglas mientras corriges:',
+    REGLAS_ALINEACION_HU,
+    '',
+    ORTOGRAFIA_DOC_CLIENTE + ' Conserva las tildes que ya trae el HU.',
+    '',
+    'Responde con el HU COMPLETO corregido, con TODAS las secciones delimitadas en este orden y sin texto adicional:',
+    '---HISTORIA_DE_USUARIO--- ---NIVEL_RIESGO_GLOBAL--- ---JUSTIFICACION_RIESGO--- ---CRITERIOS_DE_ACEPTACION---',
+    '---REGLAS_DE_NEGOCIO--- ---RIESGOS--- ---IMPACTOS--- ---ESCENARIOS_QA---',
+  ].join('\n');
+}
+
+// Extrae el primer arreglo JSON de la respuesta del auditor (tolera texto o ``` alrededor).
+function parseAuditorJson(text) {
+  var s = String(text || '');
+  var a = s.indexOf('['), b = s.lastIndexOf(']');
+  if (a < 0 || b < a) return null;
+  try {
+    var arr = JSON.parse(s.slice(a, b + 1));
+    return Array.isArray(arr) ? arr : null;
+  } catch (e) { return null; }
 }
 
 // Demo 2026-10-08 (Liz): los casos deben ser ejecutables por el QA en el ambiente de
@@ -1514,8 +1678,10 @@ function docxPara(text) {
   return new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { after: 120 },
     children: [ new TextRun({ text: text || '---', size: 21, font: DOCX_FONT }) ] });
 }
-function docxBullet(text) {
-  return new Paragraph({ alignment: AlignmentType.JUSTIFIED, bullet: { level: 0 }, spacing: { after: 40 },
+// opts.keepLines: la vineta no se parte entre dos paginas (hoy solo lo pide el HU).
+function docxBullet(text, opts) {
+  opts = opts || {};
+  return new Paragraph({ alignment: AlignmentType.JUSTIFIED, bullet: { level: 0 }, spacing: { after: 40 }, keepLines: !!opts.keepLines,
     children: [ new TextRun({ text: text, size: 21, font: DOCX_FONT }) ] });
 }
 function docxNumbered(text, n) {
@@ -1649,22 +1815,23 @@ async function buildPlanPruebasDocxBuffer(p) {
   return Packer.toBuffer(doc);
 }
 
-// Cada linea del analisis de M1 viene "TAG_N | descripcion" (ej. "CA_1 | El sistema
-// debe..."). Se conserva el ID en negrita al inicio de la vineta -- es la misma
-// referencia que se usa en Casos QA/Coverage, vale la pena que quede visible en el
-// documento para trazabilidad, no solo el texto plano.
+// Cada linea del analisis de M1 viene "TAG_N | campo | campo" (ej. "R_1 | Alto |
+// Descripcion | Impacto", o "AREA | descripcion" en Impactos). En el Word se escribe
+// "ID: campo - campo" (decision del equipo: menos "|" en los documentos), con el ID en
+// negrita -- es la misma referencia que se usa en Casos QA/Coverage. parseHUDocxHtml
+// hace el camino inverso al importar. keepLines: una vineta no se parte entre paginas.
 function docxLabeledBulletList(lines) {
   var items = (lines || '').split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
   if (!items.length) return [ docxPara('---') ];
   return items.map(function(l){
-    var m = l.match(/^([A-Z_0-9]+)\s*\|\s*(.*)/);
-    if (m) {
-      return new Paragraph({ alignment: AlignmentType.JUSTIFIED, bullet: { level: 0 }, spacing: { after: 40 }, children: [
-        new TextRun({ text: m[1]+': ', bold: true, size: 21, font: DOCX_FONT }),
-        new TextRun({ text: m[2], size: 21, font: DOCX_FONT }),
+    var parts = l.split('|').map(function(s){ return s.trim(); });
+    if (parts.length >= 2 && parts[0]) {
+      return new Paragraph({ alignment: AlignmentType.JUSTIFIED, bullet: { level: 0 }, spacing: { after: 40 }, keepLines: true, children: [
+        new TextRun({ text: parts[0]+': ', bold: true, size: 21, font: DOCX_FONT }),
+        new TextRun({ text: parts.slice(1).filter(Boolean).join(' - '), size: 21, font: DOCX_FONT }),
       ] });
     }
-    return docxBullet(l.replace(/^[-*]\s*/, ''));
+    return docxBullet(l.replace(/^[-*]\s*/, ''), { keepLines: true });
   });
 }
 
@@ -1679,9 +1846,9 @@ async function buildHUDocxBuffer(p) {
   ];
   var children = headerChildren.concat([
     docxHeading('1. Historia de Usuario'),
-    docxLabelPara('Como', hu.como),
-    docxLabelPara('Quiero', hu.quiero),
-    docxLabelPara('Para', hu.para),
+    docxLabelPara('Como', hu.como, { justify: true }),
+    docxLabelPara('Quiero', hu.quiero, { justify: true }),
+    docxLabelPara('Para', hu.para, { justify: true }),
 
     docxHeading('2. Nivel de Riesgo Global: ' + (p.nivelRiesgo || '---')),
     docxPara(p.justificacionRiesgo),
@@ -1771,8 +1938,10 @@ async function buildCertificacionDocxBuffer(p) {
   return Packer.toBuffer(doc);
 }
 
-function docxLabelPara(label, value) {
-  return new Paragraph({ spacing: { after: 120 }, children: [
+// opts.justify: texto justificado (hoy solo Como/Quiero/Para del HU; Bug/Dossier igual que antes).
+function docxLabelPara(label, value, opts) {
+  opts = opts || {};
+  return new Paragraph({ alignment: opts.justify ? AlignmentType.JUSTIFIED : undefined, spacing: { after: 120 }, children: [
     new TextRun({ text: label + ': ', bold: true, size: 21, font: DOCX_FONT }),
     new TextRun({ text: value || '(sin dato)', size: 21, font: DOCX_FONT }),
   ] });
@@ -2340,6 +2509,125 @@ app.post('/api/upload', upload.single('file'), async function(req, res) {
   }
 });
 
+// ── M1: helpers del flujo inventario -> analisis -> auditoria -> reparacion ─────
+function m1TmpFile(prefix, content, list) {
+  var p = path.join(os.tmpdir(), prefix + Date.now() + '-' + Math.round(Math.random()*1e6) + '.txt');
+  fs.writeFileSync(p, content, 'utf-8');
+  if (list) list.push(p);
+  return p;
+}
+// Algunas respuestas llegan envueltas en ```...```; el validador y el front esperan
+// las secciones ---TAG--- desde la primera linea.
+function stripCodeFences(text) {
+  return String(text || '').replace(/^\s*```[a-z]*\s*\n/i, '').replace(/\n\s*```\s*$/, '').trim();
+}
+// Archivos/imagenes que el motor debe leer con su herramienta de archivos --
+// todos viven bajo os.tmpdir() (multer + extractDocx asi los crean), asi que un
+// solo --add-dir a la raiz temporal cubre cualquier combinacion de PDFs nativos
+// + carpetas de imagenes extraidas de varios DOCX, sin importar cuantos sean.
+function m1FileContext(files, textTmpPaths, engine) {
+  var nativePdfPaths = files.filter(function(f){ return f.mode === 'native'; }).map(function(f){ return f.filePath; });
+  var allImagePaths  = [].concat.apply([], files.map(function(f){ return f.imagePaths || []; }));
+  // needsFileAccess es practicamente siempre true ahora (hasta el texto plano vive
+  // en un .txt temporal que hay que leer), pero se deja la condicion explicita por
+  // claridad y como salvaguarda si algun dia hay un modo sin ningun archivo real.
+  var needsFileAccess = nativePdfPaths.length > 0 || allImagePaths.length > 0 || textTmpPaths.length > 0;
+  return {
+    aiOpts: { engine: engine, addDir: needsFileAccess ? os.tmpdir() : null, allowedTools: ['Read'], model: 'sonnet', effort: 'medium' },
+    cleanup: function() {
+      nativePdfPaths.forEach(function(p){ try { fs.unlink(p, function(){}); } catch(e){} });
+      textTmpPaths.forEach(function(p){ try { fs.unlink(p, function(){}); } catch(e){} });
+      files.forEach(function(f){
+        if (f.imagePaths && f.imagePaths.length) { try { fs.rmSync(path.dirname(f.imagePaths[0]), { recursive: true, force: true }); } catch(e){} }
+      });
+    },
+  };
+}
+
+function m1ItemCounts(traced) {
+  return ['CA', 'RN', 'R', 'ESC'].map(function(p){
+    return p + ':' + (String(traced).match(new RegExp('^\\s*' + p + '_\\d+', 'gm')) || []).length;
+  }).join(',');
+}
+
+// Validador deterministico -> auditor IA (siempre, modo estricto) -> una reparacion
+// acotada si hay hallazgos -> revalidacion. Si el auditor o la reparacion fallan, NO
+// se cae el analisis: se devuelve el HU sin reparar y la auditoria lo dice.
+async function auditAndRepairHU(o) {
+  var tiempos = o.tiempos || {};
+  function lap(name, since) { tiempos[name] = Math.round((Date.now() - since) / 100) / 10; }
+  o.progress(60, 'Validando alineacion con el requerimiento...');
+  var v1 = huValidator.validateHU({ traced: o.traced, inventory: o.inventory, conTrazas: o.conTrazas });
+
+  o.progress(66, 'Auditando contradicciones y afirmaciones sin sustento...');
+  var tAud = Date.now();
+  var huPath = m1TmpFile('hu-audit-', o.traced, o.tmpList);
+  var findingsPath = m1TmpFile('hu-findings-', JSON.stringify(v1.hallazgos, null, 1), o.tmpList);
+  var auditorOk = true, auditorFindings = [];
+  try {
+    var arr = parseAuditorJson(await callAI(buildHUAuditorPrompt(o.files, o.inventoryPath, huPath, findingsPath), o.aiOpts));
+    if (!arr) auditorOk = false;
+    else auditorFindings = arr.filter(function(x){ return x && x.tipo; }).map(function(x){
+      return { codigo: String(x.tipo).toUpperCase(), severidad: 'advertencia', ids: x.id ? [String(x.id)] : [],
+               mensaje: x.evidencia || '', correccion: x.correccion_propuesta || '', origen: 'auditor' };
+    });
+  } catch (e) {
+    auditorOk = false;
+    console.error('[auditor HU]', e.message);
+  }
+  lap('auditoria', tAud);
+
+  var toFix = v1.hallazgos.filter(function(h){ return h.severidad === 'error' || h.severidad === 'advertencia'; }).concat(auditorFindings);
+  var traced = o.traced, reparado = false, repairError = null, final = v1;
+  if (o.repair && toFix.length) {
+    o.progress(80, 'Corrigiendo ' + toFix.length + ' hallazgo(s)...');
+    var tRep = Date.now();
+    var fixPath = m1TmpFile('hu-fix-', JSON.stringify(toFix, null, 1), o.tmpList);
+    try {
+      var fixed = stripCodeFences(await callAI(buildHURepairPrompt(o.files, o.inventoryPath, huPath, fixPath), o.aiOpts));
+      if (/---CRITERIOS_DE_ACEPTACION---/i.test(fixed) && /---ESCENARIOS_QA---/i.test(fixed)) {
+        console.log('[reparacion HU] items antes=' + m1ItemCounts(traced) + ' despues=' + m1ItemCounts(fixed));
+        traced = fixed; reparado = true;
+      }
+      else repairError = 'la reparacion no devolvio un HU con todas sus secciones';
+    } catch (e) {
+      repairError = e.message;
+      console.error('[reparacion HU]', e.message);
+    }
+    lap('reparacion', tRep);
+    if (reparado) {
+      o.progress(94, 'Revalidando el HU corregido...');
+      final = huValidator.validateHU({ traced: traced, inventory: o.inventory, conTrazas: o.conTrazas });
+    }
+  }
+
+  // Lo que queda despues de la (unica) reparacion se devuelve como advertencia. Los
+  // "juicio" que el auditor ya reviso y no reporto pasan a informativos.
+  var hallazgos = final.hallazgos.map(function(h){
+    if (h.severidad === 'juicio' && auditorOk) return Object.assign({}, h, { severidad: 'info' });
+    if (h.severidad === 'error' && reparado) return Object.assign({}, h, { severidad: 'advertencia' });
+    return h;
+  });
+  if (!reparado) hallazgos = hallazgos.concat(auditorFindings);
+  if (!auditorOk) hallazgos.push({ codigo: 'AUDITOR', severidad: 'advertencia', ids: [], origen: 'sistema',
+    mensaje: 'El auditor IA no devolvio un resultado valido; solo se aplico el validador automatico.' });
+  if (repairError) hallazgos.push({ codigo: 'REPARACION', severidad: 'advertencia', ids: [], origen: 'sistema',
+    mensaje: 'No se pudo aplicar la correccion automatica (' + repairError + '); el HU se muestra tal como se genero.' });
+
+  return {
+    traced: traced,
+    audit: {
+      estado: huValidator.auditEstado(hallazgos),
+      hallazgos: hallazgos,
+      corregidos: reparado ? toFix : [],
+      cobertura: final.cobertura,
+      reparado: reparado,
+      auditor: auditorOk ? 'ok' : 'fallo',
+      tiempos: tiempos,
+    },
+  };
+}
+
 // ── Analyze ───────────────────────────────────────────────────────────────────
 app.post('/api/analyze', async function(req, res) {
   // files[]: forma nueva -- uno o varios resultados de /api/upload ya normalizados
@@ -2384,79 +2672,107 @@ app.post('/api/analyze', async function(req, res) {
     }
   });
 
-  emitProgress(reqId, 20, 'Enviando a '+engineLabel+'...');
-
-  // Simulate staged progress while waiting for el motor elegido
-  var stages = [
-    [30, engineLabel+' leyendo el/los documento(s)...'],
-    engine === 'gemini' ? [38, 'Inventariando condiciones del requerimiento...'] : null,
-    [45, 'Analizando requerimientos...'],
-    [60, 'Generando Historia de Usuario...'],
-    [72, 'Detallando criterios de aceptacion...'],
-    [82, 'Elaborando reglas de negocio...'],
-    [90, 'Identificando riesgos e impactos...'],
-    [95, 'Finalizando analisis...'],
-  ].filter(Boolean);
-
-  var stageIdx = 0;
-  var stageTimer = setInterval(function(){
-    if (stageIdx < stages.length) {
-      emitProgress(reqId, stages[stageIdx][0], stages[stageIdx][1]);
-      stageIdx++;
-    }
-  }, engine === 'gemini' ? 13000 : 8000); // Claude ~40-90s; Gemini hace 2 pasadas (~90-120s)
-
-  // Archivos/imagenes que el motor debe leer con su herramienta de archivos --
-  // todos viven bajo os.tmpdir() (multer + extractDocx asi los crean), asi que un
-  // solo --add-dir a la raiz temporal cubre cualquier combinacion de PDFs nativos
-  // + carpetas de imagenes extraidas de varios DOCX, sin importar cuantos sean.
-  var nativePdfPaths = files.filter(function(f){ return f.mode === 'native'; }).map(function(f){ return f.filePath; });
-  var allImagePaths  = [].concat.apply([], files.map(function(f){ return f.imagePaths || []; }));
-  // needsFileAccess es practicamente siempre true ahora (hasta el texto plano vive
-  // en un .txt temporal que hay que leer), pero se deja la condicion explicita por
-  // claridad y como salvaguarda si algun dia hay un modo sin ningun archivo real.
-  var needsFileAccess = nativePdfPaths.length > 0 || allImagePaths.length > 0 || textTmpPaths.length > 0;
-  function cleanupTmpFiles() {
-    nativePdfPaths.forEach(function(p){ try { fs.unlink(p, function(){}); } catch(e){} });
-    textTmpPaths.forEach(function(p){ try { fs.unlink(p, function(){}); } catch(e){} });
-    files.forEach(function(f){
-      if (f.imagePaths && f.imagePaths.length) { try { fs.rmSync(path.dirname(f.imagePaths[0]), { recursive: true, force: true }); } catch(e){} }
-    });
-  }
-
-  var analyzeOpts = {
-    engine: engine,
-    addDir: needsFileAccess ? os.tmpdir() : null,
-    allowedTools: ['Read'],
-    model: 'sonnet',
-    effort: 'medium'
-  };
+  var ctx = m1FileContext(files, textTmpPaths, engine);
+  var t0 = Date.now(), tiempos = {};
+  function lap(name, since) { tiempos[name] = Math.round((Date.now() - since) / 100) / 10; }
 
   try {
-    // Gemini: pasada 1 = inventario de condiciones atomicas (ver
-    // buildAnalysisInventoryPrompt). Va a un .txt temporal y se referencia por ruta
-    // en la pasada 2, para no inflar el prompt (agy recibe el prompt por argumento).
-    var inventoryPath = null;
-    if (engine === 'gemini') {
-      var inventory = await callAI(buildAnalysisInventoryPrompt(files), analyzeOpts);
-      inventoryPath = path.join(os.tmpdir(), 'analyze-inventory-' + Date.now() + '-' + Math.round(Math.random()*1e6) + '.txt');
-      fs.writeFileSync(inventoryPath, inventory, 'utf-8');
-      textTmpPaths.push(inventoryPath);
-    }
-    var text = await callAI(buildMultiFileAnalysisPrompt(files, engine, inventoryPath), analyzeOpts);
-    clearInterval(stageTimer);
-    cleanupTmpFiles();
+    // Pasada 1 (ambos motores): inventario + glosario (ver buildAnalysisInventoryPrompt).
+    // Va a un .txt temporal y se referencia por ruta en las pasadas siguientes, para no
+    // inflar el prompt (agy recibe el prompt por argumento).
+    emitProgress(reqId, 15, 'Inventariando condiciones del requerimiento ('+engineLabel+')...');
+    var tInv = Date.now();
+    var inventory = stripCodeFences(await callAI(buildAnalysisInventoryPrompt(files), ctx.aiOpts));
+    lap('inventario', tInv);
+    var inventoryPath = m1TmpFile('analyze-inventory-', inventory, textTmpPaths);
+
+    emitProgress(reqId, 35, 'Generando Historia de Usuario, criterios, reglas, riesgos y escenarios...');
+    var tAn = Date.now();
+    var traced = stripCodeFences(await callAI(buildMultiFileAnalysisPrompt(files, engine, inventoryPath), ctx.aiOpts));
+    lap('analisis', tAn);
+    console.log('[/api/analyze] ' + engine + ' items del analisis=' + m1ItemCounts(traced));
+
+    var result = await auditAndRepairHU({
+      files: files, aiOpts: ctx.aiOpts, inventory: inventory, inventoryPath: inventoryPath,
+      traced: traced, conTrazas: true, repair: true, tmpList: textTmpPaths, tiempos: tiempos,
+      progress: function(pct, label){ emitProgress(reqId, pct, label); },
+    });
+    lap('total', t0);
+    ctx.cleanup();
 
     emitProgress(reqId, 98, 'Procesando respuesta...');
     emitDone(reqId);
-    return res.json({ analysis: text, engine: engine });
+    console.log('[/api/analyze] ' + engine + ' tiempos(s)=' + JSON.stringify(tiempos) + ' estado=' + result.audit.estado +
+      ' hallazgos=' + result.audit.hallazgos.length + ' reparado=' + result.audit.reparado);
+    return res.json({
+      analysis: huValidator.stripTraceMarks(result.traced).trim(),
+      engine: engine,
+      trace: { traced: result.traced, inventory: inventory, glossary: huValidator.parseInventory(inventory).glossary },
+      audit: result.audit,
+    });
 
   } catch(err) {
-    clearInterval(stageTimer);
-    cleanupTmpFiles();
+    ctx.cleanup();
     emitDone(reqId);
     console.error('[/api/analyze]', err.message);
     return res.status(502).json({ error: engineLabel+': '+err.message });
+  }
+});
+
+// ── M1: auditar un HU que NO salio de /api/analyze (importado desde Word) ──────
+// Solo tiene sentido si hay un requerimiento cargado contra el cual comparar. Se arma
+// el inventario de ese requerimiento y se corre validador (sin trazas: el Word no las
+// trae) + auditor. NO se repara: el QA importo un HU corregido a proposito.
+app.post('/api/audit-hu', async function(req, res) {
+  var files = req.body.files;
+  var analysis = req.body.analysis;
+  var engine = (req.body.engine === 'gemini' || req.body.engine === 'claude') ? req.body.engine : ENGINE_DEFAULT;
+  var reqId = req.body.reqId || '';
+  if (!analysis || !files || !files.length) return res.status(400).json({ error: 'Se requiere el HU (analysis) y el requerimiento (files[]).' });
+  var engineLabel = engine === 'claude' ? 'Claude CLI' : 'Gemini (Antigravity CLI)';
+  var textTmpPaths = [];
+  files.forEach(function(f){
+    if (f.mode !== 'native' && f.text != null) f._textFilePath = m1TmpFile('audit-text-', f.text, textTmpPaths);
+  });
+  // A diferencia de /api/analyze, aca NO se borran los PDF subidos: siguen siendo del
+  // QA (puede analizarlos despues). Solo se borran los .txt temporales de esta llamada.
+  var aiOpts = { engine: engine, addDir: os.tmpdir(), allowedTools: ['Read'], model: 'sonnet', effort: 'medium' };
+  function cleanup() { textTmpPaths.forEach(function(p){ try { fs.unlink(p, function(){}); } catch(e){} }); }
+  var t0 = Date.now(), tiempos = {};
+  // /api/analyze borra los PDF subidos al terminar: si el inventario no viene del
+  // analisis previo (mismo set de archivos), un PDF ya borrado no se puede releer.
+  var missing = files.filter(function(f){ return f.mode === 'native' && !(f.filePath && fs.existsSync(f.filePath)); });
+  if (!req.body.inventory && missing.length) {
+    cleanup();
+    return res.status(409).json({ error: 'El requerimiento ' + missing.map(function(f){ return f.filename; }).join(', ') +
+      ' ya no esta disponible en el servidor. Vuelve a subirlo para auditar el HU importado.' });
+  }
+  files = files.filter(function(f){ return missing.indexOf(f) < 0; });
+  try {
+    var inventory = req.body.inventory;
+    if (!inventory) {
+      emitProgress(reqId, 15, 'Inventariando el requerimiento cargado ('+engineLabel+')...');
+      inventory = stripCodeFences(await callAI(buildAnalysisInventoryPrompt(files), aiOpts));
+      tiempos.inventario = Math.round((Date.now() - t0) / 100) / 10;
+    }
+    var inventoryPath = m1TmpFile('audit-inventory-', inventory, textTmpPaths);
+    var result = await auditAndRepairHU({
+      files: files, aiOpts: aiOpts, inventory: inventory, inventoryPath: inventoryPath,
+      traced: analysis, conTrazas: false, repair: false, tmpList: textTmpPaths, tiempos: tiempos,
+      progress: function(pct, label){ emitProgress(reqId, pct, label); },
+    });
+    tiempos.total = Math.round((Date.now() - t0) / 100) / 10;
+    cleanup();
+    emitDone(reqId);
+    return res.json({
+      trace: { traced: null, inventory: inventory, glossary: huValidator.parseInventory(inventory).glossary },
+      audit: result.audit,
+    });
+  } catch (err) {
+    cleanup();
+    emitDone(reqId);
+    console.error('[/api/audit-hu]', err.message);
+    return res.status(502).json({ error: engineLabel + ': ' + err.message });
   }
 });
 

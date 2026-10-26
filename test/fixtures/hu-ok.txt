@@ -1,0 +1,28 @@
+---HISTORIA_DE_USUARIO---
+Como Solicitante, quiero registrar solicitudes de reembolso en el Portal de Reembolsos, para recibir la devolución de mis gastos.
+---NIVEL_RIESGO_GLOBAL---
+MEDIO
+---JUSTIFICACION_RIESGO---
+La notificación por el canal móvil sigue sin definirse porque depende de DEP-01 con NotiPlus. Las reglas de aprobación automática combinan el monto máximo con la factura electrónica validada.
+---CRITERIOS_DE_ACEPTACION---
+CA_1 | Dado que el monto no supera el máximo, Cuando el Solicitante envía la solicitud, Entonces la solicitud se aprueba automáticamente. [src: 1,2]
+CA_2 | Dado que el monto supera el máximo y la factura electrónica está validada, Cuando el Solicitante envía la solicitud, Entonces la solicitud se aprueba automáticamente. [src: 3]
+CA_3 | Dado que el monto supera el máximo sin factura electrónica validada, Cuando el Solicitante envía la solicitud, Entonces el sistema muestra "El monto supera el máximo permitido". [src: 8]
+CA_4 | Dado que la solicitud se aprobó, Cuando se notifica al Aprobador, Entonces la notificación llega por el canal móvil de NotiPlus. Condicionado a DEP-01 [src: 5]
+---REGLAS_DE_NEGOCIO---
+RN_1 | El monto máximo por solicitud de reembolso es 500. [src: 1]
+RN_2 | La aprobación automática aplica solo cuando el monto no supera el máximo, salvo las solicitudes con factura electrónica validada (RN_3). [src: 2]
+RN_3 | Las solicitudes con factura electrónica validada se aprueban automáticamente aunque superen el monto máximo. [src: 3]
+RN_4 | El Solicitante puede adjuntar hasta 3 soportes por solicitud. [src: 4]
+RN_5 | La integración con el sistema contable queda fuera del alcance. [src: 7]
+---RIESGOS---
+R_1 | Alto | La integración con NotiPlus para el canal móvil está por definir (DEP-01) | Puede impedir validar la notificación por el canal móvil [src: 5]
+R_2 | Medio | Si NotiPlus no responde, podría retrasarse la notificación al Aprobador | Posible retraso en la gestión de la solicitud [src: 6]
+---IMPACTOS---
+Aprobación | Puede cambiar la forma en que se aprueban las solicitudes de reembolso.
+---ESCENARIOS_QA---
+ESC_1 | Positivo | Monto dentro del límite | Registrar una solicitud con monto N menor o igual al máximo y verificar la aprobación automática. [src: 1,2] [cubre: CA_1]
+ESC_2 | Positivo | Factura electrónica validada | Registrar una solicitud con monto por encima del máximo y factura electrónica validada y verificar la aprobación automática. [src: 3] [cubre: CA_2]
+ESC_3 | Negativo | Monto fuera del límite | Registrar una solicitud con monto superior a 500 sin factura electrónica validada y verificar el mensaje. [src: 8] [cubre: CA_3]
+ESC_4 | Positivo | Notificación por canal móvil | Aprobar una solicitud y verificar la notificación por el canal móvil de NotiPlus. Condicionado a DEP-01 [src: 5] [cubre: CA_4]
+ESC_5 | Borde | Máximo de soportes | Adjuntar X soportes con X igual al máximo permitido y verificar que se aceptan. [src: 4] [cubre: RN_4]
