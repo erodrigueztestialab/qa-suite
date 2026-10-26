@@ -1,0 +1,37 @@
+---OBJETIVO---
+Verificar que el Portal de Reembolsos permite al Solicitante registrar solicitudes de reembolso, aplica las reglas de aprobación automática y notifica al Aprobador, con la notificación por el canal móvil de NotiPlus condicionada a DEP-01. [src: 1,2,3,4,5,8]
+---ALCANCE_DENTRO---
+- Registro de solicitudes de reembolso con el monto máximo definido por solicitud. [src: 1]
+- Aprobación automática cuando el monto no supera el máximo, salvo las solicitudes con factura electrónica validada. [src: 2,3]
+- Adjuntar soportes hasta el máximo permitido por solicitud. [src: 4]
+- Mensaje "El monto supera el máximo permitido" cuando el monto supera el máximo sin factura electrónica validada. [src: 8]
+- Notificación al Aprobador por el canal móvil de NotiPlus (condicionado a DEP-01). [src: 5]
+---ALCANCE_FUERA---
+- Integración con el sistema contable. [src: 7]
+---SUPUESTOS---
+- Desarrollo entrega el desarrollo completo desplegado en el ambiente de pruebas.
+- La integración con NotiPlus para el canal móvil estará definida antes de ejecutar sus casos (DEP-01). [src: DEP-01]
+---RIESGOS_FUNCIONALES---
+- Si DEP-01 no se define antes de la ejecución, la notificación por el canal móvil de NotiPlus puede quedar sin validar. [src: 5]
+- Si NotiPlus no responde, podría retrasarse la notificación al Aprobador. [src: 6]
+---RIESGOS_NEGOCIO---
+- La excepción de factura electrónica validada sobre el monto máximo puede generar aprobaciones no esperadas si no se valida completa. [src: 2,3]
+---ESTRATEGIA---
+QA ejecuta todos los casos sobre la entrega completa del Portal de Reembolsos, hace re-test de cada bug corregido y regresión focalizada de los casos impactados, incluida la notificación por el canal móvil de NotiPlus, condicionada a DEP-01. [src: 5]
+---TIPOS_PRUEBA---
+Pruebas funcionales | Registro y aprobación automática de solicitudes [src: 1,2,3] / Notificación por el canal móvil de NotiPlus, condicionada a DEP-01 [src: 5]
+Pruebas de integración | Notificación al Aprobador mediante NotiPlus, condicionada a DEP-01 [src: 5]
+Pruebas negativas | Monto por encima del máximo sin factura electrónica validada [src: 8]
+Pruebas de regresión focalizada | Casos impactados por cada corrección de bugs
+---NIVELES_PRUEBA---
+Pruebas de sistema | Flujo completo de registro y aprobación en el Portal de Reembolsos [src: 1,2,3]
+Pruebas de integración | Envío de la notificación por NotiPlus, condicionado a DEP-01 [src: 5]
+Pruebas de aceptación (UAT) | Validación del flujo por el Cliente
+---CRITERIOS_ENTRADA---
+- Desarrollo completo desplegado en el ambiente de pruebas.
+- Casos de prueba aprobados y datos de prueba disponibles.
+- Definición de DEP-01 disponible para ejecutar los casos de la notificación por el canal móvil. [src: DEP-01]
+---CRITERIOS_SALIDA---
+- Todos los casos de prueba ejecutados.
+- Todos los bugs corregidos y re-testeados, o aceptados formalmente por el Cliente.
+- Notificación por el canal móvil de NotiPlus validada, condicionada a DEP-01. [src: 5]
