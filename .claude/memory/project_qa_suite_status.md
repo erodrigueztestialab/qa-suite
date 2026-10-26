@@ -743,3 +743,10 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 8. Resumen para JIRA Timeboard entregado (ver [[feedback-jira-worklog]]). El usuario hara pruebas manuales; "continuamos luego".
 
 **Pendiente (sesion 26+):** Liz ya esta avisada (2026-10-21) de actualizar sus ramas; repo sigue PUBLICO; opcional re-medir M1/M4 con gemini-4-argon.
+
+## Sesion 26 (2026-10-26)
+1. Solo repaso de estado, sin codigo. origin/main == origin/develop en contenido (main lleva el merge #72), sin PRs abiertos, repo sigue PUBLICO (verificado con gh).
+2. El `main` LOCAL estaba muy atrasado (f2076b8, ~sesion 20) aunque develop local estaba al dia: se adelanto con `git fetch origin main:main` (fast-forward, sin cambiar de rama). Ojo en futuras sesiones: revisar tambien el main local, no solo develop.
+3. El usuario avisara cualquier cosa nueva.
+
+**Pendiente (sesion 27+):** repo PUBLICO -> privado; resultados de las pruebas manuales del usuario; si Liz actualizo sus ramas / reporto algo; probar en Teams "Copiar mensaje" del Avance; opcional re-medir M1/M4 con gemini-4-argon.
