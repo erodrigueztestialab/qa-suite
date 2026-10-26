@@ -1,0 +1,13 @@
+1 | Regla | DEFINIDO | | El monto máximo por solicitud de reembolso es 500.
+2 | Regla | DEFINIDO | | El reembolso solo se aprueba automáticamente cuando el monto no supera el máximo (obligatorio).
+3 | Regla | DEFINIDO | | Las solicitudes con factura electrónica validada se aprueban automáticamente aunque superen el monto máximo.
+4 | Validacion | DEFINIDO | | El Solicitante puede adjuntar hasta 3 soportes por solicitud.
+5 | Dependencia | PENDIENTE | DEP-01 | La notificación al Aprobador por el canal móvil depende de la integración con NotiPlus, por definir. Criticidad: Alta.
+6 | Riesgo | DEFINIDO | | Si NotiPlus no responde, podría retrasarse la notificación al Aprobador. Criticidad: Media.
+7 | Exclusion | DEFINIDO | | Queda fuera del alcance la integración con el sistema contable.
+8 | Mensaje | DEFINIDO | | Si el monto supera el máximo y no hay factura electrónica validada, el sistema muestra "El monto supera el máximo permitido".
+---GLOSARIO---
+NotiPlus | Proveedor
+Portal de Reembolsos | Sistema
+Solicitante | Rol
+Aprobador | Rol
