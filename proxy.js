@@ -37,6 +37,7 @@ const os       = require('os');
 const fs       = require('fs');
 const huValidator = require('./validators/huValidator.js');
 const planValidator = require('./validators/planValidator.js');
+const casesValidator = require('./validators/casesValidator.js');
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell,
   WidthType, ImageRun, AlignmentType, BorderStyle, ShadingType, Header, Footer, PageNumber,
@@ -1148,12 +1149,62 @@ var REGLA_CASOS_OPERATIVOS =
   '   SOLO en lo que el usuario puede observar al operar (ej: que un proceso se ejecuta en segundo plano sin bloquear la\n' +
   '   pantalla), o no lo conviertas en caso si no es observable.';
 
+// Reglas de alineacion de los casos con el requerimiento (brief de M4). Genericas; se
+// validan despues con validators/casesValidator.js. Las usan generacion, faltantes,
+// consolidacion y reparacion.
+var REGLAS_ALINEACION_CASOS = [
+  'REGLAS DE ALINEACION CON EL REQUERIMIENTO (obligatorias, se validan automaticamente despues):',
+  'A. LA CONDICION VIAJA COMPLETA: si un CA_N, RN_N o ESC_N esta "Condicionado a <Ref>" (o sale de un item PENDIENTE del',
+  '   inventario), cada caso que lo cubre lleva "Condicionado a <Ref>" en el titulo (Caso) o en el Objetivo, con TODOS',
+  '   los codigos que apliquen, y su resultado esperado NO inventa lo que la definicion pendiente aun no fija (describe',
+  '   que se verifica "segun lo que defina <Ref>"). La condicion es la misma que en la HU y en el plan.',
+  'B. UN CASO, UN COMPORTAMIENTO: prohibido "A o B" en un resultado esperado. Si hay dos alternativas posibles, son dos',
+  '   casos (cada uno condicionado a lo que lo define) o un caso que describe de que definicion depende.',
+  'C. EXCLUSIONES: un item EXCLUSION del inventario (lo que queda fuera del alcance) se cubre SOLO con un caso negativo que',
+  '   verifica que esa capacidad NO ocurre. Nunca generes un caso que ejecute la funcionalidad excluida. Ninguna otra',
+  '   regla de este prompt te obliga a probar algo excluido.',
+  'D. COBERTURA POR TRAZABILIDAD, NO POR CANTIDAD: todo CA_N, RN_N, ESC_N y cada item de "Dentro del Alcance" del plan tiene',
+  '   al menos un caso. Ningun caso se agrega para llegar a un numero; no hay minimos.',
+  'E. FIDELIDAD: un resultado esperado no puede ser mas fuerte que su fuente. Conserva los modales ("puede", "podria",',
+  '   "si ..., entonces ..."); no inventes plazos, "tiempo real" ni obligaciones ("exige"); no conviertas un dano',
+  '   comercial en legal o normativo.',
+  'F. NOMBRES Y TERMINOS: usa los nombres del GLOSARIO y los terminos exactos del requerimiento (si el documento dice',
+  '   "solicitud", no escribas "solicitud de integracion"); nunca genericos como "terceros" o "el proveedor" cuando la',
+  '   fuente nombra al actor. El campo Escenario usa el titulo EXACTO de un ESC_N de la HU (salvo el caso negativo de una',
+  '   exclusion, que no tiene ESC).',
+  'G. CONVENCIONES: "Cliente" con mayuscula cuando es un rol; "por ejemplo," con coma despues y nunca antes; los datos que',
+  '   el caso invente van como N, N-1 o X (las cifras que el requerimiento define si se usan). Tipo SOLO Smoke, Funcional,',
+  '   UI o UX. Cada paso tiene su resultado esperado (mismo numero de pasos y de resultados). La complejidad y el riesgo',
+  '   del caso heredan los del CA o escenario que cubre.',
+  'H. MARCAS INTERNAS: la linea del ID de cada caso termina con [src: ...] (el CA_N/RN_N/ESC_N o el codigo del inventario',
+  '   del que sale) y [cubre: ...] (todos los CA_N/RN_N/ESC_N que valida). Ej: "### CP_4 [src: CA_4,DEP-01] [cubre: CA_4,',
+  '   ESC_4]". La herramienta las quita antes de mostrar o exportar. El campo "Requisito" sigue citando los CA_N/RN_N.',
+].join('\n');
+
+// Bloque de contexto estructurado de M1/M3 para los prompts de M4 (archivos por ruta:
+// agy recibe el prompt por argumento y un plan + inventario inline lo harian crecer).
+function casesCtxBlock(ctx) {
+  if (!ctx || !ctx.inventoryPath) return '';
+  var glossary = (ctx.glossary || []).map(function(g){ return g.termino + (g.tipo ? ' (' + g.tipo + ')' : ''); }).join('; ');
+  return [
+    '',
+    'CONTEXTO ESTRUCTURADO (leelo con tu herramienta de lectura de archivos antes de responder):',
+    '- Inventario numerado del requerimiento (N | Tipo | Estado | Ref | Condicion) y glosario: ' + ctx.inventoryPath +
+      ' -- dice que esta PENDIENTE (y su codigo), que es EXCLUSION y que nombres se conservan.',
+    ctx.planPath ? '- Plan de Pruebas aprobado (alcance condicionado, supuestos, riesgos, tipos y niveles): ' + ctx.planPath : null,
+    glossary ? '- GLOSARIO (nombres que se conservan tal cual): ' + glossary : null,
+  ].filter(function(l){ return l !== null; }).join('\n');
+}
+
 // ── Build prompt: Escenarios y Casos QA ────────────────────────────────────────
 // Toma el analisis crudo de M1 (todas sus secciones) + la configuracion que el
 // QA confirmo en M2 (notas/areas validadas) y pide los casos
 // en el formato exacto de la plantilla real de TestIALab (ver handoff).
-function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
+// ctx (opcional, desde M1/M3): { inventoryPath, planPath, glossary }. Sin inventario
+// los casos se generan como antes (sin marcas ni validacion).
+function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts, ctx) {
   m2Context = m2Context || {};
+  ctx = ctx || {};
   var areas = (m2Context.impactAreas || []).filter(function(a){ return a.checked; })
     .map(function(a){ return a.label + (a.desc ? ': ' + a.desc : ''); }).join('\n') || 'Ninguna area especifica marcada.';
   var transcriptsBlock = (transcripts && transcripts.length)
@@ -1174,6 +1225,7 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     'ANALISIS DEL REQUERIMIENTO:',
     analysisRaw,
     transcriptsBlock,
+    casesCtxBlock(ctx),
     '',
     'CONFIGURACION DEFINIDA POR EL QA:',
     'Areas de impacto validadas:',
@@ -1181,7 +1233,8 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '',
     'INSTRUCCIONES CRITICAS:',
     '1. Cobertura OBLIGATORIA sin excepcion: TODOS los criterios de aceptacion (CA_N) y TODAS las reglas de negocio (RN_N)',
-    '   listados en el analisis deben quedar cubiertos por al menos un caso de prueba. No omitas ninguno.',
+    '   listados en el analisis deben quedar cubiertos por al menos un caso de prueba. No omitas ninguno.' +
+      (ctx.inventoryPath ? ' Lo mismo para cada escenario QA (ESC_N) y cada item de "Dentro del Alcance" del plan.' : ''),
     '2. La columna "Requisito Funcional" de cada caso debe citar el/los ID(s) exactos que ese caso cubre (ej: "CA_1, RN_2").',
     '3. CASOS NEGATIVOS Y DE BORDE SON OBLIGATORIOS, no opcionales: (a) TODO escenario QA del analisis con tipo Negativo o',
     '   Borde debe quedar convertido en al menos un caso de prueba -- no te limites a "priorizarlos", conviertelos TODOS,',
@@ -1192,8 +1245,9 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '   diligenciado". No los dejes como responsabilidad implicita del QA que ejecuta despues -- si el requerimiento tiene',
     '   un filtro o un campo obligatorio, el caso negativo correspondiente tiene que existir explicitamente en el set.',
     '   Incluye tambien casos de los otros 3 tipos (Smoke, Funcional, UI/UX) que aplican en TestIALab.',
-    '   (c) Ademas, dos tipos de caso adicionales son obligatorios cuando aplican, aunque el analisis no los sugiera como',
-    '   escenario aparte: primero, si un CA_N/RN_N define un CONJUNTO configurable de elementos que el sistema debe',
+    '   (c) Ademas, dos tipos de caso adicionales, SOLO cuando un CA_N/RN_N lo exige explicitamente (por ejemplo, "solo',
+    '   estas columnas" o "copiar todos los campos del origen") -- no por cada CA_N/RN_N que pudiera admitirlos, y nunca para',
+    '   llegar a un numero de casos: primero, si un CA_N/RN_N define un CONJUNTO configurable de elementos que el sistema debe',
     '   mostrar/procesar (columnas de un reporte, campos de un filtro, opciones seleccionadas, etc.), genera un caso que',
     '   valide el CONJUNTO EXACTO -- no solo que los elementos esperados esten presentes, sino tambien que no aparezca',
     '   NINGUN elemento adicional no configurado (ni de mas, ni de menos). Segundo, si un CA_N/RN_N describe que un',
@@ -1267,12 +1321,12 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '   (d) Ningun caso quedo citando 3 o mas IDs sin que sea una inseparabilidad real -- si encuentras uno, separalo en 2-3 casos',
     '   (salvo el caso de validacion de un campo, regla 3(d)).',
     '   (e) No hay dos casos redundantes entre si (misma validacion exacta) -- si los hay, fusionalos.',
-    '   (f) Cada CA_N/RN_N que define un conjunto configurable de elementos tiene su caso de "conjunto exacto" (ni de mas ni',
-    '   de menos) -- si hay VARIOS flujos/modulos distintos que cada uno define su propio conjunto, cada uno tiene el suyo,',
-    '   no solo el primero -- si falta alguno, agregalo.',
-    '   (g) Cada CA_N/RN_N que describe un remapeo/herencia de campos entre documentos tiene su caso de auditoria campo por',
-    '   campo contra el origen -- si hay VARIOS flujos/modulos distintos que cada uno hace su propio remapeo (ej: flujo A y',
-    '   flujo B), cada uno tiene el suyo, no solo el primero -- si falta alguno, agregalo.',
+    '   (f) Cada CA_N/RN_N que EXIGE EXPLICITAMENTE un conjunto exacto de elementos tiene su caso de "conjunto exacto" (ni',
+    '   de mas ni de menos) -- si hay VARIOS flujos/modulos distintos que cada uno lo exige, cada uno tiene el suyo -- si',
+    '   falta alguno, agregalo. Si ningun CA_N/RN_N lo exige, no agregues casos de este tipo.',
+    '   (g) Cada CA_N/RN_N que EXIGE EXPLICITAMENTE copiar/heredar campos entre documentos tiene su caso de auditoria campo',
+    '   por campo contra el origen -- si hay VARIOS flujos/modulos distintos que cada uno lo exige, cada uno tiene el suyo --',
+    '   si falta alguno, agregalo. Si ningun CA_N/RN_N lo exige, no agregues casos de este tipo.',
     '   (h) Cada RN_N que especifica un campo con sus atributos tiene su caso de validacion de ese campo -- si falta, agregalo.',
     '   Y ninguna validacion de un solo campo quedo duplicada en un caso aparte fuera del caso de ese campo -- si la hay,',
     '   quitala y cita su CA_N en el caso del campo.',
@@ -1281,12 +1335,13 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     '   (j) Ningun caso es de carga, estres, volumen masivo u otra prueba que el QA no pueda ejecutar en el ambiente (regla',
     '   5.1) -- si encuentras alguno, conviertelo en lo que el usuario puede observar o quitalo.',
     '10. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
+    ctx.inventoryPath ? '\n' + REGLAS_ALINEACION_CASOS : null,
     '',
     '---CASOS_DE_PRUEBA---',
-    'Minimo 8 casos. Formato EXACTO -- un bloque por caso, cada campo en su propia linea. NINGUN campo es opcional,',
-    'ni siquiera en casos con un paso a paso muy largo: Tipo y Complejidad SIEMPRE van presentes en TODOS los casos,',
-    'sin excepcion, sin importar cuantos casos generes ni que tan extenso sea el paso a paso de cada uno.',
-    '### CP_1',
+    'Sin minimo ni maximo de casos: la cantidad la define la cobertura. Formato EXACTO -- un bloque por caso, cada campo en',
+    'su propia linea. NINGUN campo es opcional, ni siquiera en casos con un paso a paso muy largo: Tipo y Complejidad',
+    'SIEMPRE van presentes en TODOS los casos, sin excepcion, sin importar que tan extenso sea el paso a paso de cada uno.',
+    ctx.inventoryPath ? '### CP_1 [src: CA_1] [cubre: CA_1, RN_2, ESC_1]' : '### CP_1',
     'Requisito: CA_1, RN_2',
     'Tipo: Smoke',
     'Complejidad: Bajo',
@@ -1304,7 +1359,7 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
     'Requisito=ID(s) exacto(s) de CA_N/RN_N que este caso cubre.',
     'Pasos=una linea por paso, "N. Texto del paso >> Resultado esperado especifico" -- cada paso debe tener su propio',
     'resultado esperado verificable, distinto del de los demas pasos. No fusiones varios pasos en una sola linea.',
-  ].join('\n');
+  ].filter(function(l){ return l !== null; }).join('\n');
 }
 
 // ── Build prompt: Consolidar casos de varias fuentes (M4) ─────────────────────
@@ -1312,13 +1367,15 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts) {
 // los suyos (Excel con cualquier plantilla, Word...). La IA los cruza con los que ya
 // genero la QA Suite y entrega UNA version final: sin duplicados, mejorando lo que se
 // pueda y agregando lo que salga de combinar las fuentes, con trazabilidad del origen.
-function buildConsolidateCasesPrompt(analysisRaw, existingCases, sources, m2Context) {
+function buildConsolidateCasesPrompt(analysisRaw, existingCases, sources, m2Context, ctx) {
   m2Context = m2Context || {};
+  ctx = ctx || {};
   var areas = (m2Context.impactAreas || []).filter(function(a){ return a.checked; })
     .map(function(a){ return a.label + (a.desc ? ': ' + a.desc : ''); }).join('\n') || 'Ninguna area especifica marcada.';
   var existingText = (existingCases || []).map(function(c){
     var pasos = (c.steps || []).map(function(st, i){ return (i+1) + '. ' + (st.paso||'') + ' >> ' + (st.resultado||''); }).join(' / ') || '(sin pasos)';
-    return c.id + ' | Requisito: ' + (c.requisito||'-') + ' | Tipo: ' + (c.tipo||'-') + ' | Escenario: ' + (c.escenario||'-') +
+    // c.marks: "[src: ...] [cubre: ...]" del caso generado (S.casesTrace), para no perderlos al consolidar.
+    return c.id + (c.marks ? ' ' + c.marks : '') + ' | Requisito: ' + (c.requisito||'-') + ' | Tipo: ' + (c.tipo||'-') + ' | Escenario: ' + (c.escenario||'-') +
       ' | Caso: ' + (c.caso||'-') + ' | Objetivo: ' + (c.objetivo||'-') + ' | Pasos: ' + pasos;
   }).join('\n') || '(no hay casos generados todavia)';
   var sourcesText = (sources || []).map(function(src){
@@ -1368,10 +1425,15 @@ function buildConsolidateCasesPrompt(analysisRaw, existingCases, sources, m2Cont
     '   archivos o personas): el origen va SOLO en las lineas Origen/Accion/Detalle. Los IDs CA_N/RN_N van SOLO en',
     '   "Requisito".',
     '10. Responde UNICAMENTE con las dos secciones delimitadas. Sin texto adicional.',
+    ctx.inventoryPath
+      ? '11. Al fusionar o mejorar un caso, CONSERVA su "Condicionado a <Ref>" y sus marcas [src]/[cubre] (unelas si fusionas ' +
+        'dos casos); un caso externo que cubra algo condicionado o una exclusion se ajusta a las reglas A y C de abajo.\n\n' + REGLAS_ALINEACION_CASOS
+      : null,
+    casesCtxBlock(ctx),
     '',
     '---CASOS_DE_PRUEBA---',
     'Formato EXACTO -- un bloque por caso, numerados CP_1, CP_2... en orden, cada campo en su propia linea, ninguno opcional:',
-    '### CP_1',
+    ctx.inventoryPath ? '### CP_1 [src: CA_1] [cubre: CA_1, RN_2]' : '### CP_1',
     'Requisito: CA_1, RN_2',
     'Tipo: Funcional',
     'Complejidad: Medio',
@@ -1391,7 +1453,7 @@ function buildConsolidateCasesPrompt(analysisRaw, existingCases, sources, m2Cont
     '---DESCARTADOS---',
     'Una linea por caso externo descartado: Origen (QA o Cliente) | titulo del caso externo | motivo concreto.',
     'Si no se descarto ninguno, escribe NINGUNO.',
-  ].join('\n');
+  ].filter(function(l){ return l !== null; }).join('\n');
 }
 
 // ── Build prompt: Verificacion REAL de cobertura RF/CA (M4) ───────────────────
@@ -1399,11 +1461,44 @@ function buildConsolidateCasesPrompt(analysisRaw, existingCases, sources, m2Cont
 // campo "Requisito Funcional" de cada caso) -- esto le pide a la IA verificar
 // SEMANTICAMENTE si el paso a paso de los casos citados de verdad valida cada
 // CA_N/RN_N, no solo si lo mencionan.
-function buildCoverageVerificationPrompt(analysisRaw, cases) {
+// ctx (desde M1/M3): con inventario se verifica ademas cada ESC_N y se reportan
+// hallazgos de alineacion (condiciones DEP, exclusiones, nombres propios, alcance del plan).
+function buildCoverageVerificationPrompt(analysisRaw, cases, ctx) {
+  ctx = ctx || {};
   var casesText = (cases || []).map(function(c){
     var pasos = (c.steps || []).map(function(s, i){ return (i+1)+'. '+s.paso+' -> '+s.resultado; }).join(' / ') || '(sin pasos)';
-    return c.id + ' | Requisito citado: ' + (c.requisito||'-') + ' | Objetivo: ' + (c.objetivo||'-') + ' | Pasos: ' + pasos;
+    return c.id + ' | Requisito citado: ' + (c.requisito||'-') + (c.caso ? ' | Caso: ' + c.caso : '') + ' | Objetivo: ' + (c.objetivo||'-') + ' | Pasos: ' + pasos;
   }).join('\n');
+  if (ctx.inventoryPath) {
+    return [
+      'Eres un QA Lead senior auditando si un set de casos de prueba REALMENTE cubre el requerimiento y esta alineado con el.',
+      '',
+      'ANALISIS DEL REQUERIMIENTO (CRITERIOS_DE_ACEPTACION, REGLAS_DE_NEGOCIO y ESCENARIOS_QA a verificar):',
+      analysisRaw,
+      casesCtxBlock(ctx),
+      '',
+      'CASOS DE PRUEBA A AUDITAR:',
+      casesText,
+      '',
+      'INSTRUCCIONES CRITICAS:',
+      '1. Para CADA CA_N, RN_N y ESC_N del analisis, evalua si el paso a paso de los casos REALMENTE lo verifica -- no basta',
+      '   con que el caso mencione el ID.',
+      '2. Se honesto: no marques 100% de cobertura si no es real. TestIAlab necesita saber la verdad, no un numero bonito.',
+      '3. Ademas, revisa la alineacion: (a) casos que cubren algo condicionado a un pendiente (DEP-XX) y no dicen',
+      '   "Condicionado a <Ref>" o inventan el resultado pendiente; (b) casos que ejecutan una funcionalidad EXCLUIDA del',
+      '   alcance (solo se admite el caso negativo de que no ocurre); (c) nombres propios del glosario cambiados por',
+      '   genericos; (d) items de "Dentro del Alcance" del plan sin ningun caso.',
+      '4. Responde UNICAMENTE con las dos secciones delimitadas. Sin texto adicional.',
+      '',
+      '---COBERTURA_VERIFICADA---',
+      'Un renglon por CADA CA_N/RN_N/ESC_N del analisis (todos, sin omitir ninguno), formato exacto (4 columnas separadas por "|"):',
+      'ID | SI o NO (cubierto de verdad) | IDs de casos que lo cubren de verdad (separados por coma, o vacio si NO) | Justificacion breve (1 frase)',
+      '',
+      '---HALLAZGOS_ALINEACION---',
+      'Un renglon por hallazgo de la instruccion 3: Tipo (CONDICION, EXCLUSION, NOMBRE o ALCANCE_PLAN) | IDs de casos o item | que',
+      'esta mal, en 1 frase. Si no hay hallazgos, escribe NINGUNO.',
+    ].filter(function(l){ return l !== null; }).join('\n');
+  }
   return [
     'Eres un QA Lead senior auditando si un set de casos de prueba REALMENTE cubre cada Criterio de Aceptacion (CA_N)',
     'y Regla de Negocio (RN_N) de un requerimiento -- no si solo lo MENCIONAN en su campo "Requisito Funcional".',
@@ -1434,8 +1529,9 @@ function buildCoverageVerificationPrompt(analysisRaw, cases) {
 // desde cero), este prompt esta acotado a esos gaps puntuales y conoce los casos ya
 // existentes para no duplicar validaciones -- doble chequeo de seguridad para el QA,
 // no una regeneracion completa.
-function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, engine) {
+function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, engine, ctx) {
   m2Context = m2Context || {};
+  ctx = ctx || {};
   var areas = (m2Context.impactAreas || []).filter(function(a){ return a.checked; })
     .map(function(a){ return a.label + (a.desc ? ': ' + a.desc : ''); }).join('\n') || 'Ninguna area especifica marcada.';
   var existingText = (existingCases || []).map(function(c){
@@ -1466,7 +1562,9 @@ function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, en
     'CASOS YA EXISTENTES (NO los repitas, NO los regeneres, NO valides de nuevo lo que ya validan):',
     existingText,
     '',
-    'CA_N / RN_N QUE FALTAN POR CUBRIR (justificacion de la auditoria de cobertura):',
+    casesCtxBlock(ctx),
+    '',
+    'CA_N / RN_N / ESC_N / ALCANCE DEL PLAN QUE FALTAN POR CUBRIR (justificacion de la auditoria de cobertura):',
     gapsText,
     '',
     'INSTRUCCIONES CRITICAS:',
@@ -1508,11 +1606,12 @@ function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, en
     '9. Si al revisar los casos existentes concluyes que NINGUN item faltante necesita un caso nuevo (ya lo cubren, o',
     '   el analisis no da informacion suficiente para disenar un caso ejecutable), NO inventes casos: responde',
     '   unicamente con la linea ---CASOS_DE_PRUEBA--- seguida de la linea SIN_CASOS_NUEVOS.',
+    ctx.inventoryPath ? '\n' + REGLAS_ALINEACION_CASOS : null,
     '',
     '---CASOS_DE_PRUEBA---',
     'Formato EXACTO -- un bloque por caso, cada campo en su propia linea. Tipo y Complejidad SIEMPRE van presentes',
     'en TODOS los casos, sin excepcion, sin importar que tan extenso sea el paso a paso de cada uno.',
-    '### CP_'+(lastNum+1),
+    '### CP_'+(lastNum+1) + (ctx.inventoryPath ? ' [src: CA_1] [cubre: CA_1, RN_2]' : ''),
     'Requisito: CA_1, RN_2',
     'Tipo: Smoke',
     'Complejidad: Bajo',
@@ -1526,7 +1625,7 @@ function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, en
     '(...siguiente caso, mismo formato, continuando la numeracion correlativa desde CP_'+(lastNum+1)+'...)',
     'Tipo=UNICAMENTE uno de: Smoke, Funcional, UI, UX. Complejidad de EJECUCION = UNICAMENTE Alto, Medio o Bajo.',
     'Pasos=una linea por paso, "N. Texto del paso >> Resultado esperado especifico", cada uno con su propio resultado.',
-  ].join('\n');
+  ].filter(function(l){ return l !== null; }).join('\n');
 }
 
 // ── Build prompt: Complejidad del requerimiento (Estimador QA) ────────────────
@@ -2889,6 +2988,207 @@ app.post('/api/audit-hu', async function(req, res) {
     return res.status(502).json({ error: engineLabel + ': ' + err.message });
   }
 });
+
+// ── M4: auditor semantico de los casos (una llamada, Sonnet medium, ambos motores) ──
+function buildCasesAuditorPrompt(inventoryPath, analysisPath, planPath, casesPath, findingsPath) {
+  return [
+    'Eres un auditor de calidad de casos de prueba. Verifica que los casos esten alineados con el requerimiento, la HU',
+    'y el plan. NO reescribas los casos: solo reporta defectos concretos.',
+    '',
+    'Lee estos archivos con tu herramienta de lectura de archivos:',
+    '- Inventario numerado del requerimiento (N | Tipo | Estado | Ref | Condicion) y glosario: ' + inventoryPath,
+    '- HU (criterios, reglas, riesgos, escenarios): ' + analysisPath,
+    planPath ? '- Plan de Pruebas: ' + planPath : null,
+    '- Casos a auditar (la linea del ID trae [src: ...] y [cubre: ...]): ' + casesPath,
+    '- Hallazgos del validador automatico (JSON): ' + findingsPath,
+    '',
+    'Busca SOLO estos tipos de defecto:',
+    '- MAS_FUERTE_QUE_FUENTE: el resultado esperado es mas categorico que la fuente ("debe" donde dice "puede", plazos,',
+    '  "tiempo real").',
+    '- PREMISA_COMO_HECHO: una premisa condicional de la fuente escrita como hecho, o un resultado que inventa lo que una',
+    '  definicion pendiente (DEP-XX) aun no fija.',
+    '- CONSECUENCIA_INFERIDA: una consecuencia que la fuente no declara, o un dano comercial presentado como legal.',
+    '- INCOHERENCIA: el caso contradice la HU o el plan (condicionado alla y no aqui, escenario con otro nombre, prueba',
+    '  algo excluido del alcance).',
+    '- RELLENO: un caso que no cubre ningun CA, RN, ESC o item del plan que no este ya cubierto, agregado solo por cantidad.',
+    'No reportes estilo ni cosas que la fuente respalda. Si no hay defectos, responde [].',
+    '',
+    'Responde SOLO con un arreglo JSON, sin texto adicional ni bloque de codigo:',
+    '[{"caso":"CP_N","frase":"<frase exacta del caso>","tipo":"<MAS_FUERTE_QUE_FUENTE|PREMISA_COMO_HECHO|CONSECUENCIA_INFERIDA|',
+    'INCOHERENCIA|RELLENO>","motivo":"<que dice la fuente>","correccion":"<como deberia quedar, o ELIMINAR si es relleno>"}]',
+  ].filter(function(l){ return l !== null; }).join('\n');
+}
+
+// ── M4: reparacion acotada (una pasada, Sonnet medium): solo los casos senalados ──
+function buildCasesRepairPrompt(inventoryPath, analysisPath, planPath, casesPath, findingsPath) {
+  return [
+    'Eres un Disenador de Casos de Prueba QA senior. Debes CORREGIR unicamente los casos que mencionan los hallazgos.',
+    '',
+    'Lee estos archivos con tu herramienta de lectura de archivos:',
+    '- Inventario numerado del requerimiento y glosario: ' + inventoryPath,
+    '- HU: ' + analysisPath,
+    planPath ? '- Plan de Pruebas: ' + planPath : null,
+    '- Casos actuales, con marcas [src]/[cubre]: ' + casesPath,
+    '- Hallazgos a corregir (JSON): ' + findingsPath,
+    '',
+    'REGLAS DE LA CORRECCION:',
+    '1. Devuelve SOLO los casos que corriges, completos y con su MISMO ID (### CP_N [src: ...] [cubre: ...]). No devuelvas',
+    '   los casos que no cambian: la herramienta los conserva tal cual.',
+    '2. Si un hallazgo dice que un caso es RELLENO o que hay que eliminarlo, devuelvelo con la linea "Eliminar: SI" debajo',
+    '   del ID y nada mas.',
+    '3. Conserva el formato de cada caso (Requisito, Tipo, Complejidad, Escenario, Caso, Objetivo, Pasos "N. paso >>',
+    '   resultado") y sus marcas.',
+    '4. Respeta estas reglas mientras corriges:',
+    REGLAS_ALINEACION_CASOS,
+    '',
+    ORTOGRAFIA_DOC_CLIENTE + ' Conserva las tildes que ya traen los casos.',
+    '',
+    'Responde con la linea ---CASOS_DE_PRUEBA--- seguida de los casos corregidos, sin texto adicional. Si ninguno',
+    'necesita cambio, responde ---CASOS_DE_PRUEBA--- y la linea SIN_CAMBIOS.',
+  ].filter(function(l){ return l !== null; }).join('\n');
+}
+
+// Bloques "### CP_N ..." de un texto de casos, por ID (conserva las marcas).
+function m4CaseBlocks(text) {
+  var body = String(text || '');
+  var i = body.search(/---\s*CASOS_DE_PRUEBA\s*---/i);
+  if (i >= 0) body = body.slice(i).replace(/---\s*CASOS_DE_PRUEBA\s*---/i, '');
+  var j = body.search(/\n---\s*[A-Z_]+\s*---/);
+  if (j >= 0) body = body.slice(0, j);
+  return body.split(/\n(?=\s*###\s*CP_\d+)/).map(function(s){ return s.trim(); })
+    .filter(function(s){ return /^###\s*CP_\d+/.test(s); })
+    .map(function(s){ return { id: /^###\s*(CP_\d+)/.exec(s)[1], text: s }; });
+}
+function m4JoinCases(blocks) {
+  return '---CASOS_DE_PRUEBA---\n' + blocks.map(function(b){ return b.text; }).join('\n');
+}
+
+// Casos: validador -> auditor (siempre) -> faltantes de cobertura con el prompt de
+// /api/generate-gap-cases (modelo fuerte, lista exacta) -> reparacion Sonnet de los casos
+// senalados -> revalidacion. Misma forma que auditAndRepairPlan; nunca bloquea.
+async function auditAndRepairCases(o) {
+  var tiempos = o.tiempos || {};
+  function lap(name, since) { tiempos[name] = Math.round((Date.now() - since) / 100) / 10; }
+  function validate(traced) {
+    return casesValidator.validateCases({ traced: traced, inventory: o.inventory, glossary: o.glossary,
+      analysisTraced: o.analysisTraced || o.analysisRaw, planTraced: o.planTraced });
+  }
+  var traced = o.traced;
+  o.progress(55, 'Validando los casos contra el requerimiento y el plan...');
+  var v1 = validate(traced);
+
+  o.progress(60, 'Auditando modales, premisas, incoherencias y relleno...');
+  var tAud = Date.now();
+  var casesPath = m1TmpFile('cases-audit-', traced, o.tmpList);
+  var analysisPath = m1TmpFile('cases-analysis-', huValidator.stripTraceMarks(o.analysisRaw), o.tmpList);
+  var findingsPath = m1TmpFile('cases-findings-', JSON.stringify(v1.hallazgos, null, 1), o.tmpList);
+  var auditorOk = true, auditorFindings = [];
+  try {
+    var arr = parseAuditorJson(await callAI(buildCasesAuditorPrompt(o.inventoryPath, analysisPath, o.planPath, casesPath, findingsPath), o.fixOpts));
+    if (!arr) auditorOk = false;
+    else auditorFindings = arr.filter(function(x){ return x && x.tipo; }).map(function(x){
+      return { codigo: String(x.tipo).toUpperCase(), severidad: 'advertencia', ids: x.caso ? [String(x.caso)] : [],
+               mensaje: (x.frase ? '"' + x.frase + '": ' : '') + (x.motivo || ''), correccion: x.correccion || '', origen: 'auditor' };
+    });
+  } catch (e) {
+    auditorOk = false;
+    console.error('[auditor casos]', e.message);
+  }
+  lap('auditoria', tAud);
+
+  var toFix = v1.hallazgos.filter(function(h){ return h.severidad === 'error' || h.severidad === 'advertencia'; }).concat(auditorFindings);
+  var reparado = false, repairError = null, gapAdded = 0;
+
+  // Cobertura faltante: mismo prompt de "Generar casos para lo faltante", con la lista exacta.
+  var gaps = v1.cobertura.hu.faltantes.map(function(id){ return { id: id, justificacion: 'Ningun caso lo cubre ([cubre]).' }; })
+    .concat(v1.cobertura.plan.faltantes.map(function(t){ return { id: 'ALCANCE DEL PLAN', justificacion: t }; }));
+  if (gaps.length) {
+    o.progress(68, 'Generando casos para ' + gaps.length + ' item(s) sin cubrir...');
+    var tGap = Date.now();
+    try {
+      var existing = casesValidator.parseCasesTraced(traced);
+      var gapText = stripCodeFences(await callAI(buildGapCasesPrompt(o.analysisRaw, existing, gaps, o.m2Context, o.engine,
+        { inventoryPath: o.inventoryPath, planPath: o.planPath, glossary: o.glossary }), o.genOpts));
+      var newBlocks = /###\s*CP_/i.test(gapText) ? m4CaseBlocks(gapText) : [];
+      if (newBlocks.length) {
+        var all = m4CaseBlocks(traced).concat(newBlocks);
+        // Renumera para evitar colisiones (mismo criterio que generateGapCases en el front).
+        all = all.map(function(b, k){ return { id: 'CP_' + (k + 1), text: b.text.replace(/^###\s*CP_\d+/, '### CP_' + (k + 1)) }; });
+        traced = m4JoinCases(all);
+        gapAdded = newBlocks.length;
+      }
+    } catch (e) {
+      console.error('[faltantes casos]', e.message);
+    }
+    lap('faltantes', tGap);
+  }
+
+  // Reparacion de los casos senalados (cobertura ya se atendio arriba).
+  var caseFix = toFix.filter(function(h){ return h.codigo !== 'V1' && h.ids.some(function(id){ return /^CP_\d+$/.test(id); }); });
+  if (caseFix.length) {
+    o.progress(82, 'Corrigiendo ' + caseFix.length + ' hallazgo(s) en los casos...');
+    var tRep = Date.now();
+    var casesPath2 = m1TmpFile('cases-current-', traced, o.tmpList);
+    var fixPath = m1TmpFile('cases-fix-', JSON.stringify(caseFix, null, 1), o.tmpList);
+    try {
+      var fixedText = stripCodeFences(await callAI(buildCasesRepairPrompt(o.inventoryPath, analysisPath, o.planPath, casesPath2, fixPath), o.fixOpts));
+      var fixed = m4CaseBlocks(fixedText);
+      if (fixed.length || /SIN_CAMBIOS/.test(fixedText)) {
+        var byId = {};
+        fixed.forEach(function(b){ byId[b.id] = b; });
+        var merged = m4CaseBlocks(traced).map(function(b){ return byId[b.id] || b; })
+          .filter(function(b){ return !/^\s*Eliminar\s*:\s*S[IÍ]/im.test(b.text); });
+        merged = merged.map(function(b, k){ return { id: 'CP_' + (k + 1), text: b.text.replace(/^###\s*CP_\d+/, '### CP_' + (k + 1)) }; });
+        traced = m4JoinCases(merged);
+        reparado = true;
+      } else repairError = 'la reparacion no devolvio casos en el formato esperado';
+    } catch (e) {
+      repairError = e.message;
+      console.error('[reparacion casos]', e.message);
+    }
+    lap('reparacion', tRep);
+  }
+
+  var final = v1;
+  if (gapAdded || reparado) {
+    o.progress(94, 'Revalidando los casos corregidos...');
+    final = validate(traced);
+  }
+  var fixedAny = gapAdded > 0 || reparado;
+  var hallazgos = final.hallazgos.map(function(h){
+    if (h.severidad === 'juicio' && auditorOk) return Object.assign({}, h, { severidad: 'info' });
+    if (h.severidad === 'error' && fixedAny) return Object.assign({}, h, { severidad: 'advertencia' });
+    return h;
+  });
+  if (!reparado) hallazgos = hallazgos.concat(auditorFindings);
+  if (!auditorOk) hallazgos.push({ codigo: 'AUDITOR', severidad: 'advertencia', ids: [], origen: 'sistema',
+    mensaje: 'El auditor IA no devolvio un resultado valido; solo se aplico el validador automatico.' });
+  if (repairError) hallazgos.push({ codigo: 'REPARACION', severidad: 'advertencia', ids: [], origen: 'sistema',
+    mensaje: 'No se pudo aplicar la correccion automatica (' + repairError + '); los casos se muestran tal como se generaron.' });
+
+  return {
+    traced: traced,
+    audit: {
+      estado: casesValidator.auditEstado(hallazgos), hallazgos: hallazgos, corregidos: fixedAny ? toFix : [],
+      cobertura: final.cobertura, reparado: reparado, casosAgregados: gapAdded, auditor: auditorOk ? 'ok' : 'fallo', tiempos: tiempos,
+    },
+  };
+}
+
+// Contexto estructurado de M1/M3 para los endpoints de M4: inventario y plan a .txt
+// temporales (se referencian por ruta). Sin inventario -> null (M4 funciona como antes).
+function m4Context(body, tmpList) {
+  if (!body.inventory) return null;
+  return {
+    inventory: body.inventory,
+    glossary: body.glossary || [],
+    analysisTraced: body.analysisTraced || '',
+    planTraced: body.planTraced || '',
+    inventoryPath: m1TmpFile('m4-inventory-', body.inventory, tmpList),
+    planPath: body.planTraced ? m1TmpFile('m4-plan-', huValidator.stripTraceMarks(body.planTraced), tmpList) : null,
+  };
+}
+function m4Cleanup(tmpList) { tmpList.forEach(function(p){ try { fs.unlink(p, function(){}); } catch(e){} }); }
 
 // ── M4 (Escenarios y Casos QA): Generar casos de prueba ────────────────────────
 // Fijo a Claude CLI + modelo Opus con razonamiento extendido -- a diferencia
