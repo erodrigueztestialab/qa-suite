@@ -205,6 +205,24 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 .exp-word{background:var(--blu-bg);color:var(--blue);border-color:var(--blu-b)}
 .exp-word:hover{background:var(--blue);color:#0C1219}
 
+.audit-box{border:1px solid var(--border);border-radius:var(--r);background:var(--bg2);margin-bottom:10px;font-size:12px;color:var(--text2)}
+.audit-box.ab-ok{border-color:var(--grn-b)}
+.audit-box.ab-warn{border-color:var(--org-b)}
+.audit-hdr{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 12px;cursor:pointer}
+.audit-ttl{font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text3);font-family:'DM Mono',monospace}
+.audit-badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px;border:1px solid}
+.ab-ok .audit-badge{background:var(--grn-bg);color:var(--green);border-color:var(--grn-b)}
+.ab-warn .audit-badge{background:var(--org-bg);color:var(--orange);border-color:var(--org-b)}
+.ab-neutral .audit-badge{background:var(--bg);color:var(--text3);border-color:var(--border)}
+.audit-sum{flex:1;color:var(--text3);font-size:11.5px}
+.audit-det{border-top:1px solid var(--border);padding:8px 12px 10px}
+.audit-det ul{list-style:none;margin:4px 0 8px}
+.audit-det li{padding:5px 0;border-bottom:1px solid var(--border);line-height:1.5}
+.audit-det li:last-child{border-bottom:none}
+.audit-code{font-family:'DM Mono',monospace;font-size:9.5px;font-weight:700;color:var(--orange);margin-right:6px}
+.audit-code.info{color:var(--text3)}
+.audit-sub{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin-top:6px}
+.audit-fix{display:block;color:var(--text3);font-size:11px;margin-top:2px}
 .res-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
 .res-block{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
 .res-block-hdr{padding:8px 12px;border-bottom:1px solid var(--border);
@@ -591,6 +609,8 @@ body.has-side-console .side-console-panel{display:flex;flex-direction:column}
 
       <!-- Resultado -->
       <div id="result-area" style="display:none" class="result-section">
+        <!-- Auditoria de alineacion HU vs requerimiento: solo en pantalla, no se exporta -->
+        <div id="audit-box" class="audit-box" style="display:none"></div>
         <div id="risk-banner" class="risk-banner rb-medio">
           <div>
             <div class="risk-lbl-sm">Riesgo Global</div>
@@ -1173,11 +1193,14 @@ async function importHUDocx(input) {
     var r = await fetch(API+'/api/import-hu-docx', { method:'POST', body: fd });
     var d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Error leyendo el documento');
+    var prevTrace = S.analysisTrace; // renderAnalysis lo limpia; se reusa su inventario si el requerimiento no cambio
     S.reqDocName = (d.filename||'').replace(/\.[^.]+$/, '') || 'Requerimiento';
     renderAnalysis(d.raw);
     addToHistory(d.raw);
     markAnalyzed();
     toast('Historia de Usuario importada desde Word','ok');
+    auditImportedHU(prevTrace); // valida solo si hay un requerimiento cargado
+
   } catch(e) {
     console.error('[importHUDocx]', e);
     toast('No se pudo importar: '+e.message,'err');
@@ -1340,6 +1363,11 @@ async function analyzeReq() {
     hideProgress();
     log('Respuesta: '+d.analysis.length.toLocaleString()+' chars en '+s+'s','ok');
     renderAnalysis(d.analysis);
+    S.analysisTrace = d.trace ? Object.assign({}, d.trace, { filesKey: uploadedFilesKey() }) : null;
+    S.analysisAudit = d.audit || null;
+    renderAuditBox();
+    if (d.audit) log('Auditoria de alineacion: '+(d.audit.estado === 'OK' ? 'OK' : 'con '+d.audit.hallazgos.filter(function(h){ return h.severidad !== 'info'; }).length+' advertencia(s)')+
+      (d.audit.reparado ? ' (se corrigieron '+(d.audit.corregidos||[]).length+' hallazgo(s))' : ''), d.audit.estado === 'OK' ? 'ok' : 'warn');
     addToHistory(d.analysis);
     toast('Analisis completado','ok');
     markAnalyzed();
@@ -1430,9 +1458,130 @@ function resetDownstreamState() {
   S.ejecucionManual = false;
   GATED_MODULES.forEach(relockModule);
 }
+/* ── AUDITORIA DE ALINEACION (HU vs requerimiento) ───────────────────
+   /api/analyze ya devuelve el HU limpio en d.analysis; la version con marcas
+   [src]/[cubre], el inventario y el glosario llegan en d.trace y el resultado del
+   validador + auditor en d.audit. Se guardan en S (viajan en el snapshot) y el
+   recuadro es solo de pantalla: los export* leen _analysis, nunca esto. */
+function stripTraceMarks(raw) {
+  return String(raw || '').replace(/[ \t]*\[\s*(?:src|cubre)\s*:[^\]]*\]/gi, '');
+}
+// Version del analisis: M3/M4 podran guardar con que hash se generaron y avisar si el
+// HU cambio despues (importar un HU corregido cambia el hash; reabrir la sesion no).
+function analysisHashOf(text) {
+  var h = 0x811c9dc5;
+  var s = String(text || '');
+  for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return ('0000000' + h.toString(16)).slice(-8);
+}
+var AUDIT_CODE_LABELS = {
+  V1:'IDs', V2:'Referencia', V3:'Cobertura', V4:'Pendiente', V4b:'Condicion heredada', V5:'Cifra fija', V6:'Criticidad',
+  V7:'Absoluto', V8:'Modal o premisa', V9:'Calificativo', V10:'Meta-cita', V11:'Impacto inferido', V12:'Alternativas',
+  V13:'Convencion', CONTRADICCION:'Contradiccion', SIN_SUSTENTO:'Sin sustento', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
+  PENDIENTE_NO_MARCADO:'Pendiente no marcado', AUDITOR:'Auditor', REPARACION:'Reparacion'
+};
+function auditItemHtml(h) {
+  var lbl = AUDIT_CODE_LABELS[h.codigo] || h.codigo;
+  var msg = h.mensaje || '';
+  // La mayoria de los mensajes ya empiezan con el ID ("RN_4 usa..."): no repetirlo.
+  var showIds = h.ids && h.ids.length && msg.indexOf(h.ids[0]) !== 0;
+  return '<li><span class="audit-code'+(h.severidad==='info'?' info':'')+'">'+esc(h.codigo)+' &middot; '+esc(lbl)+'</span>'+
+    (showIds ? '<b>'+esc(h.ids.join(', '))+'</b> ' : '')+esc(msg)+
+    (h.correccion ? '<span class="audit-fix">Correccion propuesta: '+esc(h.correccion)+'</span>' : '')+'</li>';
+}
+function renderAuditBox() {
+  var box = document.getElementById('audit-box');
+  if (!box) return;
+  var a = S.analysisAudit;
+  if (!a) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = '';
+  if (a.estado === 'AUDITANDO' || a.estado === 'SIN_REQUERIMIENTO' || a.estado === 'ERROR') {
+    box.className = 'audit-box ab-neutral';
+    var txt = a.estado === 'AUDITANDO' ? 'Auditando el HU importado contra el requerimiento cargado...'
+      : a.estado === 'ERROR' ? ('No se pudo auditar: '+(a.error||'error desconocido'))
+      : 'Sin requerimiento cargado: este HU no se audito. Sube el requerimiento antes de importar para auditarlo.';
+    box.innerHTML = '<div class="audit-hdr"><span class="audit-ttl">Auditoria de alineacion</span>'+
+      '<span class="audit-badge">'+(a.estado === 'AUDITANDO' ? 'En curso' : 'No auditado')+'</span><span class="audit-sum">'+esc(txt)+'</span></div>';
+    return;
+  }
+  var ok = a.estado === 'OK';
+  var hall = a.hallazgos || [];
+  var pend = hall.filter(function(h){ return h.severidad !== 'info'; });
+  var info = hall.filter(function(h){ return h.severidad === 'info'; });
+  var cob = a.cobertura || {};
+  var inv = cob.inventario || {};
+  var resumen = [];
+  if (cob.conTrazas === false) resumen.push('HU importado: sin trazabilidad por item');
+  else if (inv.total) resumen.push('Inventario '+inv.cubiertos+'/'+inv.total+' cubierto'+(inv.exentos && inv.exentos.length ? ' ('+inv.exentos.length+' exento(s) de cobertura)' : ''));
+  if (cob.criterios && cob.criterios.total && cob.conTrazas !== false) resumen.push('CA con escenario '+cob.criterios.conEscenario+'/'+cob.criterios.total);
+  if (a.reparado) resumen.push((a.corregidos||[]).length+' hallazgo(s) corregido(s) automaticamente');
+  resumen.push(pend.length ? pend.length+' advertencia(s)' : 'sin advertencias');
+  var det = '';
+  if (pend.length) det += '<div class="audit-sub">Advertencias para revisar</div><ul>'+pend.map(auditItemHtml).join('')+'</ul>';
+  if (inv.exentos && inv.exentos.length) det += '<div class="audit-sub">Exento(s) de cobertura (fuera del alcance)</div><ul><li>Item(s) del inventario: '+esc(inv.exentos.join(', '))+'</li></ul>';
+  if (a.reparado && (a.corregidos||[]).length) det += '<div class="audit-sub">Corregido automaticamente</div><ul>'+a.corregidos.map(auditItemHtml).join('')+'</ul>';
+  if (info.length) det += '<div class="audit-sub">Revisado por el auditor sin defecto</div><ul>'+info.map(auditItemHtml).join('')+'</ul>';
+  if (S.analysisTrace && S.analysisTrace.glossary && S.analysisTrace.glossary.length) {
+    det += '<div class="audit-sub">Glosario del requerimiento</div><ul><li>'+esc(S.analysisTrace.glossary.map(function(g){ return g.termino; }).join(' · '))+'</li></ul>';
+  }
+  box.className = 'audit-box '+(ok ? 'ab-ok' : 'ab-warn');
+  box.innerHTML = '<div class="audit-hdr" onclick="toggleAuditDetail()"><span class="audit-ttl">Auditoria de alineacion</span>'+
+    '<span class="audit-badge">'+(ok ? 'OK' : 'Con advertencias')+'</span>'+
+    '<span class="audit-sum">'+esc(resumen.join(' · '))+'</span><span class="audit-ttl" id="audit-toggle">Ver detalle &#9662;</span></div>'+
+    '<div class="audit-det" id="audit-det" style="display:none">'+(det || 'Sin detalle.')+'</div>';
+}
+function toggleAuditDetail() {
+  var d = document.getElementById('audit-det'), t = document.getElementById('audit-toggle');
+  if (!d) return;
+  var show = d.style.display === 'none';
+  d.style.display = show ? '' : 'none';
+  if (t) t.innerHTML = show ? 'Ocultar detalle &#9652;' : 'Ver detalle &#9662;';
+}
+// Clave del set de archivos del requerimiento: si el QA importa un HU sin haber
+// cambiado los archivos desde el ultimo analisis, se reusa ese inventario.
+function uploadedFilesKey() {
+  return (window._uploadedFiles || []).map(function(f){ return f.filename + ':' + (f.chars || ''); }).join('|');
+}
+async function auditImportedHU(prevTrace) {
+  var files = window._uploadedFiles || [];
+  if (!files.length) { S.analysisAudit = { estado: 'SIN_REQUERIMIENTO' }; renderAuditBox(); return; }
+  S.analysisAudit = { estado: 'AUDITANDO' }; renderAuditBox();
+  var reqId = 'm1a-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);
+  var evtSrc = new EventSource(API+'/api/analyze-progress');
+  evtSrc.addEventListener('progress', function(e){ var d = JSON.parse(e.data); if (d.reqId === reqId) log(d.label); });
+  setDot('running'); startTimer();
+  try {
+    var key = uploadedFilesKey();
+    var reuseInv = prevTrace && prevTrace.filesKey === key ? prevTrace.inventory : null;
+    var r = await fetch(API+'/api/audit-hu', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      engine: _engine, reqId: reqId, analysis: _analysis, inventory: reuseInv,
+      files: files.map(function(f){ return { mode: f.mode, filePath: f.filePath, text: f.text, imagePaths: f.imagePaths, filename: f.filename }; }),
+    }) });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error auditando el HU');
+    S.analysisTrace = Object.assign({}, d.trace, { filesKey: key });
+    S.analysisAudit = d.audit;
+    var s = stopTimer(); setDot('done');
+    log('Auditoria del HU importado: '+(d.audit.estado === 'OK' ? 'OK' : d.audit.hallazgos.length+' hallazgo(s)')+' en '+s+'s', 'ok');
+  } catch(e) {
+    stopTimer(); setDot('error');
+    S.analysisAudit = { estado: 'ERROR', error: e.message };
+    log(e.message, 'err');
+  } finally {
+    evtSrc.close();
+    renderAuditBox();
+    schedulePersist();
+  }
+}
+
 function renderAnalysis(raw) {
   resetDownstreamState();
+  raw = stripTraceMarks(raw); // red de seguridad: las marcas nunca llegan a pantalla ni a los export
   _analysis = raw;
+  S.analysisHash = analysisHashOf(raw);
+  S.analysisTrace = null;
+  S.analysisAudit = null;
+  renderAuditBox();
   var huRaw  = parseSection(raw,'HISTORIA_DE_USUARIO');
   var hu     = parseHU(huRaw);
   document.getElementById('hu-como').textContent   = hu.como;
@@ -1976,6 +2125,9 @@ function restoreSnapshot(item) {
     }
   }
   _analysis = (item.snapshot && item.snapshot.analysisRaw) || item.raw || null;
+  if (_analysis) _analysis = stripTraceMarks(_analysis);
+  S.analysisHash = _analysis ? analysisHashOf(_analysis) : null;
+  renderAuditBox();
   if (item.snapshot && item.snapshot.engine) { _engine = item.snapshot.engine; localStorage.setItem('testialab_engine', _engine); }
   _unlockedModules = {};
   ((item.snapshot && item.snapshot.unlocked) || []).forEach(function(id){ unlockModule(id); });
@@ -2116,6 +2268,10 @@ function clearAll() {
   document.getElementById('file-input').value = '';
   window._uploadedFiles = [];
   _analysis = null;
+  S.analysisHash = null;
+  S.analysisTrace = null;
+  S.analysisAudit = null;
+  renderAuditBox();
   clearConsole();
   document.getElementById('progress-wrap').style.display = 'none';
   unlockUI(); // nuevo archivo pendiente: el boton de analizar vuelve a estar libre
