@@ -848,7 +848,7 @@ var S = {
   // Responsables del Plan de Pruebas: 3 filas FIJAS (igual que la plantilla real de
   // TestiAlab) -- Nombre/Rol y Contacto son editables por el QA, varian por requerimiento.
   responsables: [
-    { equipo: 'TestiAlab', cargo: '', contacto: '' },
+    { equipo: 'TestIAlab', cargo: '', contacto: '' },
     { equipo: 'Cliente', cargo: '', contacto: '' },
     { equipo: 'Proveedor de Desarrollo', cargo: '', contacto: '' },
   ],
@@ -1438,6 +1438,9 @@ function resetDownstreamState() {
   S.planSections = null;
   S.certRaw = null;
   S.certSections = null;
+  S.planTrace = null;       // Plan con marcas [src] (solo para el validador)
+  S.planAudit = null;       // auditoria de alineacion del Plan (M3)
+  S.planAnalysisHash = null; // S.analysisHash con el que se genero el Plan
   // Textos editables del Informe de Avance -- si no se resetean aca, analizar un
   // requerimiento NUEVO sin recargar la pagina dejaria pegado el intro/validaciones
   // del requerimiento ANTERIOR (mismo tipo de bug de "mezcla de sesiones" ya
@@ -1446,7 +1449,7 @@ function resetDownstreamState() {
   S.finalNotas = { saludo: null, observaciones: '', cierre: null };
   _selectedCaseIds = {};
   S.responsables = [
-    { equipo: 'TestiAlab', cargo: '', contacto: '' },
+    { equipo: 'TestIAlab', cargo: '', contacto: '' },
     { equipo: 'Cliente', cargo: '', contacto: '' },
     { equipo: 'Proveedor de Desarrollo', cargo: '', contacto: '' },
   ];
@@ -1480,8 +1483,8 @@ var AUDIT_CODE_LABELS = {
   V13:'Convencion', CONTRADICCION:'Contradiccion', SIN_SUSTENTO:'Sin sustento', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
   PENDIENTE_NO_MARCADO:'Pendiente no marcado', AUDITOR:'Auditor', REPARACION:'Reparacion'
 };
-function auditItemHtml(h) {
-  var lbl = AUDIT_CODE_LABELS[h.codigo] || h.codigo;
+function auditItemHtml(h, labels) {
+  var lbl = (labels || AUDIT_CODE_LABELS)[h.codigo] || h.codigo;
   var msg = h.mensaje || '';
   // La mayoria de los mensajes ya empiezan con el ID ("RN_4 usa..."): no repetirlo.
   var showIds = h.ids && h.ids.length && msg.indexOf(h.ids[0]) !== 0;
@@ -3256,6 +3259,10 @@ async function generatePlanPruebas() {
   var t0 = Date.now();
   var ok = false;
   try {
+    // Lo que M1 ya produjo (inventario con estados/Ref, glosario, analisis con trazas):
+    // sin esto el plan no sabe que es pendiente, que es exclusion ni que nombre conservar.
+    var tr = S.analysisTrace || {};
+    normalizeResponsables();
     var r = await fetch(API+'/api/generate-plan', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
@@ -3263,13 +3270,22 @@ async function generatePlanPruebas() {
         m2Context: {},
         engine: _engine,
         reqId: evtSrc.reqId,
+        inventory: tr.inventory || null,
+        glossary: tr.glossary || [],
+        analysisTraced: tr.traced || null,
+        projectName: planTitle(),
+        responsables: S.responsables,
       })
     });
     var d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Error generando el plan');
     addAiTime((Date.now()-t0)/1000);
-    S.planPruebasRaw = d.plan;
-    S.planSections = parsePlanSections(d.plan);
+    var planClean = stripTraceMarks(d.plan); // red de seguridad: las marcas nunca llegan a pantalla ni al Word
+    S.planPruebasRaw = planClean;
+    S.planSections = parsePlanSections(planClean);
+    S.planTrace = d.planTraced || null;
+    S.planAudit = d.audit || null;
+    S.planAnalysisHash = S.analysisHash || null;
     ok = true;
     toast('Plan de Pruebas generado','ok');
   } catch(e) {
@@ -3360,8 +3376,11 @@ function renderPP() {
   // Compat con sesiones viejas: si ya habia un plan generado antes de que
   // existiera S.planSections, se deriva una sola vez aca en memoria.
   if (!S.planSections) S.planSections = parsePlanSections(S.planPruebasRaw);
+  normalizeResponsables();
   var ps = S.planSections;
   body.innerHTML =
+    planStaleBannerHtml() +
+    planAuditBoxHtml() +
     ppBlock('Objetivo', ps.objetivo, "updatePlanField('objetivo',this.value)") +
     '<div class="res-grid">'+ppBlock('Alcance - Dentro', arrToLines(ps.alcanceDentro), "updatePlanListField('alcanceDentro',this.value)")+ppBlock('Alcance - Fuera', arrToLines(ps.alcanceFuera), "updatePlanListField('alcanceFuera',this.value)")+'</div>' +
     ppBlock('Supuestos', arrToLines(ps.supuestos), "updatePlanListField('supuestos',this.value)") +
@@ -3396,6 +3415,9 @@ function clearPlanPruebas() {
   if (!confirm('¿Borrar el Plan de Pruebas generado?\n\nSe pierde el contenido y las ediciones de esta pantalla (no los Responsables). Luego puedes generarlo de nuevo o importarlo desde Word.')) return;
   S.planPruebasRaw = null;
   S.planSections = null;
+  S.planTrace = null;
+  S.planAudit = null;
+  S.planAnalysisHash = null;
   renderPP();
   schedulePersist();
   toast('Plan de Pruebas borrado.','ok');
@@ -3488,10 +3510,83 @@ function extractDesarrolloTitle(text) {
   }
   return '';
 }
+// Nombre del proyecto para el Plan: el mismo de reqProjectName() con los conectores en
+// minuscula ("B2B Y Cadenas" -> "B2B y Cadenas"); la primera palabra no se toca. Solo se
+// usa en el Plan (pantalla de M3, prompt, Word y PDF); el resto de la app sigue igual.
+// Misma regla que normalizeTitle() de validators/planValidator.js.
+var PLAN_TITLE_CONNECTORS = ['y','e','o','u','de','del','la','el','los','las','en','con','por','para','a','al'];
+function planTitle() {
+  var seen = 0;
+  return reqProjectName().split(/(\s+)/).map(function(w){
+    if (!w || /^\s+$/.test(w)) return w;
+    seen++;
+    return (seen > 1 && PLAN_TITLE_CONNECTORS.indexOf(w.toLowerCase()) >= 0) ? w.toLowerCase() : w;
+  }).join('');
+}
+// Responsables: el equipo de QA se escribe "TestIAlab" (sesiones viejas traen "TestiAlab").
+// Nombre/Rol y Contacto nunca se rellenan: si el QA no los dio, quedan en blanco.
+function normalizeResponsables() {
+  (S.responsables || []).forEach(function(r){
+    if (r && /^\s*test\s?i\s?a\s?lab\s*$/i.test(r.equipo || '')) r.equipo = 'TestIAlab';
+  });
+}
+var PLAN_AUDIT_LABELS = {
+  V1:'Pendiente en alcance', V2:'Condicion inconsistente', V3:'Codigo inexistente', V4:'Trazabilidad', V5:'Nombre propio',
+  V6:'Cifra o fecha', V7:'Convencion', V8:'Responsables', V9:'Marca [src]', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
+  PREMISA_COMO_HECHO:'Premisa como hecho', CONSECUENCIA_INFERIDA:'Consecuencia inferida', INCOHERENCIA:'Incoherencia',
+  SIN_SUSTENTO:'Sin sustento', AUDITOR:'Auditor', REPARACION:'Reparacion'
+};
+// Si el analisis de M1 cambio despues de generar el Plan, el Plan ya no corresponde a ese HU.
+function planIsStale() {
+  return !!(S.planSections && S.planAnalysisHash && S.analysisHash && S.planAnalysisHash !== S.analysisHash);
+}
+function planStaleBannerHtml() {
+  if (!planIsStale()) return '';
+  return '<div class="audit-box ab-warn"><div class="audit-hdr"><span class="audit-ttl">Plan desactualizado</span>' +
+    '<span class="audit-badge">Revisar</span><span class="audit-sum">El analisis de M1 cambio despues de generar este plan. ' +
+    'Limpialo y generalo de nuevo, o revisa a mano que siga alineado con el HU actual.</span></div></div>';
+}
+function togglePlanAuditDetail() {
+  var d = document.getElementById('plan-audit-det'), t = document.getElementById('plan-audit-toggle');
+  if (!d) return;
+  var show = d.style.display === 'none';
+  d.style.display = show ? '' : 'none';
+  if (t) t.innerHTML = show ? 'Ocultar detalle &#9652;' : 'Ver detalle &#9662;';
+}
+function planAuditBoxHtml() {
+  var a = S.planAudit;
+  if (!a) return '';
+  if (a.estado === 'NO_AUDITADO' || a.estado === 'IMPORTADO') {
+    var txt = a.estado === 'IMPORTADO' ? 'Plan importado desde Word: no se audito contra el requerimiento.'
+      : 'No se pudo auditar: ' + (a.motivo || 'el analisis de M1 no trae inventario.') + ' Vuelve a analizar el requerimiento en M1 para auditar el plan.';
+    return '<div class="audit-box ab-neutral"><div class="audit-hdr"><span class="audit-ttl">Auditoria de alineacion</span>' +
+      '<span class="audit-badge">No auditado</span><span class="audit-sum">'+esc(txt)+'</span></div></div>';
+  }
+  var ok = a.estado === 'OK';
+  var hall = a.hallazgos || [];
+  var pend = hall.filter(function(h){ return h.severidad !== 'info'; });
+  var info = hall.filter(function(h){ return h.severidad === 'info'; });
+  var cob = a.cobertura || {};
+  var resumen = [];
+  if (cob.pendientes && cob.pendientes.total) resumen.push('Pendientes condicionados en alcance '+cob.pendientes.enDentroCondicionados+'/'+cob.pendientes.total+
+    ' · trazados en supuestos/riesgos/criterios '+cob.pendientes.trazados+'/'+cob.pendientes.total);
+  if (cob.riesgosAnalisis && cob.riesgosAnalisis.total) resumen.push('Riesgos del analisis en el plan '+cob.riesgosAnalisis.reflejados+'/'+cob.riesgosAnalisis.total);
+  if (a.reparado) resumen.push((a.corregidos||[]).length+' hallazgo(s) corregido(s) automaticamente');
+  resumen.push(pend.length ? pend.length+' advertencia(s)' : 'sin advertencias');
+  var det = '';
+  if (pend.length) det += '<div class="audit-sub">Advertencias para revisar</div><ul>'+pend.map(function(h){ return auditItemHtml(h, PLAN_AUDIT_LABELS); }).join('')+'</ul>';
+  if (a.reparado && (a.corregidos||[]).length) det += '<div class="audit-sub">Corregido automaticamente</div><ul>'+a.corregidos.map(function(h){ return auditItemHtml(h, PLAN_AUDIT_LABELS); }).join('')+'</ul>';
+  if (info.length) det += '<div class="audit-sub">Revisado por el auditor sin defecto</div><ul>'+info.map(function(h){ return auditItemHtml(h, PLAN_AUDIT_LABELS); }).join('')+'</ul>';
+  return '<div class="audit-box '+(ok ? 'ab-ok' : 'ab-warn')+'" id="plan-audit-box"><div class="audit-hdr" onclick="togglePlanAuditDetail()">' +
+    '<span class="audit-ttl">Auditoria de alineacion</span><span class="audit-badge">'+(ok ? 'OK' : 'Con advertencias')+'</span>' +
+    '<span class="audit-sum">'+esc(resumen.join(' · '))+'</span><span class="audit-ttl" id="plan-audit-toggle">Ver detalle &#9662;</span></div>' +
+    '<div class="audit-det" id="plan-audit-det" style="display:none">'+(det || 'Sin detalle.')+'</div></div>';
+}
 function planDocxPayload() {
   var ps = S.planSections;
+  normalizeResponsables();
   return {
-    meta: { proyecto: reqProjectName(), version:'1.0', fecha: new Date().toLocaleDateString('es-CO') },
+    meta: { proyecto: planTitle(), version:'1.0', fecha: new Date().toLocaleDateString('es-CO') },
     objetivo: ps.objetivo,
     alcanceDentro: ps.alcanceDentro,
     alcanceFuera: ps.alcanceFuera,
@@ -3534,6 +3629,11 @@ async function importPlanDocx(input) {
     if (!r.ok) throw new Error(d.error || 'Error leyendo el documento');
     S.planSections = d;
     S.planPruebasRaw = '(importado desde Word)';
+    // Un plan importado no pasa por el validador ni el auditor; queda versionado con el
+    // analisis actual para poder avisar si el HU cambia despues.
+    S.planTrace = null;
+    S.planAudit = { estado: 'IMPORTADO' };
+    S.planAnalysisHash = S.analysisHash || null;
     toast('Plan de Pruebas importado desde Word','ok');
     renderPP();
   } catch(e) {

@@ -36,6 +36,7 @@ const path     = require('path');
 const os       = require('os');
 const fs       = require('fs');
 const huValidator = require('./validators/huValidator.js');
+const planValidator = require('./validators/planValidator.js');
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell,
   WidthType, ImageRun, AlignmentType, BorderStyle, ShadingType, Header, Footer, PageNumber,
@@ -1565,12 +1566,62 @@ var ORTOGRAFIA_DOC_CLIENTE =
   'signos de apertura ¿ y ¡, y mayusculas/puntuacion correctas. Estas instrucciones vienen escritas sin tildes; NO ' +
   'copies esa forma en tu respuesta. Antes de entregar, relee todo el texto y corrige cualquier falta.';
 
-function buildPlanPruebasPrompt(analysisRaw, m2Context, engine) {
+// Reglas de alineacion del Plan con el requerimiento (brief de M3). Genericas: los
+// ejemplos son neutros. Se validan despues con validators/planValidator.js.
+var REGLAS_ALINEACION_PLAN = [
+  'REGLAS DE ALINEACION CON EL REQUERIMIENTO (obligatorias, se validan automaticamente despues):',
+  'A. PENDIENTES: todo item del inventario con Estado PENDIENTE va en ALCANCE_DENTRO terminado en "(condicionado a <Ref>)",',
+  '   con TODAS las Ref que apliquen ("(condicionado a DEP-01 y DEP-03)"). NUNCA va en ALCANCE_FUERA. En ALCANCE_FUERA',
+  '   solo van las exclusiones explicitas del requerimiento (Tipo EXCLUSION del inventario).',
+  'B. FIDELIDAD: ninguna afirmacion puede ser mas fuerte que su fuente. Conserva los modales ("puede", "podria",',
+  '   "si ..., entonces ..."): si la fuente es condicional, escribe la condicion. No inventes plazos, "tiempo real",',
+  '   obligaciones ("exige") ni consecuencias que la fuente no declara; si las infieres, escribelas con "puede" o',
+  '   "posible". Distingue un dano comercial de uno legal o normativo: no hables de incumplimiento normativo, multas o',
+  '   sanciones si la fuente no lo dice.',
+  'C. NOMBRES PROPIOS: usa los terminos y nombres del GLOSARIO tal como los escribe el documento. Prohibido cambiarlos',
+  '   por genericos ("terceros", "desarrollo de terceros", "el proveedor", "proveedor externo") cuando la fuente los',
+  '   nombra. "Proveedor de Desarrollo" (equipo de la plantilla) si se permite.',
+  'D. TRAZABILIDAD: cada supuesto, riesgo y criterio de entrada que se origine en un pendiente cita su codigo (DEP-XX)',
+  '   en el texto. Todo pendiente con codigo aparece al menos una vez en SUPUESTOS, RIESGOS o CRITERIOS_ENTRADA. Cada',
+  '   riesgo del analisis (R_N) aparece en RIESGOS_FUNCIONALES o RIESGOS_NEGOCIO, con la criticidad que hereda de lo que',
+  '   afecta. Los codigos propios del documento (DEP-XX, SUP-X) SI se citan; los IDs internos del analisis (CA_N, RN_N,',
+  '   R_N, ESC_N) NO (instruccion 7).',
+  'E. COHERENCIA: Objetivo, Alcance, Estrategia, Tipos y Niveles y Criterios de salida hablan del mismo conjunto de',
+  '   items con las mismas condiciones: si un item esta condicionado en un apartado, lo esta en todos los apartados',
+  '   donde aparece. No agregues en Estrategia o Tipos algo que no este en Alcance. Evita parentesis anidados: prefiere',
+  '   una frase simple.',
+  'F. CONVENCIONES: "Cliente" con mayuscula cuando es un rol; "por ejemplo," con coma despues y nunca con coma antes;',
+  '   sin rayas largas (em dash); el nombre del equipo de QA se escribe "TestIAlab". En lugar de cifras o fechas que el',
+  '   requerimiento no define, usa N, N-1 o X.',
+  'G. NOMBRE DEL PROYECTO: si lo mencionas, escribelo exactamente como se indica arriba (conectores en minuscula), nunca',
+  '   copiado del nombre del archivo.',
+  'H. RESPONSABLES: no hay seccion de responsables en tu respuesta (los llena el QA). No inventes nombres de personas,',
+  '   cargos ni contactos en ninguna seccion.',
+  'I. MARCAS INTERNAS: cada linea de ALCANCE_DENTRO, ALCANCE_FUERA, SUPUESTOS, RIESGOS_*, CRITERIOS_* termina con',
+  '   [src: N,N] (numeros del inventario de los que sale) y/o el codigo del pendiente ([src: 5,DEP-01]); en OBJETIVO y',
+  '   ESTRATEGIA, al final del parrafo; en TIPOS_PRUEBA y NIVELES_PRUEBA, al final de cada punto. Los supuestos y',
+  '   criterios genericos del modelo de entrega (que no salen del requerimiento) van sin marca. La herramienta quita',
+  '   las marcas antes de mostrar el plan.',
+].join('\n');
+
+// ctx (opcional, desde M1): { inventoryPath, glossary, projectName }. Sin inventario el
+// plan se genera como antes (analisis viejo), sin marcas ni validacion.
+function buildPlanPruebasPrompt(analysisRaw, m2Context, engine, ctx) {
   m2Context = m2Context || {};
+  ctx = ctx || {};
+  var glossary = (ctx.glossary || []).map(function(g){ return g.termino + (g.tipo ? ' (' + g.tipo + ')' : ''); }).join('; ');
   return [
     'Eres un Lider de QA senior redactando un Plan de Pruebas formal para un cliente, siguiendo el formato',
     'estandar de la empresa (Objetivo, Alcance, Supuestos, Riesgos, Estrategia, Tipos y Niveles de Prueba,',
     'Criterios de Entrada/Salida, Responsables).',
+    '',
+    ctx.projectName ? 'NOMBRE DEL PROYECTO: ' + ctx.projectName : null,
+    ctx.inventoryPath
+      ? 'INVENTARIO DEL REQUERIMIENTO: en ' + ctx.inventoryPath + ' esta el inventario numerado de condiciones (N | Tipo | Estado | ' +
+        'Ref | Condicion) y, despues de ---GLOSARIO---, los nombres propios del documento. Leelo con tu herramienta de lectura ' +
+        'de archivos antes de responder: dice que esta PENDIENTE, que es EXCLUSION y que codigo (Ref) tiene cada pendiente.'
+      : null,
+    glossary ? 'GLOSARIO (nombres que se conservan tal cual): ' + glossary : null,
     '',
     'ANALISIS DEL REQUERIMIENTO (base para el plan):',
     analysisRaw,
@@ -1600,6 +1651,8 @@ function buildPlanPruebasPrompt(analysisRaw, m2Context, engine) {
     '8. ' + ORTOGRAFIA_DOC_CLIENTE,
     '9. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
     '',
+    ctx.inventoryPath ? REGLAS_ALINEACION_PLAN : null,
+    ctx.inventoryPath ? '' : null,
     '---OBJETIVO---',
     '1 a 2 parrafos.',
     '',
@@ -1643,8 +1696,67 @@ function buildPlanPruebasPrompt(analysisRaw, m2Context, engine) {
     '',
     '---CRITERIOS_SALIDA---',
     'Lista de criterios de salida, uno por linea con "- ". Deben incluir, como base: todos los casos de prueba',
-    'ejecutados, todos los bugs corregidos y re-testeados (o aceptados formalmente por el cliente), y la regresión',
+    'ejecutados, todos los bugs corregidos y re-testeados (o aceptados formalmente por el Cliente), y la regresión',
     'focalizada de los casos impactados en estado Exitoso; agrega los que apliquen especificamente a ESTE requerimiento.',
+  ].filter(function(l){ return l !== null; }).join('\n');
+}
+
+// ── M3: auditor semantico del Plan (una llamada, Sonnet medium, ambos motores) ──
+// Busca lo que el validador no puede decidir con texto: modales endurecidos, premisas
+// escritas como hecho, consecuencias inferidas e incoherencias entre apartados.
+function buildPlanAuditorPrompt(inventoryPath, analysisPath, planPath, findingsPath) {
+  return [
+    'Eres un auditor de calidad de Planes de Pruebas. Verifica que el plan este alineado con el requerimiento.',
+    'NO reescribas el plan: solo reporta defectos concretos.',
+    '',
+    'Lee estos archivos con tu herramienta de lectura de archivos:',
+    '- Inventario numerado del requerimiento (N | Tipo | Estado | Ref | Condicion) y glosario: ' + inventoryPath,
+    '- Analisis del requerimiento (HU, criterios, reglas, riesgos): ' + analysisPath,
+    '- Plan a auditar (cada linea trae [src: ...] con los items del inventario de los que sale): ' + planPath,
+    '- Hallazgos del validador automatico (JSON): ' + findingsPath,
+    '',
+    'Busca SOLO estos tipos de defecto:',
+    '- MAS_FUERTE_QUE_FUENTE: el plan es mas categorico que la fuente ("puede requerir" -> "exige", "si X" -> hecho,',
+    '  "tiempo real" o plazos que la fuente no dice).',
+    '- PREMISA_COMO_HECHO: una premisa condicional de la fuente ("si el servicio usa X, ...") escrita como hecho.',
+    '- CONSECUENCIA_INFERIDA: una consecuencia que la fuente no declara, escrita como hecho, o un dano comercial',
+    '  presentado como legal o normativo.',
+    '- INCOHERENCIA: Objetivo, Alcance, Estrategia, Tipos y Niveles o Criterios de salida no dicen lo mismo (un item que',
+    '  esta en un apartado y no en Alcance, o condicionado en uno y no en otro).',
+    '- SIN_SUSTENTO: afirmaciones o nombres que el requerimiento no respalda, o un nombre propio cambiado por un generico.',
+    'No reportes estilo ni cosas que la fuente si respalda. Si no hay defectos, responde [].',
+    '',
+    'Responde SOLO con un arreglo JSON, sin texto adicional ni bloque de codigo:',
+    '[{"seccion":"<OBJETIVO|ALCANCE_DENTRO|...>","frase":"<frase exacta del plan>","tipo":"<MAS_FUERTE_QUE_FUENTE|PREMISA_COMO_HECHO|',
+    'CONSECUENCIA_INFERIDA|INCOHERENCIA|SIN_SUSTENTO>","motivo":"<que dice la fuente>","correccion":"<como deberia quedar>"}]',
+  ].join('\n');
+}
+
+// ── M3: reparacion acotada del Plan (una sola pasada) ─────────────────────────
+function buildPlanRepairPrompt(inventoryPath, analysisPath, planPath, findingsPath) {
+  return [
+    'Eres un Lider de QA senior. Debes CORREGIR un Plan de Pruebas aplicando unicamente los hallazgos indicados.',
+    '',
+    'Lee estos archivos con tu herramienta de lectura de archivos:',
+    '- Inventario numerado del requerimiento y glosario: ' + inventoryPath,
+    '- Analisis del requerimiento: ' + analysisPath,
+    '- Plan actual, con marcas [src: ...]: ' + planPath,
+    '- Hallazgos a corregir (JSON): ' + findingsPath,
+    '',
+    'REGLAS DE LA CORRECCION:',
+    '1. Corrige SOLO las frases o items que mencionan los hallazgos. Todo lo demas debe quedar EXACTAMENTE igual.',
+    '2. Si un hallazgo pide algo que falta (un pendiente en Dentro del Alcance condicionado, un codigo DEP en supuestos,',
+    '   riesgos o criterios de entrada, un riesgo del analisis), agrega la linea en la seccion correspondiente.',
+    '3. Si un item pendiente esta en ALCANCE_FUERA, muevelo a ALCANCE_DENTRO con "(condicionado a <Ref>)".',
+    '4. Conserva el formato de cada seccion y las marcas [src: ...].',
+    '5. Respeta estas reglas mientras corriges:',
+    REGLAS_ALINEACION_PLAN,
+    '',
+    ORTOGRAFIA_DOC_CLIENTE + ' Conserva las tildes que ya trae el plan.',
+    '',
+    'Responde con el plan COMPLETO corregido, con TODAS las secciones delimitadas en este orden y sin texto adicional:',
+    '---OBJETIVO--- ---ALCANCE_DENTRO--- ---ALCANCE_FUERA--- ---SUPUESTOS--- ---RIESGOS_FUNCIONALES--- ---RIESGOS_NEGOCIO---',
+    '---ESTRATEGIA--- ---TIPOS_PRUEBA--- ---NIVELES_PRUEBA--- ---CRITERIOS_ENTRADA--- ---CRITERIOS_SALIDA---',
   ].join('\n');
 }
 
@@ -1724,7 +1836,9 @@ function docxResponsablesTable(rows) {
   var header = new TableRow({ cantSplit: true, children: [
     docxCell('Equipo', {header:true}), docxCell('Nombre / Rol', {header:true}), docxCell('Contacto', {header:true}),
   ]});
-  var body = (rows && rows.length ? rows : [{equipo:'Por definir',cargo:'Por definir',contacto:'Por definir'}]).map(function(r){
+  // Sin datos del QA: las 3 filas de la plantilla solo con el Equipo (nunca "Por definir").
+  var empty = planValidator.RESP_TEAMS.map(function(e){ return { equipo: e, cargo: '', contacto: '' }; });
+  var body = (rows && rows.length ? rows : empty).map(function(r){
     return new TableRow({ cantSplit: true, children: [ docxCell(r.equipo), docxCell(r.cargo), docxCell(r.contacto) ] });
   });
   return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [header].concat(body) });
@@ -2960,33 +3074,124 @@ app.post('/api/generate-plan', async function(req, res) {
   var engineLabel = engine === 'claude' ? 'Claude CLI' : 'Gemini (Antigravity CLI)';
   var reqId       = req.body.reqId || '';
   if (!analysisRaw) return res.status(400).json({ error: 'Se requiere analysisRaw.' });
-  var prompt = buildPlanPruebasPrompt(analysisRaw, m2Context, engine);
+  // Desde M1 (#75): inventario + glosario + analisis con trazas. Sin inventario (analisis
+  // viejo, o HU importado sin requerimiento) el plan se genera como antes y no se audita.
+  var inventory = req.body.inventory || '';
+  var glossary = req.body.glossary || [];
+  var analysisTraced = req.body.analysisTraced || '';
+  var responsables = req.body.responsables || [];
+  var projectName = req.body.projectName ? planValidator.normalizeTitle(req.body.projectName) : '';
+  var tmpList = [];
+  function cleanup() { tmpList.forEach(function(p){ try { fs.unlink(p, function(){}); } catch(e){} }); }
+  var inventoryPath = inventory ? m1TmpFile('plan-inventory-', inventory, tmpList) : null;
+  var aiOpts = { engine: engine, model: 'sonnet', effort: 'medium' };
+  if (inventoryPath) { aiOpts.addDir = os.tmpdir(); aiOpts.allowedTools = ['Read']; }
+  var prompt = buildPlanPruebasPrompt(analysisRaw, m2Context, engine, { inventoryPath: inventoryPath, glossary: glossary, projectName: projectName });
 
-  emitProgress(reqId, 8, 'Preparando prompt para '+engineLabel+'...');
-  var stages = [
-    [20, 'Enviando a '+engineLabel+'...'],
-    [40, 'Redactando objetivo, alcance y supuestos...'],
-    [65, 'Definiendo estrategia y riesgos...'],
-    [85, 'Definiendo criterios de entrada/salida...'],
-  ];
-  var stageIdx = 0;
-  var stageTimer = setInterval(function(){
-    if (stageIdx < stages.length) { emitProgress(reqId, stages[stageIdx][0], stages[stageIdx][1]); stageIdx++; }
-  }, 8000);
-
+  var t0 = Date.now(), tiempos = {};
   try {
-    var text = await callAI(prompt, { engine: engine, model: 'sonnet', effort: 'medium' });
-    clearInterval(stageTimer);
+    emitProgress(reqId, 15, 'Redactando el Plan de Pruebas con ' + engineLabel + '...');
+    var traced = stripCodeFences(await callAI(prompt, aiOpts));
+    tiempos.plan = Math.round((Date.now() - t0) / 100) / 10;
+    var result;
+    if (inventoryPath) {
+      result = await auditAndRepairPlan({
+        aiOpts: aiOpts, inventory: inventory, inventoryPath: inventoryPath, glossary: glossary,
+        analysis: analysisTraced || analysisRaw, analysisRaw: analysisRaw, responsables: responsables,
+        traced: traced, tmpList: tmpList, tiempos: tiempos,
+        progress: function(pct, label){ emitProgress(reqId, pct, label); },
+      });
+    } else {
+      result = { traced: traced, audit: { estado: 'NO_AUDITADO', hallazgos: [], corregidos: [], reparado: false,
+        motivo: 'El analisis de M1 no trae inventario (analisis anterior a la auditoria de alineacion o HU importado sin requerimiento).' } };
+    }
+    tiempos.total = Math.round((Date.now() - t0) / 100) / 10;
+    result.audit.tiempos = tiempos;
+    cleanup();
     emitProgress(reqId, 98, 'Procesando respuesta...');
     emitDone(reqId);
-    return res.json({ plan: text, engine: engine });
+    console.log('[/api/generate-plan] ' + engine + ' tiempos(s)=' + JSON.stringify(tiempos) + ' estado=' + result.audit.estado +
+      ' hallazgos=' + result.audit.hallazgos.length + ' reparado=' + result.audit.reparado);
+    return res.json({ plan: planValidator.stripTraceMarks(result.traced).trim(), engine: engine, planTraced: result.traced, audit: result.audit });
   } catch (err) {
-    clearInterval(stageTimer);
+    cleanup();
     emitDone(reqId);
     console.error('[/api/generate-plan]', err.message);
     return res.status(502).json({ error: engineLabel + ': ' + err.message });
   }
 });
+
+// Plan: validador -> auditor (siempre) -> una reparacion acotada -> revalidacion. Misma
+// forma que auditAndRepairHU (M1); nunca bloquea la entrega del plan.
+async function auditAndRepairPlan(o) {
+  var tiempos = o.tiempos || {};
+  function lap(name, since) { tiempos[name] = Math.round((Date.now() - since) / 100) / 10; }
+  function validate(traced) {
+    return planValidator.validatePlan({ traced: traced, inventory: o.inventory, glossary: o.glossary, analysis: o.analysis, responsables: o.responsables });
+  }
+  o.progress(55, 'Validando el plan contra el requerimiento...');
+  var v1 = validate(o.traced);
+
+  o.progress(62, 'Auditando modales, premisas e incoherencias...');
+  var tAud = Date.now();
+  var planPath = m1TmpFile('plan-audit-', o.traced, o.tmpList);
+  var analysisPath = m1TmpFile('plan-analysis-', huValidator.stripTraceMarks(o.analysisRaw), o.tmpList);
+  var findingsPath = m1TmpFile('plan-findings-', JSON.stringify(v1.hallazgos, null, 1), o.tmpList);
+  var auditorOk = true, auditorFindings = [];
+  try {
+    var arr = parseAuditorJson(await callAI(buildPlanAuditorPrompt(o.inventoryPath, analysisPath, planPath, findingsPath), o.aiOpts));
+    if (!arr) auditorOk = false;
+    else auditorFindings = arr.filter(function(x){ return x && x.tipo; }).map(function(x){
+      return { codigo: String(x.tipo).toUpperCase(), severidad: 'advertencia', ids: x.seccion ? [String(x.seccion)] : [],
+               mensaje: (x.frase ? '"' + x.frase + '": ' : '') + (x.motivo || ''), correccion: x.correccion || '', origen: 'auditor' };
+    });
+  } catch (e) {
+    auditorOk = false;
+    console.error('[auditor plan]', e.message);
+  }
+  lap('auditoria', tAud);
+
+  // V8 (Responsables) no lo corrige la IA: los llena el QA en pantalla.
+  var toFix = v1.hallazgos.filter(function(h){ return (h.severidad === 'error' || h.severidad === 'advertencia') && h.codigo !== 'V8'; }).concat(auditorFindings);
+  var traced = o.traced, reparado = false, repairError = null, final = v1;
+  if (toFix.length) {
+    o.progress(78, 'Corrigiendo ' + toFix.length + ' hallazgo(s) del plan...');
+    var tRep = Date.now();
+    var fixPath = m1TmpFile('plan-fix-', JSON.stringify(toFix, null, 1), o.tmpList);
+    try {
+      var fixed = stripCodeFences(await callAI(buildPlanRepairPrompt(o.inventoryPath, analysisPath, planPath, fixPath), o.aiOpts));
+      if (/---ALCANCE_DENTRO---/i.test(fixed) && /---CRITERIOS_SALIDA---/i.test(fixed)) { traced = fixed; reparado = true; }
+      else repairError = 'la reparacion no devolvio un plan con todas sus secciones';
+    } catch (e) {
+      repairError = e.message;
+      console.error('[reparacion plan]', e.message);
+    }
+    lap('reparacion', tRep);
+    if (reparado) {
+      o.progress(94, 'Revalidando el plan corregido...');
+      final = validate(traced);
+    }
+  }
+
+  var hallazgos = final.hallazgos.map(function(h){
+    if (h.severidad === 'juicio' && auditorOk) return Object.assign({}, h, { severidad: 'info' });
+    if (h.severidad === 'error' && reparado) return Object.assign({}, h, { severidad: 'advertencia' });
+    return h;
+  });
+  if (!reparado) hallazgos = hallazgos.concat(auditorFindings);
+  if (!auditorOk) hallazgos.push({ codigo: 'AUDITOR', severidad: 'advertencia', ids: [], origen: 'sistema',
+    mensaje: 'El auditor IA no devolvio un resultado valido; solo se aplico el validador automatico.' });
+  if (repairError) hallazgos.push({ codigo: 'REPARACION', severidad: 'advertencia', ids: [], origen: 'sistema',
+    mensaje: 'No se pudo aplicar la correccion automatica (' + repairError + '); el plan se muestra tal como se genero.' });
+
+  return {
+    traced: traced,
+    audit: {
+      estado: planValidator.auditEstado(hallazgos), hallazgos: hallazgos, corregidos: reparado ? toFix : [],
+      cobertura: final.cobertura, reparado: reparado, auditor: auditorOk ? 'ok' : 'fallo', tiempos: tiempos,
+    },
+  };
+}
 
 // ── Exportar Plan de Pruebas a .docx real (con formato de la plantilla) ────────
 app.post('/api/export-plan-docx', async function(req, res) {
