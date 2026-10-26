@@ -9,8 +9,10 @@ var path = require('path');
 var V = require('../validators/huValidator.js');
 
 var FIX = path.join(__dirname, 'fixtures');
-var INVENTORY = fs.readFileSync(path.join(FIX, 'inventario.txt'), 'utf8');
-var HU_OK = fs.readFileSync(path.join(FIX, 'hu-ok.txt'), 'utf8');
+// Git puede dejar las fixtures en CRLF (Windows); los tests siembran defectos con "\n".
+function readFixture(name) { return fs.readFileSync(path.join(FIX, name), 'utf8').replace(/\r\n/g, '\n'); }
+var INVENTORY = readFixture('inventario.txt');
+var HU_OK = readFixture('hu-ok.txt');
 
 function validate(traced, extra) {
   return V.validateHU(Object.assign({ traced: traced, inventory: INVENTORY }, extra || {}));
