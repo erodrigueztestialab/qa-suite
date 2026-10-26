@@ -750,3 +750,13 @@ Los 3 fixes se verificaron en vivo inyectando un caso sintetico de 5 pasos en me
 3. El usuario avisara cualquier cosa nueva.
 
 **Pendiente (sesion 27+):** repo PUBLICO -> privado; resultados de las pruebas manuales del usuario; si Liz actualizo sus ramas / reporto algo; probar en Teams "Copiar mensaje" del Avance; opcional re-medir M1/M4 con gemini-4-argon.
+
+## Sesion 27 (2026-10-26)
+1. Brief 1 de 3 (alineacion del HU de M1; M3 y M4 vienen en briefs aparte). El usuario aclaro: **SOLO M1**. Rama `feature/m1-hu-auditoria`.
+2. Hecho: inventario + glosario en AMBOS motores (`N | Tipo | Estado | Ref | Condicion`, EXCLUSION, PENDIENTE); reglas A-J en el prompt (`REGLAS_ALINEACION_HU`); marcas internas `[src]`/`[cubre]` que nunca llegan a pantalla ni al Word; validador deterministico `validators/huValidator.js` (V1-V13) con 17 tests (`npm test`, fixtures sinteticas neutras en `test/fixtures/`); auditor IA SIEMPRE (decision del usuario: modo estricto) + una reparacion acotada + revalidacion; recuadro "Auditoria de alineacion" en M1; `/api/audit-hu` para HU importado (sin reparar, reusa el inventario si los archivos no cambiaron); `S.analysisHash` (FNV-1a).
+3. Word del HU (decision del usuario): Como/Quiero/Para justificados, keepLines en vinetas, formato "ID: campo - campo" (import hace el camino inverso por seccion y sigue aceptando el formato viejo con "|"). Solo el HU; helpers compartidos con opcion.
+4. Medido (fixture, secuencial): M1 antes Claude ~33-36 s / Gemini ~90-93 s; despues Claude ~73-86 s / Gemini ~99-123 s (inventario ~11-15 s, auditor ~17-30 s, reparacion ~22-32 s). Gemini antes sacaba 25-38 CA de un requerimiento de 5 reglas (relleno); ahora 6-7 con inventario 100% cubierto.
+5. Hallazgos en pruebas: Gemini usaba la numeracion de lista como Ref (rompia V5 "500"->"00") -> regla en prompt + validador; Gemini perdio TODAS las tildes con las reglas nuevas -> se agrego ORTOGRAFIA_DOC_CLIENTE al analisis y a la reparacion (0 -> 146-182 tildes).
+6. Pruebas: el Chrome de la extension NO alcanza localhost de esta maquina (ERR_CONNECTION_REFUSED); se uso Chrome headless con puppeteer-core en el scratchpad. La app tiene `const API = 'http://localhost:3001'` fijo: para probar en 3002 se intercepta el HTML y se cambia el puerto en la prueba. Arnes de defectos sembrados (copia de proxy.js sin listen + module.exports) para correr auditor/reparacion sin endpoint.
+
+**Pendiente (sesion 28+):** revisar/mergear el PR de este brief; briefs 2 y 3 (M3 plan, M4 casos) reutilizando inventario/validador/hash (M3/M4 deben guardar el hash con que se generaron); repo PUBLICO; pruebas manuales del usuario; Liz.

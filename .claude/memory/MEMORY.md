@@ -1,6 +1,6 @@
 - [Español colombiano](feedback_spanish_colombian.md) — responder siempre en español colombiano TUTEANDO (tú), nunca "usted" ni "vos"/voseo.
 - [Probar antes de decir "listo"](feedback_test_before_claiming_done.md) — verificar de verdad (navegador/reproducción), no solo revisión de código.
-- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 26 (2026-10-26): solo repaso; main local adelantado; main==develop sin PRs; pendientes: repo público, pruebas manuales, Liz.
+- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 27 (2026-10-26): brief 1/3 alineación HU solo M1 (inventario, validador, auditor siempre, reparación, hash, Word ID: x - y) en feature/m1-hu-auditoria; pendientes: PR, briefs M3/M4, repo público.
 - [Identidad git QA-Suite](project_git_identity.md) — todo commit/push/PR solo con correo @testialab.com (erodriguez@testialab.com / erodrigueztestialab); nunca otro dominio ni otra cuenta.
 - [Flujo de ramas QA-Suite](project_git_workflow.md) — main/develop/feature con PR obligatorio; auto-borrado de feature/* al mergear + ruleset que impide borrar main/develop (2026-09-29).
 - [Modelo/esfuerzo preferido](feedback_model_effort.md) — Sonnet medio por defecto para fixes/desarrollo en QA Suite (mi propio razonamiento), salvo indicación contraria.
@@ -14,3 +14,4 @@
 - [Metodología genérica, sin negocio quemado](feedback_generic_methodology.md) — nunca convertir conceptos de un cliente (EAN, EDI…) en casos, reglas, ejemplos de prompt ni backlog; la metodología aplica a cualquier requerimiento.
 - [Plan demo Liz 2026-10-08](project_plan_liz_2026_10_08.md) — 6 fases (bugs, Avance gerencial/Teams, Bugs, consolidar casos M4, finalizacion, docs) + decisiones: estados en espanol, M2 solo nota, repo publico por hoy.
 - [Resumen para JIRA Timeboard](feedback_jira_worklog.md) — título + 3-4 bullets de una línea en lenguaje de negocio + bullet final de pruebas/PRs.
+- [Entregables sin re-análisis](feedback_entregables_sin_reanalisis.md) — HU/plan/casos deben salir alineados con el requerimiento; todo defecto detectado se vuelve regla de prompt o validación (validador + test), no corrección manual.
