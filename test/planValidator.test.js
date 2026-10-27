@@ -127,3 +127,29 @@ test('normalizeTitle: conectores en minuscula, siglas intactas', function(){
   assert.strictEqual(P.normalizeTitle('5765 - Control De Stock Por Canal'), '5765 - Control de Stock por Canal');
   assert.strictEqual(P.normalizeTitle('El Portal De Reembolsos'), 'El Portal de Reembolsos');
 });
+
+// Items de contexto (tarea pendiente, decision) y contradiccion: patrones de un HU real.
+var INVENTORY_CTX = INVENTORY.replace('---GLOSARIO---',
+  '9 | Tarea | PENDIENTE | | Se requiere la estimación de horas del desarrollo.\n' +
+  '10 | Decision | DEFINIDO | | El equipo técnico decide si extiende la pantalla actual o crea una nueva.\n---GLOSARIO---');
+
+test('contexto: una tarea pendiente no se exige en Alcance pero si en Supuestos/Riesgos (V4); V10 si va en Alcance', function(){
+  var res = validate(PLAN_OK, { inventory: INVENTORY_CTX });
+  assert.ok(!has(res, 'V1', 'item 9'), 'la tarea pendiente no tiene que ir en Alcance dentro');
+  assert.ok(has(res, 'V4', 'item 9'), 'pero si tiene que aparecer en Supuestos, Riesgos o Criterios de entrada');
+  var conSupuesto = seed('---RIESGOS_FUNCIONALES---', '- La estimación de horas del desarrollo estará disponible antes de iniciar. [src: 9]\n---RIESGOS_FUNCIONALES---');
+  assert.ok(!has(validate(conSupuesto, { inventory: INVENTORY_CTX }), 'V4', 'item 9'));
+  var enAlcance = seed('---ALCANCE_FUERA---', '- Evaluación de extender la pantalla actual o crear una nueva. [src: 10]\n---ALCANCE_FUERA---');
+  assert.ok(has(validate(enAlcance, { inventory: INVENTORY_CTX }), 'V10', 'Dentro del Alcance'));
+  assert.ok(!has(validate(PLAN_OK), 'V10'));
+});
+
+test('pendiente que el analisis solo tiene en un riesgo: no se exige en Alcance, si en Supuestos/Riesgos', function(){
+  var inv = INVENTORY.replace('---GLOSARIO---', '9 | Dependencia | PENDIENTE | | El acceso al ambiente de pruebas está por definir.\n---GLOSARIO---');
+  var hu = HU.replace('---IMPACTOS---', 'R_3 | Medio | El acceso al ambiente de pruebas está por definir | Puede retrasar las pruebas [src: 9]\n---IMPACTOS---');
+  var res = validate(PLAN_OK, { inventory: inv, analysis: hu });
+  assert.ok(!has(res, 'V1', 'item 9'), 'solo vive en un riesgo: no es alcance');
+  assert.ok(has(res, 'V4', 'item 9'), 'pero si se traza en Supuestos, Riesgos o Criterios de entrada');
+  var huCa = hu.replace('CA_3 | Dado que', 'CA_3 | Dado que el ambiente está disponible y').replace('permitido". [src: 8]', 'permitido". [src: 8, 9]');
+  assert.ok(has(validate(PLAN_OK, { inventory: inv, analysis: huCa }), 'V1', 'item 9'), 'si lo cita un CA, si es alcance');
+});

@@ -158,3 +158,86 @@ test('auditEstado', function(){
   assert.strictEqual(V.auditEstado([]), 'OK');
   assert.strictEqual(V.auditEstado([{ severidad: 'advertencia' }]), 'CON_ADVERTENCIAS');
 });
+
+// Inventario con items de contexto y una contradiccion (patrones vistos en un HU real:
+// objetivo, tarea del proyecto, decision tecnica y dos versiones incompatibles).
+var INVENTORY_CTX = INVENTORY.replace('---GLOSARIO---',
+  '9 | Objetivo | DEFINIDO | | Reducir el tiempo de registro de las solicitudes.\n' +
+  '10 | Tarea | PENDIENTE | | Se requiere la estimación de horas del desarrollo.\n' +
+  '11 | Decision | DEFINIDO | | El equipo técnico decide si extiende la pantalla actual o crea una nueva.\n' +
+  '12 | Regla | CONTRADICCION | | Versión 1: los soportes se pueden eliminar después de enviar; Versión 2: no se pueden eliminar.\n' +
+  '---GLOSARIO---');
+var R_CTX = 'R_3 | Medio | La estimación de horas del desarrollo está pendiente | Puede retrasar el inicio de las pruebas [src: 10]\n' +
+  'R_4 | Medio | No está definido si los soportes se pueden eliminar después de enviar (dos versiones) | Puede cambiar el resultado esperado [src: 12]\n';
+function withCtx(hu) { return hu.replace('---IMPACTOS---', R_CTX + '---IMPACTOS---'); }
+
+test('inventario: estado CONTRADICCION se trata como pendiente y tipos de contexto', function(){
+  var inv = V.parseInventory(INVENTORY_CTX);
+  var c = inv.items.find(function(i){ return i.n === 12; });
+  assert.strictEqual(c.estado, 'PENDIENTE');
+  assert.strictEqual(c.contradiccion, true);
+  assert.ok(V.isContext(inv.items.find(function(i){ return i.n === 9; })));
+  assert.ok(V.isContext(inv.items.find(function(i){ return i.n === 10; })));
+  assert.ok(V.isContext(inv.items.find(function(i){ return i.n === 11; })));
+  assert.ok(!V.isContext(inv.items.find(function(i){ return i.n === 1; })));
+});
+
+test('contexto sin CA/RN/ESC no es faltante; pendiente de contexto exige riesgo pero no escenario', function(){
+  var res = validate(withCtx(HU_OK), { inventory: INVENTORY_CTX });
+  assert.ok(res.cobertura.inventario.faltantes.indexOf(9) < 0 && res.cobertura.inventario.faltantes.indexOf(11) < 0);
+  assert.deepStrictEqual(res.cobertura.inventario.contexto, [9, 10, 11]);
+  assert.ok(res.cobertura.pendientes.sinEscCondicionado.indexOf(10) < 0, 'una tarea no lleva escenario');
+  assert.ok(res.hallazgos.every(function(h){ return h.mensaje.indexOf('item 10') < 0; }));
+  var sinRiesgo = validate(HU_OK, { inventory: INVENTORY_CTX });
+  assert.ok(sinRiesgo.cobertura.pendientes.sinRiesgo.indexOf(10) >= 0, 'la tarea pendiente sin riesgo se reporta');
+});
+
+test('V14: CA/RN/ESC que sale solo de contexto (objetivo, tarea, decision)', function(){
+  var hu = withCtx(HU_OK).replace('---RIESGOS---',
+    'RN_6 | Se requiere la estimación de horas del desarrollo. Condicionado a la estimación de horas [src: 10]\n' +
+    'RN_7 | La solución reduce el tiempo de registro de las solicitudes. [src: 9, 1]\n---RIESGOS---');
+  var res = validate(hu, { inventory: INVENTORY_CTX });
+  assert.ok(hasFinding(res, 'V14', 'RN_6'));
+  assert.ok(!hasFinding(res, 'V14', 'RN_7'), 'si tambien sale de una regla del sistema, no es solo contexto');
+  var esc = withCtx(HU_OK).replace('[src: 4] [cubre: RN_4]', '[src: 11] [cubre: RN_4]');
+  assert.ok(hasFinding(validate(esc, { inventory: INVENTORY_CTX }), 'V14', 'ESC_5'));
+  assert.ok(!hasFinding(validate(withCtx(HU_OK), { inventory: INVENTORY_CTX }), 'V14'), 'los R_N si pueden citar contexto');
+});
+
+test('V15: RN que repite un CA', function(){
+  var hu = seed('RN_4 | El Solicitante puede adjuntar hasta 3 soportes por solicitud. [src: 4]',
+    'RN_4 | El Solicitante puede adjuntar hasta 3 soportes por solicitud. [src: 4]\n' +
+    'RN_5 | Si el monto supera el máximo sin factura electrónica validada, el sistema muestra "El monto supera el máximo permitido". [src: 8]')
+    .replace('RN_5 | La integración con el sistema contable', 'RN_6 | La integración con el sistema contable');
+  var res = validate(hu);
+  assert.ok(hasFinding(res, 'V15', 'RN_5') && hasFinding(res, 'V15', 'CA_3'));
+  assert.ok(!hasFinding(res, 'V15', 'RN_6'), 'la RN de exclusion no se compara');
+  assert.ok(!hasFinding(validate(HU_OK), 'V15'), 'reglas propias (maximo, excepcion, soportes) no repiten un CA');
+});
+
+test('V4/V3 nombran la contradiccion como tal', function(){
+  var hu = HU_OK.replace('RN_4 | El Solicitante puede adjuntar hasta 3 soportes por solicitud. [src: 4]',
+    'RN_4 | El Solicitante puede adjuntar hasta 3 soportes por solicitud y eliminarlos después de enviar. [src: 4, 12]');
+  var res = validate(hu, { inventory: INVENTORY_CTX });
+  assert.ok(res.hallazgos.some(function(h){ return h.codigo === 'V4' && /contradiccion del item 12/.test(h.mensaje); }));
+  assert.ok(res.hallazgos.some(function(h){ return h.codigo === 'V3' && /contradiccion del item 12 no aparece en ningun riesgo/.test(h.mensaje); }));
+  assert.deepStrictEqual(res.cobertura.contradicciones.map(function(c){ return c.n; }), [12]);
+});
+
+test('V13: etiquetas internas del inventario en el texto', function(){
+  var res = validate(seed('La notificación por el canal móvil sigue sin definirse', 'La notificación por el canal móvil sigue PENDIENTE'));
+  assert.ok(hasFinding(res, 'V13', 'JUSTIFICACION_RIESGO'));
+  assert.ok(hasFinding(validate(seed('RN_4 | El Solicitante puede', 'RN_4 | Versión 1: el Solicitante puede')), 'V13', 'RN_4'));
+  assert.ok(!hasFinding(validate(HU_OK), 'V13'));
+});
+
+test('V16: RN que solo dice que algo no esta definido; V3 no pide escenario a un pendiente que solo vive en un riesgo', function(){
+  var hu = seed('RN_4 | El Solicitante puede adjuntar hasta 3 soportes por solicitud. [src: 4]', 'RN_4 | El formato de los soportes no está definido. Condicionado a DEP-01 [src: 4, 5]');
+  assert.ok(hasFinding(validate(hu), 'V16', 'RN_4'));
+  assert.ok(!hasFinding(validate(HU_OK), 'V16'));
+  // DEP-01 deja de estar en CA/RN (solo en R_1): ya no se le exige escenario condicionado.
+  var soloRiesgo = HU_OK.split('\n').filter(function(l){ return !/^(CA_4|ESC_4) /.test(l); }).join('\n');
+  var res = validate(soloRiesgo);
+  assert.ok(res.cobertura.pendientes.sinEscCondicionado.indexOf(5) < 0, 'pendiente solo en riesgo: sin escenario exigido');
+  assert.ok(validate(HU_OK.replace('Condicionado a DEP-01 [src: 5] [cubre: CA_4]', '[src: 1] [cubre: CA_4]')).cobertura.pendientes.sinEscCondicionado.indexOf(5) >= 0, 'si lo cita un CA, se exige');
+});
