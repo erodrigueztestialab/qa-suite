@@ -28,3 +28,11 @@ Los entregables de QA (HU, plan de pruebas, casos) deben salir de la herramienta
 - Una EXCLUSION se cubre solo con el caso negativo (que NO ocurre). Ese caso es obligatorio: el auditor no lo reporta como incoherencia y la reparacion nunca puede eliminar el unico caso que cubre un CA/RN/ESC (salvaguarda en `mergeRepairedCases`, con test; se detecto en prueba real: la reparacion borraba el caso negativo de la exclusion).
 - Escenario = titulo exacto de un ESC de la HU; nombres del glosario; Tipo Smoke/Funcional/UI/UX (Excel "Func"); cada paso con su resultado.
 - Si cambia el analisis de M1 o el plan de M3 (hash), los casos se marcan desactualizados; consolidar o agregar faltantes revalida sin IA (`/api/validate-cases`); Excel importado = "No auditado".
+
+**Revision de Liz sobre un caso real (2026-10-27, sesion 29): el HU tenia 68 RN para un requerimiento de 2 paginas y M4 saco 77 casos.** Causa raiz en M1: la regla "nada del inventario se pierde" convertia en RN todo lo que no era CA. Reglas nuevas (M1 + M3, ambos motores, validador con tests):
+- Inventario con tipos de CONTEXTO (Objetivo, Contexto, Tarea, Decision, IndicacionPrueba): nunca generan CA/RN/ESC (V14); si estan pendientes van en un R_N y, en el plan, en Supuestos/Riesgos/Criterios de entrada, nunca en Alcance (V10 del plan). Lo que se deja para otra fase es EXCLUSION.
+- Una RN no repite un CA (V15, contencion de raices >= 0.85) ni dice solo que algo "no esta definido" (V16, eso es un riesgo).
+- Estado CONTRADICCION en el inventario (dos versiones incompatibles sin correccion explicita): se trata como PENDIENTE, nunca se elige una version, va en un R_N con las dos y el recuadro de M1 las lista "por confirmar".
+- Solo un pendiente que gobierna un CA o RN exige ESC condicionado (HU) o ir en Alcance (plan): antes la reparacion fabricaba escenarios y alcance de "acceso a un ambiente" o "ubicar codigo".
+- Las etiquetas internas del inventario (PENDIENTE, DEFINIDO, CONTRADICCION, "Version 1:") no van al texto (V13).
+- Medido con el requerimiento real + transcripcion (Claude): develop 70 RN / 35 CA / 52 ESC; rama 10-16 RN / 31-41 CA / 39-49 ESC, cobertura completa, tiempos iguales (~230-250 s).

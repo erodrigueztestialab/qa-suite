@@ -64,6 +64,9 @@ function parseSection(raw, tag) {
 // Lineas "N | Tipo | Estado | Ref | Condicion" (Ref puede ir vacia). Acepta tambien
 // el formato viejo "N | Tipo | Condicion" (se asume DEFINIDO). El glosario va despues
 // de ---GLOSARIO--- como "Termino | Tipo".
+// Estado CONTRADICCION (el requerimiento dice dos cosas incompatibles sobre el mismo
+// punto) se trata como PENDIENTE en todo el flujo (M1, M3 y M4 lo condicionan igual) y
+// queda marcado con contradiccion: true para nombrarlo como tal.
 function parseInventory(text) {
   text = String(text || '');
   var glosIdx = text.search(/---\s*GLOSARIO\s*---/i);
@@ -78,13 +81,15 @@ function parseInventory(text) {
     var p = l.split('|').map(function(s){ return s.trim(); });
     var nm = /^[A-Za-z]*\s*(\d+)$/.exec(p[0]);
     if (!nm) return; // encabezado u otra cosa
-    var it = { n: parseInt(nm[1], 10), tipo: p[1] || '', estado: 'DEFINIDO', ref: '', condicion: '' };
+    var it = { n: parseInt(nm[1], 10), tipo: p[1] || '', estado: 'DEFINIDO', ref: '', condicion: '', contradiccion: false };
     if (p.length >= 5) {
-      it.estado = /pendiente/i.test(p[2]) ? 'PENDIENTE' : 'DEFINIDO';
+      it.estado = /pendiente|contradic/i.test(p[2]) ? 'PENDIENTE' : 'DEFINIDO';
+      it.contradiccion = /contradic/i.test(p[2]);
       it.ref = p[3] === '-' ? '' : p[3];
       it.condicion = p.slice(4).join(' | ');
-    } else if (p.length === 4 && /^(definido|pendiente)$/i.test(p[2])) {
-      it.estado = /pendiente/i.test(p[2]) ? 'PENDIENTE' : 'DEFINIDO';
+    } else if (p.length === 4 && /^(definido|pendiente|contradiccion|contradicción)$/i.test(p[2])) {
+      it.estado = /pendiente|contradic/i.test(p[2]) ? 'PENDIENTE' : 'DEFINIDO';
+      it.contradiccion = /contradic/i.test(p[2]);
       it.condicion = p[3];
     } else {
       it.condicion = p.slice(2).join(' | ');
@@ -104,6 +109,29 @@ function parseInventory(text) {
 }
 
 function isExclusion(it) { return /exclu/i.test(it.tipo); }
+// Items que NO son comportamiento del sistema: objetivo o beneficio, contexto
+// (antecedentes, situacion actual, ambiente o despliegue), tareas o compromisos del
+// proyecto, decisiones tecnicas del equipo de desarrollo e indicaciones sobre como
+// probar. No generan CA, RN ni ESC; si estan pendientes, van en un riesgo.
+var CONTEXT_TIPO_RE = /^(objetivo|contexto|tarea|decision|indicacion)/;
+function isContext(it) { return !!it && CONTEXT_TIPO_RE.test(norm(it.tipo).trim()); }
+function pendingLabel(p) { return p.ref || (p.contradiccion ? 'la contradiccion del item ' + p.n : 'item ' + p.n); }
+
+// RN que repite un CA: la mayoria de las palabras de contenido de la RN (raiz de 5
+// letras, sin "Condicionado a ...") estan en el CA. Calibrado con un HU real: las RN
+// que repetian un CA daban 0.85-1.0; las reglas propias, 0.75 o menos.
+var DUP_STOP_RE = /^(dado|cuando|entonces|sistema|usuario|que|con|para|por|una|uno|del|desde|este|esta|como|minimo|sobre|segun|aplique)$/;
+function contentStems(text) {
+  return uniq((norm(text).replace(/condicionad[oa] a[^.]*/g, ' ').match(/[a-z]{4,}/g) || [])
+    .filter(function(w){ return !DUP_STOP_RE.test(w); }).map(function(w){ return w.slice(0, 5); }));
+}
+function repeatsText(small, big) {
+  var w = contentStems(small);
+  if (w.length < 2) return 0;
+  var bw = contentStems(big);
+  var hit = w.filter(function(x){ return bw.indexOf(x) >= 0; }).length / w.length;
+  return (hit >= 0.85 && w.length >= 3) || hit === 1 ? hit : 0;
+}
 
 // Criticidad declarada por el documento dentro de la condicion del inventario.
 function inventoryCriticality(it) {
@@ -204,18 +232,23 @@ function validateHU(opts) {
   var rs = A.items.filter(function(i){ return i.prefix === 'R'; });
   var pendientes = inv.items.filter(function(it){ return it.estado === 'PENDIENTE'; });
   var exclusiones = inv.items.filter(isExclusion);
+  var contexto = inv.items.filter(isContext);
   function itemsCiting(n) { return A.items.filter(function(i){ return i.src.indexOf(n) >= 0; }); }
   var cobertura = {
     conTrazas: conTrazas,
-    inventario: { total: inv.items.length, cubiertos: 0, exentos: exclusiones.map(function(e){ return e.n; }), faltantes: [] },
+    inventario: { total: inv.items.length, cubiertos: 0, exentos: exclusiones.map(function(e){ return e.n; }),
+                  contexto: contexto.map(function(e){ return e.n; }), faltantes: [] },
     criterios: { total: cas.length, conEscenario: 0, sinEscenario: [] },
     pendientes: { total: pendientes.length, sinRiesgo: [], sinEscCondicionado: [] },
+    contradicciones: inv.items.filter(function(it){ return it.contradiccion; }).map(function(it){ return { n: it.n, condicion: it.condicion }; }),
     glosario: glossary.length,
   };
   if (conTrazas) {
     inv.items.forEach(function(it){
       var citing = itemsCiting(it.n);
-      if (citing.length) cobertura.inventario.cubiertos++;
+      // El contexto no necesita CA/RN/ESC: se cuenta como cubierto (va en la HU, la
+      // justificacion o, si esta pendiente, en un riesgo -- eso lo exige la regla de pendientes).
+      if (citing.length || isContext(it)) cobertura.inventario.cubiertos++;
       else cobertura.inventario.faltantes.push(it.n);
       if (isExclusion(it) && citing.some(function(i){ return i.prefix === 'ESC'; })) {
         add('V3', 'advertencia', citing.filter(function(i){ return i.prefix === 'ESC'; }).map(function(i){ return i.id; }),
@@ -234,7 +267,7 @@ function validateHU(opts) {
       add('V3', 'error', cobertura.criterios.sinEscenario, 'Criterio(s) sin escenario que los cubra: ' + cobertura.criterios.sinEscenario.join(', ') + '.');
     }
     pendientes.forEach(function(p){
-      var label = p.ref || ('item ' + p.n);
+      var label = pendingLabel(p);
       if (!rs.some(function(r){ return r.src.indexOf(p.n) >= 0; })) {
         cobertura.pendientes.sinRiesgo.push(p.n);
         add('V3', 'error', [], 'El pendiente ' + label + ' no aparece en ningun riesgo (R_N).');
@@ -244,7 +277,11 @@ function validateHU(opts) {
         if (e.src.indexOf(p.n) >= 0) return true;
         return e.cubre.some(function(id){ return byId[id] && byId[id].src.indexOf(p.n) >= 0; });
       });
-      if (!condEsc && !isExclusion(p)) {
+      // Solo se exige si el pendiente gobierna comportamiento (lo cita un CA o una RN). Un
+      // pendiente que solo vive en un riesgo (accesos, ubicar codigo, una definicion del
+      // proyecto) no tiene nada observable que probar: pedirle escenario fabricaba casos.
+      var afectaComportamiento = A.items.some(function(i){ return (i.prefix === 'CA' || i.prefix === 'RN') && i.src.indexOf(p.n) >= 0; });
+      if (!condEsc && afectaComportamiento && !isExclusion(p) && !isContext(p)) {
         cobertura.pendientes.sinEscCondicionado.push(p.n);
         add('V3', 'advertencia', [], 'El pendiente ' + label + ' no tiene ningun escenario condicionado (si afecta comportamiento observable, debe tenerlo).');
       }
@@ -258,7 +295,7 @@ function validateHU(opts) {
       var pend = it.src.map(function(n){ return invByN[n]; }).filter(function(x){ return x && x.estado === 'PENDIENTE'; });
       if (!pend.length) return;
       if (!it.condicion) {
-        add('V4', 'error', [it.id], it.id + ' deriva de un pendiente (' + pend.map(function(p){ return p.ref || ('item ' + p.n); }).join(', ') +
+        add('V4', 'error', [it.id], it.id + ' deriva de un pendiente (' + pend.map(pendingLabel).join(', ') +
           ') y no dice "Condicionado a".');
       } else {
         var missingRef = pend.filter(function(p){ return p.ref && norm(it.condicion).indexOf(norm(p.ref)) < 0; });
@@ -310,6 +347,43 @@ function validateHU(opts) {
       });
     });
   }
+
+  // V14: CA, RN o ESC que salen SOLO de items de contexto (objetivo, antecedentes,
+  // situacion actual, tareas del proyecto, decisiones tecnicas, indicaciones de prueba):
+  // no son comportamiento del sistema y en M4 terminan como casos que no se pueden probar.
+  if (conTrazas && inv.items.length) {
+    A.items.forEach(function(it){
+      if (it.prefix === 'R' || !it.src.length) return;
+      var srcItems = it.src.map(function(n){ return invByN[n]; }).filter(Boolean);
+      if (srcItems.length && srcItems.every(isContext)) {
+        add('V14', 'error', [it.id], it.id + ' sale solo de item(s) de contexto del requerimiento (' +
+          uniq(srcItems.map(function(x){ return x.n + ' ' + x.tipo; })).join(', ') + '), que no son comportamiento del sistema: no va como ' +
+          it.prefix + '. Si esta pendiente, va en un riesgo (R_N); si no, se elimina.');
+      }
+    });
+  }
+
+  // V15: RN que repite un CA (la regla no agrega nada que el criterio no diga). Infla el
+  // HU y, en M4, la cuenta de cosas por cubrir. Las RN de alcance (exclusiones) no cuentan.
+  A.items.filter(function(i){ return i.prefix === 'RN'; }).forEach(function(rn){
+    if (rn.src.some(function(n){ return invByN[n] && isExclusion(invByN[n]); })) return;
+    var best = null;
+    cas.forEach(function(ca){
+      var h = repeatsText(rn.text, ca.text);
+      if (h && (!best || h > best.h)) best = { id: ca.id, h: h };
+    });
+    if (best) add('V15', 'advertencia', [rn.id, best.id], rn.id + ' repite lo que ya dice ' + best.id +
+      ': una RN es una regla o restriccion que el CA no dice. Eliminarla (el item queda cubierto por ' + best.id +
+      ') o dejar en ella solo lo que el CA no dice.');
+  });
+
+  // V16: RN que solo dice que algo no esta definido o falta definirlo: eso es un riesgo.
+  A.items.filter(function(i){ return i.prefix === 'RN'; }).forEach(function(rn){
+    var t = norm(rn.text.replace(COND_RE, ''));
+    if (/\b(no (esta|estan) definid[oa]s?|esta(n)? por definir|sin definir|no se ha definido|falta definir|no (esta|estan) defin)/.test(t)) {
+      add('V16', 'advertencia', [rn.id], rn.id + ' solo dice que algo no esta definido: eso es un riesgo (R_N), no una regla. Moverlo a RIESGOS y condicionar los CA/RN/ESC que dependan de esa definicion.');
+    }
+  });
 
   // V5: cifras en escenarios que no estan literalmente en el inventario
   escs.forEach(function(e){
@@ -380,6 +454,9 @@ function validateHU(opts) {
     if (/\bejemplo\b(?!,)/i.test(raw)) add('V13', 'advertencia', [c.id], c.id + ': "ejemplo" sin coma ("Por ejemplo,").');
     if (/\b([Ee]l|[Aa]l|[Dd]el|[Uu]n|[Ll]os|[Pp]ara el) cliente\b/.test(raw)) add('V13', 'advertencia', [c.id], c.id + ': "cliente" en minuscula; cuando es un rol se escribe "Cliente".');
     if (/[—]/.test(raw)) add('V13', 'advertencia', [c.id], c.id + ': usa raya larga (em dash); no se usan en los entregables.');
+    // Etiquetas internas del inventario (Estado en mayusculas, 'Version 1:') no van al entregable.
+    var tag = raw.match(/\b(PENDIENTE|DEFINIDO|CONTRADICCI[OÓ]N)\b|\bVersi[oó]n [12]\s*:/);
+    if (tag) add('V13', 'advertencia', [c.id], c.id + ': usa la etiqueta interna del inventario "' + tag[0] + '"; redactar en lenguaje natural (por ejemplo, "esta por definir").');
   });
   var thirdTerms = glossary.filter(function(g){ return THIRD_GLOSSARY_TYPE_RE.test(norm(g.tipo)); });
   if (thirdTerms.length) {
@@ -406,6 +483,9 @@ function auditEstado(hallazgos) {
 
 module.exports = {
   parseInventory: parseInventory,
+  isExclusion: isExclusion,
+  isContext: isContext,
+  repeatsText: repeatsText,
   parseTracedAnalysis: parseTracedAnalysis,
   parseSection: parseSection,
   stripTraceMarks: stripTraceMarks,

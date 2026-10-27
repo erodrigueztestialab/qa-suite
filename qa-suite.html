@@ -1531,9 +1531,11 @@ function analysisHashOf(text) {
 var AUDIT_CODE_LABELS = {
   V1:'IDs', V2:'Referencia', V3:'Cobertura', V4:'Pendiente', V4b:'Condicion heredada', V5:'Cifra fija', V6:'Criticidad',
   V7:'Absoluto', V8:'Modal o premisa', V9:'Calificativo', V10:'Meta-cita', V11:'Impacto inferido', V12:'Alternativas',
-  V13:'Convencion', CONTRADICCION:'Contradiccion', SIN_SUSTENTO:'Sin sustento', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
+  V13:'Convencion', V14:'Contexto como regla', V15:'RN repite un CA', CONTRADICCION:'Contradiccion', SIN_SUSTENTO:'Sin sustento', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
   PENDIENTE_NO_MARCADO:'Pendiente no marcado', AUDITOR:'Auditor', REPARACION:'Reparacion'
 };
+// Llamar siempre con un solo argumento o con un diccionario: map(auditItemHtml) pasaba el
+// indice como "labels" y desde el segundo item la etiqueta salia como el codigo ("V4 · V4").
 function auditItemHtml(h, labels) {
   var lbl = (labels || AUDIT_CODE_LABELS)[h.codigo] || h.codigo;
   var msg = h.mensaje || '';
@@ -1566,15 +1568,22 @@ function renderAuditBox() {
   var inv = cob.inventario || {};
   var resumen = [];
   if (cob.conTrazas === false) resumen.push('HU importado: sin trazabilidad por item');
-  else if (inv.total) resumen.push('Inventario '+inv.cubiertos+'/'+inv.total+' cubierto'+(inv.exentos && inv.exentos.length ? ' ('+inv.exentos.length+' exento(s) de cobertura)' : ''));
+  else if (inv.total) resumen.push('Inventario '+inv.cubiertos+'/'+inv.total+' cubierto'+(inv.exentos && inv.exentos.length ? ' ('+inv.exentos.length+' exento(s) de cobertura)' : '')+
+    (inv.contexto && inv.contexto.length ? ', '+inv.contexto.length+' de contexto' : ''));
+  if (cob.contradicciones && cob.contradicciones.length) resumen.push(cob.contradicciones.length+' contradiccion(es) por confirmar');
   if (cob.criterios && cob.criterios.total && cob.conTrazas !== false) resumen.push('CA con escenario '+cob.criterios.conEscenario+'/'+cob.criterios.total);
   if (a.reparado) resumen.push((a.corregidos||[]).length+' hallazgo(s) corregido(s) automaticamente');
   resumen.push(pend.length ? pend.length+' advertencia(s)' : 'sin advertencias');
   var det = '';
-  if (pend.length) det += '<div class="audit-sub">Advertencias para revisar</div><ul>'+pend.map(auditItemHtml).join('')+'</ul>';
+  if (pend.length) det += '<div class="audit-sub">Advertencias para revisar</div><ul>'+pend.map(function(h){ return auditItemHtml(h); }).join('')+'</ul>';
   if (inv.exentos && inv.exentos.length) det += '<div class="audit-sub">Exento(s) de cobertura (fuera del alcance)</div><ul><li>Item(s) del inventario: '+esc(inv.exentos.join(', '))+'</li></ul>';
-  if (a.reparado && (a.corregidos||[]).length) det += '<div class="audit-sub">Corregido automaticamente</div><ul>'+a.corregidos.map(auditItemHtml).join('')+'</ul>';
-  if (info.length) det += '<div class="audit-sub">Revisado por el auditor sin defecto</div><ul>'+info.map(auditItemHtml).join('')+'</ul>';
+  // Contradicciones del requerimiento: el HU no elige version; se confirman con el Cliente.
+  if (cob.contradicciones && cob.contradicciones.length) det += '<div class="audit-sub">Contradicciones del requerimiento (por confirmar)</div><ul>'+
+    cob.contradicciones.map(function(c){ return '<li><b>Item '+esc(String(c.n))+'</b> '+esc(c.condicion)+'</li>'; }).join('')+'</ul>';
+  // Contexto (objetivo, antecedentes, tareas, decisiones): no genera reglas ni casos.
+  if (inv.contexto && inv.contexto.length) det += '<div class="audit-sub">Contexto del requerimiento (no se prueba: objetivo, antecedentes, tareas, decisiones)</div><ul><li>Item(s) del inventario: '+esc(inv.contexto.join(', '))+'</li></ul>';
+  if (a.reparado && (a.corregidos||[]).length) det += '<div class="audit-sub">Corregido automaticamente</div><ul>'+a.corregidos.map(function(h){ return auditItemHtml(h); }).join('')+'</ul>';
+  if (info.length) det += '<div class="audit-sub">Revisado por el auditor sin defecto</div><ul>'+info.map(function(h){ return auditItemHtml(h); }).join('')+'</ul>';
   if (S.analysisTrace && S.analysisTrace.glossary && S.analysisTrace.glossary.length) {
     det += '<div class="audit-sub">Glosario del requerimiento</div><ul><li>'+esc(S.analysisTrace.glossary.map(function(g){ return g.termino; }).join(' · '))+'</li></ul>';
   }
@@ -3787,7 +3796,7 @@ function normalizeResponsables() {
 }
 var PLAN_AUDIT_LABELS = {
   V1:'Pendiente en alcance', V2:'Condicion inconsistente', V3:'Codigo inexistente', V4:'Trazabilidad', V5:'Nombre propio',
-  V6:'Cifra o fecha', V7:'Convencion', V8:'Responsables', V9:'Marca [src]', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
+  V6:'Cifra o fecha', V7:'Convencion', V8:'Responsables', V9:'Marca [src]', V10:'Contexto en alcance', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
   PREMISA_COMO_HECHO:'Premisa como hecho', CONSECUENCIA_INFERIDA:'Consecuencia inferida', INCOHERENCIA:'Incoherencia',
   SIN_SUSTENTO:'Sin sustento', AUDITOR:'Auditor', REPARACION:'Reparacion'
 };

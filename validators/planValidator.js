@@ -101,7 +101,16 @@ function validatePlan(opts) {
   var invByN = {};
   inv.items.forEach(function(it){ invByN[it.n] = it; });
   var isExcl = function(it){ return /exclu/i.test(it.tipo); };
-  var pend = inv.items.filter(function(it){ return it.estado === 'PENDIENTE' && !isExcl(it); });
+  // Solo son alcance los pendientes que gobiernan comportamiento: no son de contexto (tareas,
+  // decisiones...) y, si el analisis trae trazas, algun CA o RN los cita. Los demas (accesos,
+  // ubicar codigo, definiciones del proyecto que solo viven en un riesgo) van en supuestos,
+  // riesgos o criterios de entrada: meterlos al alcance fabricaba 'funcionalidades' a probar.
+  var tracedItems = opts.analysis && /\[\s*src\s*:/i.test(opts.analysis) ? H.parseTracedAnalysis(opts.analysis).items : null;
+  function governsBehavior(it) {
+    return !tracedItems || tracedItems.some(function(i){ return (i.prefix === 'CA' || i.prefix === 'RN') && i.src.indexOf(it.n) >= 0; });
+  }
+  var pend = inv.items.filter(function(it){ return it.estado === 'PENDIENTE' && !isExcl(it) && !H.isContext(it) && governsBehavior(it); });
+  var pendOtros = inv.items.filter(function(it){ return it.estado === 'PENDIENTE' && !isExcl(it) && pend.indexOf(it) < 0; });
   var refsAll = uniq(inv.items.map(function(it){ return (it.ref || '').toUpperCase(); }).filter(function(r){ return /[A-Z]/.test(r); }));
   var pendRefs = uniq(pend.map(function(it){ return (it.ref || '').toUpperCase(); }).filter(function(r){ return /[A-Z]/.test(r); }));
   var analysisClean = H.stripTraceMarks(opts.analysis || '');
@@ -112,13 +121,13 @@ function validatePlan(opts) {
   // Pendientes de los que sale un item (por numero o por Ref) -> Refs que debe nombrar.
   function pendingOf(it) {
     var out = [];
-    it.src.nums.forEach(function(n){ var p = invByN[n]; if (p && p.estado === 'PENDIENTE' && !isExcl(p)) out.push(p); });
+    it.src.nums.forEach(function(n){ var p = invByN[n]; if (p && p.estado === 'PENDIENTE' && !isExcl(p) && !H.isContext(p)) out.push(p); });
     it.src.refs.concat(it.codes.map(function(c){ return c.toUpperCase(); })).forEach(function(r){
       pend.forEach(function(p){ if ((p.ref || '').toUpperCase() === r && out.indexOf(p) < 0) out.push(p); });
     });
     return out;
   }
-  function labelOf(p) { return p.ref || ('item ' + p.n + ' del inventario'); }
+  function labelOf(p) { return p.ref || ((p.contradiccion ? 'la contradiccion del item ' : 'item ') + p.n + ' del inventario'); }
 
   var cobertura = {
     conInventario: inv.items.length > 0,
@@ -172,6 +181,11 @@ function validatePlan(opts) {
     });
     if (hit) cobertura.pendientes.trazados++;
     else add('V4', 'error', [], 'El pendiente ' + labelOf(p) + ' no aparece en Supuestos, Riesgos ni Criterios de entrada.');
+  });
+  // Pendientes que no son alcance (contexto o que solo viven en un riesgo): tampoco se pierden.
+  pendOtros.forEach(function(p){
+    var hit = traceItems.some(function(it){ return p.ref ? norm(it.text).indexOf(norm(p.ref)) >= 0 : it.src.nums.indexOf(p.n) >= 0; });
+    if (!hit) add('V4', 'error', [], 'El pendiente ' + labelOf(p) + ' (' + p.tipo + ') no aparece en Supuestos, Riesgos ni Criterios de entrada.');
   });
   traceItems.forEach(function(it){
     var p = pendingOf(it);
@@ -250,6 +264,15 @@ function validatePlan(opts) {
         .concat(it.src.refs.filter(function(r){ return refsAll.indexOf(r) < 0; })).concat(it.src.bad);
       if (bad.length) add('V9', 'error', [it.id], it.id + ': [src] apunta a ' + bad.join(', ') + ', que no existe en el inventario.');
       if (!it.src.hasSrc && SRC_REQUIRED_SECTIONS.indexOf(it.sec) >= 0) add('V9', 'advertencia', [it.id], it.id + ' no tiene marca de trazabilidad [src].');
+    });
+  }
+
+  // V10: alcance que sale solo de items de contexto (objetivo, tareas, decisiones...): no es algo a probar.
+  if (inv.items.length) {
+    bySec(['ALCANCE_DENTRO', 'ALCANCE_FUERA']).forEach(function(it){
+      var srcItems = it.src.nums.map(function(n){ return invByN[n]; }).filter(Boolean);
+      if (srcItems.length && srcItems.every(H.isContext)) add('V10', 'advertencia', [it.id], it.id + ' sale solo de item(s) de contexto (' +
+        uniq(srcItems.map(function(x){ return x.n + ' ' + x.tipo; })).join(', ') + '): no es una funcionalidad a probar. Va en Objetivo, Estrategia, Supuestos, Riesgos o Criterios de entrada.');
     });
   }
 
