@@ -1441,6 +1441,9 @@ function resetDownstreamState() {
   S.planTrace = null;       // Plan con marcas [src] (solo para el validador)
   S.planAudit = null;       // auditoria de alineacion del Plan (M3)
   S.planAnalysisHash = null; // S.analysisHash con el que se genero el Plan
+  S.casesAudit = null;        // auditoria de alineacion de los casos (M4)
+  S.casesAnalysisHash = null; // S.analysisHash con el que se generaron los casos
+  S.casesPlanHash = null;     // planHashOf() con el que se generaron los casos
   // Textos editables del Informe de Avance -- si no se resetean aca, analizar un
   // requerimiento NUEVO sin recargar la pagina dejaria pegado el intro/validaciones
   // del requerimiento ANTERIOR (mismo tipo de bug de "mezcla de sesiones" ya
@@ -2475,6 +2478,108 @@ function procConsoleSSE(id) {
   return evtSrc;
 }
 
+/* ── AUDITORIA DE ALINEACION DE LOS CASOS (M4) ──────────────────────────
+   /api/generate-cases devuelve los casos con marcas [src]/[cubre] en d.casesTraced y
+   la auditoria en d.audit. Las marcas viven en c.marks (nunca en los campos que se ven
+   o se exportan): sobreviven a renumerar/editar y viajan a la consolidacion. */
+// Inventario, glosario, HU y plan con trazas para los endpoints de M4 (sin inventario
+// el backend trabaja como antes y no audita).
+function m4CtxPayload() {
+  var tr = S.analysisTrace || {};
+  return { inventory: tr.inventory || null, glossary: tr.glossary || [], analysisTraced: tr.traced || null, planTraced: S.planTrace || null };
+}
+// Version del plan con la que se generaron los casos (si el plan cambia, los casos quedan desactualizados).
+function planHashOf() { return S.planSections ? analysisHashOf(JSON.stringify(S.planSections)) : null; }
+// Casos con marcas -> casos limpios (parseCasesBlock) + c.marks "[src: ...] [cubre: ...]" por ID.
+function parseCasesWithMarks(raw) {
+  var marks = {};
+  String(raw || '').replace(/^[ \t]*###[ \t]*(CP_\d+)([^\r\n]*)$/gm, function(_, id, rest){
+    var m = rest.match(/\[\s*(?:src|cubre)\s*:[^\]]*\]/gi);
+    if (m) marks[id] = m.join(' ');
+    return _;
+  });
+  return parseCasesBlock(stripTraceMarks(raw)).map(function(c){
+    if (marks[c.id]) c.marks = marks[c.id];
+    return c;
+  });
+}
+// S.cases -> texto con marcas, mismo formato que genera la IA (para revalidar sin IA).
+function casesTracedText(cases) {
+  return '---CASOS_DE_PRUEBA---\n' + (cases || []).map(function(c){
+    return ['### '+c.id+(c.marks ? ' '+c.marks : ''), 'Requisito: '+(c.requisito||''), 'Tipo: '+(c.tipo||''),
+      'Complejidad: '+(c.complejidadEjecucion||'Medio'), 'Escenario: '+(c.escenario||''), 'Caso: '+(c.caso||''),
+      'Objetivo: '+(c.objetivo||''), 'Pasos:'].concat((c.steps||[]).map(function(s, i){ return (i+1)+'. '+(s.paso||'')+' >> '+(s.resultado||''); })).join('\n');
+  }).join('\n');
+}
+// Despues de consolidar o agregar faltantes: solo validador (sin IA). No bloquea.
+async function revalidateCases() {
+  var ctx = m4CtxPayload();
+  if (!ctx.inventory) { S.casesAudit = { estado: 'NO_AUDITADO', motivo: 'el analisis de M1 no trae inventario.' }; return; }
+  try {
+    var r = await fetch(API+'/api/validate-cases', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(Object.assign({ casesTraced: casesTracedText(S.cases) }, ctx)) });
+    var d = await r.json();
+    if (r.ok && d.audit) S.casesAudit = d.audit;
+  } catch(e) { console.error('[revalidateCases]', e); }
+}
+function casesIsStale() {
+  if (!S.cases.length || !S.casesAudit) return false;
+  return !!((S.casesAnalysisHash && S.analysisHash && S.casesAnalysisHash !== S.analysisHash) ||
+    (S.casesPlanHash && S.casesPlanHash !== planHashOf()));
+}
+function casesStaleBannerHtml() {
+  if (!casesIsStale()) return '';
+  var what = (S.casesAnalysisHash && S.analysisHash && S.casesAnalysisHash !== S.analysisHash) ? 'El analisis de M1' : 'El Plan de Pruebas';
+  return '<div class="audit-box ab-warn"><div class="audit-hdr"><span class="audit-ttl">Casos desactualizados</span>' +
+    '<span class="audit-badge">Revisar</span><span class="audit-sum">'+what+' cambio despues de generar estos casos. ' +
+    'Vuelve a generarlos, o revisa a mano que sigan alineados con el HU y el plan actuales.</span></div></div>';
+}
+var CASES_AUDIT_LABELS = {
+  V1:'Cobertura', V2:'Condicion', V3:'Exclusion', V4:'Alternativas', V5:'Nombre propio', V6:'Escenario', V7:'Convencion',
+  V8:'Pasos y resultados', V9:'Marca [src]', V10:'Duplicado', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
+  PREMISA_COMO_HECHO:'Premisa como hecho', CONSECUENCIA_INFERIDA:'Consecuencia inferida', INCOHERENCIA:'Incoherencia',
+  RELLENO:'Relleno', AUDITOR:'Auditor', REPARACION:'Reparacion'
+};
+function toggleCasesAuditDetail() {
+  var d = document.getElementById('cases-audit-det'), t = document.getElementById('cases-audit-toggle');
+  if (!d) return;
+  var show = d.style.display === 'none';
+  d.style.display = show ? '' : 'none';
+  if (t) t.innerHTML = show ? 'Ocultar detalle &#9652;' : 'Ver detalle &#9662;';
+}
+function casesAuditBoxHtml() {
+  var a = S.casesAudit;
+  if (!a) return '';
+  if (a.estado === 'NO_AUDITADO' || a.estado === 'IMPORTADO') {
+    var txt = a.estado === 'IMPORTADO' ? 'Casos importados desde Excel: no se auditaron contra el requerimiento.'
+      : 'No se pudo auditar: ' + (a.motivo || 'el analisis de M1 no trae inventario.') + ' Vuelve a analizar el requerimiento en M1 para auditar los casos.';
+    return '<div class="audit-box ab-neutral"><div class="audit-hdr"><span class="audit-ttl">Auditoria de alineacion</span>' +
+      '<span class="audit-badge">No auditado</span><span class="audit-sum">'+esc(txt)+'</span></div></div>';
+  }
+  var ok = a.estado === 'OK';
+  var hall = a.hallazgos || [];
+  var pend = hall.filter(function(h){ return h.severidad !== 'info'; });
+  var info = hall.filter(function(h){ return h.severidad === 'info'; });
+  var cob = a.cobertura || {};
+  var resumen = [];
+  if (cob.hu && cob.hu.total) resumen.push('CA/RN/ESC con caso '+cob.hu.cubiertos+'/'+cob.hu.total);
+  if (cob.plan && cob.plan.total) resumen.push('Alcance del plan con caso '+cob.plan.cubiertos+'/'+cob.plan.total);
+  if (cob.condicionados) resumen.push(cob.condicionados+' caso(s) condicionado(s)');
+  if (a.casosAgregados) resumen.push(a.casosAgregados+' caso(s) agregado(s) por cobertura');
+  if (a.reparado) resumen.push((a.corregidos||[]).length+' hallazgo(s) corregido(s) automaticamente');
+  if (a.soloValidador) resumen.push('revalidado sin IA tras el ultimo cambio');
+  resumen.push(pend.length ? pend.length+' advertencia(s)' : 'sin advertencias');
+  function list(arr) { return arr.map(function(h){ return auditItemHtml(h, CASES_AUDIT_LABELS); }).join(''); }
+  var det = '';
+  if (pend.length) det += '<div class="audit-sub">Advertencias para revisar</div><ul>'+list(pend)+'</ul>';
+  if ((a.reparado || a.casosAgregados) && (a.corregidos||[]).length) det += '<div class="audit-sub">Corregido automaticamente</div><ul>'+list(a.corregidos)+'</ul>';
+  if (info.length) det += '<div class="audit-sub">Revisado por el auditor sin defecto</div><ul>'+list(info)+'</ul>';
+  return '<div class="audit-box '+(ok ? 'ab-ok' : 'ab-warn')+'" id="cases-audit-box"><div class="audit-hdr" onclick="toggleCasesAuditDetail()">' +
+    '<span class="audit-ttl">Auditoria de alineacion</span><span class="audit-badge">'+(ok ? 'OK' : 'Con advertencias')+'</span>' +
+    '<span class="audit-sum">'+esc(resumen.join(' · '))+'</span><span class="audit-ttl" id="cases-audit-toggle">Ver detalle &#9662;</span></div>' +
+    '<div class="audit-det" id="cases-audit-det" style="display:none">'+(det || 'Sin detalle.')+'</div></div>';
+}
+
 async function generateCases(transcripts) {
   if (!_analysis) { toast('Analiza un requerimiento primero.','err'); return; }
   var btn = document.getElementById('btn-gen-cases');
@@ -2486,18 +2591,25 @@ async function generateCases(transcripts) {
   try {
     var r = await fetch(API+'/api/generate-cases', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
+      // Lo que M1/M3 ya produjeron (inventario, glosario, HU y plan con trazas): sin esto
+      // los casos no saben que es pendiente, que es exclusion ni que dice el plan.
+      body: JSON.stringify(Object.assign({
         analysisRaw: _analysis,
         m2Context: { impactAreas:S.impactAreas },
         engine: _engine,
         transcripts: transcripts || [],
         reqId: evtSrc.reqId,
-      })
+      }, m4CtxPayload()))
     });
     var d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Error generando casos');
     addAiTime((Date.now()-t0)/1000);
-    S.cases = parseCasesBlock(d.cases);
+    // Las marcas se separan a c.marks: nunca llegan a pantalla ni al Excel.
+    S.cases = parseCasesWithMarks(d.casesTraced || d.cases);
+    S.casesAudit = d.audit || null;
+    S.casesAnalysisHash = S.analysisHash || null;
+    S.casesPlanHash = planHashOf();
+    S.coverageVerified = null;
     if (!S.cases.length) toast('La IA no devolvio casos en el formato esperado.','err');
     else {
       ok = true; toast(S.cases.length+' casos generados','ok');
@@ -2630,17 +2742,17 @@ async function consolidateCases() {
   var evtSrc = procConsoleSSE('sc-m3');
   var t0 = Date.now(); var ok = false;
   try {
-    var r = await fetch(API+'/api/consolidate-cases', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+    var r = await fetch(API+'/api/consolidate-cases', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(Object.assign({
       analysisRaw: _analysis,
-      cases: S.cases.map(function(c){ return { id:c.id, requisito:c.requisito, tipo:c.tipo, escenario:c.escenario, caso:c.caso, objetivo:c.objetivo, steps:c.steps }; }),
+      cases: S.cases.map(function(c){ return { id:c.id, marks:c.marks || '', requisito:c.requisito, tipo:c.tipo, escenario:c.escenario, caso:c.caso, objetivo:c.objetivo, steps:c.steps }; }),
       sources: _consolidateFiles.map(function(f){ return { origen:f.origen, filename:f.filename, text:f.text }; }),
       m2Context: { impactAreas: S.impactAreas },
       engine: _engine, reqId: evtSrc.reqId,
-    }) });
+    }, m4CtxPayload())) });
     var d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Error consolidando casos');
     addAiTime((Date.now()-t0)/1000);
-    var cases = parseCasesBlock(d.raw);
+    var cases = parseCasesWithMarks(d.raw);
     if (!cases.length) throw new Error('La IA no devolvió casos en el formato esperado.');
     cases.forEach(function(c){
       c.origen = ['IA','QA','Cliente','Combinado'].filter(function(o){ return new RegExp('^'+o,'i').test(c.origen||''); })[0] || 'IA';
@@ -2691,7 +2803,7 @@ function consolidateReviewHtml() {
     '<div style="font-size:10.5px;color:var(--text3);margin-top:6px">Al aplicar, los casos marcados <b>reemplazan</b> los actuales (se renumeran CP_1, CP_2…), y hay que volver a verificar la cobertura y exportar el Excel.</div>' +
   '</div>';
 }
-function applyConsolidation() {
+async function applyConsolidation() {
   var R = _consolidateResult; if (!R) return;
   var picked = R.cases.filter(function(c, i){ return R.accepted[i]; });
   if (!picked.length) { toast('Marca al menos un caso para aplicar.','err'); return; }
@@ -2701,6 +2813,10 @@ function applyConsolidation() {
   S.coverageVerified = null;
   S.casesExcelExported = false;
   _consolidateResult = null; _consolidateFiles = [];
+  // El set cambio: la auditoria de la generacion ya no aplica; se revalida sin IA.
+  await revalidateCases();
+  S.casesAnalysisHash = S.analysisHash || null;
+  S.casesPlanHash = planHashOf();
   toast(picked.length+' casos consolidados aplicados. Verifica la cobertura con IA.','ok');
   renderM3();
 }
@@ -2772,6 +2888,8 @@ function renderM3() {
       '<div class="advance-ttl" style="color:var(--green)">&#10003; '+S.cases.length+' caso(s) generados</div>' +
       '<div class="advance-sub">Edita o elimina casos antes de continuar a Ejecucion.</div>' +
     '</div>' +
+    casesStaleBannerHtml() +
+    casesAuditBoxHtml() +
     (_consolidateResult ? consolidateReviewHtml() : '') +
     consolidateCardHtml() +
     caseTranscriptsHtml() +
@@ -2970,7 +3088,16 @@ function computeCoverage() {
   }
   var ca = withCoverage(parseReqIdItems(_analysis, 'CRITERIOS_DE_ACEPTACION'));
   var rn = withCoverage(parseReqIdItems(_analysis, 'REGLAS_DE_NEGOCIO'));
-  return { items: ca.concat(rn) };
+  // Con trazabilidad (casos con [cubre]) tambien cuentan los escenarios ESC_N de la HU.
+  var esc = [];
+  if (S.cases.some(function(c){ return c.marks; })) {
+    esc = parseReqIdItems(_analysis, 'ESCENARIOS_QA').filter(function(x){ return /^ESC_\d+$/i.test(x.id); }).map(function(item){
+      var re = new RegExp('\\b'+item.id+'\\b', 'i');
+      var ids = S.cases.filter(function(c){ return re.test(c.marks || ''); }).map(function(c){ return c.id; });
+      return { id: item.id, text: item.text, covered: ids.length > 0, caseIds: ids };
+    });
+  }
+  return { items: ca.concat(rn, esc) };
 }
 // Version compacta: una sola fila por ID (no dos tablas separadas), con la
 // descripcion truncada y los casos que lo cubren como badges chicos. El detalle
@@ -3022,6 +3149,11 @@ function coverageReportHtml() {
           // sabia si la verificacion habia terminado o encontrado algo).
           : (verified ? '<div style="font-size:11.5px;color:var(--green);margin-top:8px;font-weight:600;background:var(--grn-bg);border:1px solid var(--grn-b);border-radius:6px;padding:8px 10px">&#10004; Cobertura completa: '+coverageCountText(items)+' tienen al menos un caso que los valida. No hace falta generar casos adicionales.</div>' : ''))
     ) +
+    (verified && verified.hallazgos && verified.hallazgos.length
+      ? '<div class="m2-card-hdr" style="margin-top:12px">Hallazgos de alineacion ('+verified.hallazgos.length+')</div>' +
+        '<ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text2);line-height:1.6">'+verified.hallazgos.map(function(h){
+          return '<li><b>'+esc(h.tipo)+'</b>'+(h.ids ? ' &middot; '+esc(h.ids) : '')+': '+esc(h.texto)+'</li>'; }).join('')+'</ul>'
+      : '') +
     '<button class="btn btn-ghost" id="btn-verify-coverage" style="margin-top:10px" onclick="verifyCoverageWithAI()">'+(verified?'&#8634; Re-verificar':'Verificar')+' cobertura con IA</button>' +
     (verified && missing.length
       ? ' <button class="btn btn-primary" id="btn-gen-gap-cases" style="margin-top:10px" onclick="generateGapCases()">Generar casos para lo faltante</button>'
@@ -3034,9 +3166,12 @@ function coverageReportHtml() {
 function coverageCountText(items) {
   var ca = items.filter(function(x){ return /^CA_/i.test(x.id); }).length;
   var rn = items.filter(function(x){ return /^RN_/i.test(x.id); }).length;
+  var es = items.filter(function(x){ return /^ESC_/i.test(x.id); }).length;
   var parts = [];
   if (ca) parts.push(ca === 1 ? 'el criterio de aceptación' : 'los '+ca+' criterios de aceptación');
   if (rn) parts.push(rn === 1 ? 'la regla de negocio' : 'las '+rn+' reglas de negocio');
+  if (es) parts.push(es === 1 ? 'el escenario QA' : 'los '+es+' escenarios QA');
+  if (parts.length > 2) return parts.slice(0, -1).join(', ') + ' y ' + parts[parts.length - 1];
   return parts.join(' y ') || 'todos los requisitos';
 }
 
@@ -3053,12 +3188,12 @@ async function verifyCoverageWithAI() {
   try {
     var r = await fetch(API+'/api/verify-coverage', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
+      body: JSON.stringify(Object.assign({
         analysisRaw: _analysis,
-        cases: S.cases.map(function(c){ return { id:c.id, requisito:c.requisito, objetivo:c.objetivo, steps:c.steps }; }),
+        cases: S.cases.map(function(c){ return { id:c.id, requisito:c.requisito, caso:c.caso, objetivo:c.objetivo, steps:c.steps }; }),
         engine: _engine,
         reqId: evtSrc.reqId,
-      })
+      }, m4CtxPayload()))
     });
     var d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Error verificando cobertura');
@@ -3074,8 +3209,14 @@ async function verifyCoverageWithAI() {
         caseIds: (p[2]||'').split(',').map(function(s){ return s.trim(); }).filter(Boolean),
         justificacion: p[3] || '',
       };
-    }).filter(function(x){ return /^(CA|RN)_\d+$/i.test(x.id); });
-    S.coverageVerified = { items: items, verifiedAt: nowStrCO() };
+    }).filter(function(x){ return /^(CA|RN|ESC)_\d+$/i.test(x.id); });
+    // Con contexto de M1/M3 la IA tambien reporta hallazgos de alineacion (condicion, exclusion, nombre, alcance del plan).
+    var hallazgos = (parseSection(d.raw, 'HALLAZGOS_ALINEACION') || '').split('\n').map(function(l){ return l.trim(); })
+      .filter(function(l){ return l && l.indexOf('|') !== -1; })
+      .map(function(l){ var p = l.replace(/^\|/, '').replace(/\|$/, '').split('|').map(function(x){ return x.trim().replace(/\*\*/g, ''); });
+        return { tipo: p[0] || '', ids: p[1] || '', texto: p.slice(2).join(' | ') }; })
+      .filter(function(h){ return /^(CONDICION|EXCLUSION|NOMBRE|ALCANCE_PLAN)/i.test(h.tipo); });
+    S.coverageVerified = { items: items, hallazgos: hallazgos, verifiedAt: nowStrCO() };
     ok = true;
     var nMissing = items.filter(function(x){ return !x.covered; }).length;
     toast(nMissing ? 'Cobertura verificada: '+nMissing+' requisito(s) sin cubrir' : 'Cobertura verificada: completa', nMissing ? 'err' : 'ok');
@@ -3107,14 +3248,14 @@ async function generateGapCases() {
   try {
     var r = await fetch(API+'/api/generate-gap-cases', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
+      body: JSON.stringify(Object.assign({
         analysisRaw: _analysis,
         existingCases: S.cases.map(function(c){ return { id:c.id, requisito:c.requisito, caso:c.caso, steps:c.steps }; }),
         gapItems: missing.map(function(x){ return { id:x.id, justificacion:x.justificacion }; }),
         m2Context: { impactAreas:S.impactAreas },
         engine: _engine,
         reqId: evtSrc.reqId,
-      })
+      }, m4CtxPayload()))
     });
     var d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Error generando los casos faltantes');
@@ -3124,7 +3265,7 @@ async function generateGapCases() {
     // visible en la tarjeta de cobertura hasta la proxima verificacion. Se revisa ANTES
     // de parsear: parseCasesBlock() es tolerante y convertia la marca en un caso falso.
     var sinNuevos = !/###\s*CP_/i.test(d.cases||'');
-    var newCases = sinNuevos ? [] : parseCasesBlock(d.cases);
+    var newCases = sinNuevos ? [] : parseCasesWithMarks(d.cases);
     if (sinNuevos && /SIN_CASOS_NUEVOS/.test(d.cases||'')) {
       S.coverageVerified.gapNoNew = nowStrCO();
       ok = true;
@@ -3136,6 +3277,7 @@ async function generateGapCases() {
       S.cases.forEach(function(c,i){ c.id = 'CP_'+(i+1); }); // evita colision de IDs, sin el toast/render de renumberCases()
       // La cobertura ya verificada quedo desactualizada -- el set de casos cambio.
       S.coverageVerified = null;
+      await revalidateCases();
       ok = true;
       toast(newCases.length+' caso(s) agregado(s). Re-verifica la cobertura para confirmar.','ok');
     }
@@ -3223,6 +3365,10 @@ async function importCasosExcel(input) {
     S.cases = nuevos;
     S.coverageVerified = null;
     S.casesExcelExported = false;
+    // El Excel no trae marcas [src]/[cubre]: no se puede auditar contra el requerimiento.
+    S.casesAudit = { estado: 'IMPORTADO' };
+    S.casesAnalysisHash = S.analysisHash || null;
+    S.casesPlanHash = planHashOf();
     _selectedCaseIds = {};
     toast(nuevos.length+' caso(s) importado(s) desde Excel','ok');
     renderM3();

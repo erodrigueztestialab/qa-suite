@@ -1,0 +1,61 @@
+---CASOS_DE_PRUEBA---
+### CP_1 [src: CA_1] [cubre: CA_1, RN_1, RN_2, ESC_1]
+Requisito: CA_1, RN_1, RN_2
+Tipo: Funcional
+Complejidad: Bajo
+Escenario: Monto dentro del límite
+Caso: Aprobación automática con monto dentro del límite
+Objetivo: Verificar que una solicitud con monto N menor o igual al máximo se aprueba automáticamente.
+Pasos:
+1. Ingresar al Portal de Reembolsos como Solicitante >> Se muestra el formulario de solicitud de reembolso
+2. Registrar una solicitud con monto N menor o igual al máximo y enviarla >> La solicitud se aprueba automáticamente
+### CP_2 [src: CA_2] [cubre: CA_2, RN_3, ESC_2]
+Requisito: CA_2, RN_3
+Tipo: Funcional
+Complejidad: Medio
+Escenario: Factura electrónica validada
+Caso: Aprobación automática con factura electrónica validada sobre el máximo
+Objetivo: Verificar que una solicitud por encima del máximo con factura electrónica validada se aprueba automáticamente.
+Pasos:
+1. Ingresar al Portal de Reembolsos como Solicitante >> Se muestra el formulario de solicitud de reembolso
+2. Registrar una solicitud con monto por encima del máximo, adjuntar una factura electrónica validada y enviarla >> La solicitud se aprueba automáticamente
+### CP_3 [src: CA_3] [cubre: CA_3, ESC_3]
+Requisito: CA_3
+Tipo: Funcional
+Complejidad: Bajo
+Escenario: Monto fuera del límite
+Caso: Rechazo del monto superior al máximo sin factura electrónica validada
+Objetivo: Verificar el mensaje cuando el monto supera el máximo y no hay factura electrónica validada.
+Pasos:
+1. Registrar una solicitud con monto superior a 500 sin factura electrónica validada >> El sistema muestra el mensaje "El monto supera el máximo permitido"
+2. Revisar el estado de la solicitud >> La solicitud no queda aprobada automáticamente
+### CP_4 [src: CA_4, DEP-01] [cubre: CA_4, ESC_4]
+Requisito: CA_4
+Tipo: Funcional
+Complejidad: Medio
+Escenario: Notificación por canal móvil
+Caso: Notificación al Aprobador por el canal móvil de NotiPlus. Condicionado a DEP-01
+Objetivo: Verificar que el Aprobador recibe la notificación por el canal móvil de NotiPlus cuando DEP-01 esté definida. Condicionado a DEP-01
+Pasos:
+1. Aprobar una solicitud de reembolso >> La solicitud queda aprobada
+2. Revisar el canal móvil del Aprobador >> El Aprobador recibe la notificación por el canal móvil de NotiPlus según lo que defina DEP-01
+### CP_5 [src: RN_4] [cubre: RN_4, ESC_5]
+Requisito: RN_4
+Tipo: UI
+Complejidad: Bajo
+Escenario: Máximo de soportes
+Caso: Adjuntar el máximo de soportes permitido
+Objetivo: Verificar que el Solicitante puede adjuntar X soportes con X igual al máximo permitido.
+Pasos:
+1. Abrir una solicitud de reembolso en el Portal de Reembolsos >> Se muestra la opción para adjuntar soportes
+2. Adjuntar X soportes con X igual al máximo permitido >> Los soportes quedan adjuntos a la solicitud
+### CP_6 [src: RN_5] [cubre: RN_5]
+Requisito: RN_5
+Tipo: Funcional
+Complejidad: Bajo
+Escenario: Integración contable fuera del alcance
+Caso: La solicitud aprobada no se envía al sistema contable
+Objetivo: Verificar que la aprobación de una solicitud no genera ninguna integración con el sistema contable.
+Pasos:
+1. Aprobar una solicitud de reembolso >> La solicitud queda aprobada
+2. Revisar las opciones del Portal de Reembolsos sobre la solicitud aprobada >> No se genera ninguna integración con el sistema contable

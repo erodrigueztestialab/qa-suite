@@ -1,6 +1,6 @@
 - [Español colombiano](feedback_spanish_colombian.md) — responder siempre en español colombiano TUTEANDO (tú), nunca "usted" ni "vos"/voseo.
 - [Probar antes de decir "listo"](feedback_test_before_claiming_done.md) — verificar de verdad (navegador/reproducción), no solo revisión de código.
-- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 27 (2026-10-26): briefs 1/3 M1 (PRs #75/#76 mergeados) y 2/3 M3 plan (inventario+validador V1-V9+auditor+reparación, Responsables sin relleno, título normalizado) en feature/m3-plan-auditoria; falta brief M4.
+- [Estado QA Suite TestIALab](project_qa_suite_status.md) — sesión 27 (2026-10-26): M1 y M3 mergeados (#75-#78); M4 EN CURSO en feature/m4-casos-auditoria (WIP, validador listo, faltan endpoints/front/pruebas/PR; ver punto 11).
 - [Identidad git QA-Suite](project_git_identity.md) — todo commit/push/PR solo con correo @testialab.com (erodriguez@testialab.com / erodrigueztestialab); nunca otro dominio ni otra cuenta.
 - [Flujo de ramas QA-Suite](project_git_workflow.md) — main/develop/feature con PR obligatorio; auto-borrado de feature/* al mergear + ruleset que impide borrar main/develop (2026-09-29).
 - [Modelo/esfuerzo preferido](feedback_model_effort.md) — Sonnet medio por defecto para fixes/desarrollo en QA Suite (mi propio razonamiento), salvo indicación contraria.
@@ -15,3 +15,4 @@
 - [Plan demo Liz 2026-10-08](project_plan_liz_2026_10_08.md) — 6 fases (bugs, Avance gerencial/Teams, Bugs, consolidar casos M4, finalizacion, docs) + decisiones: estados en espanol, M2 solo nota, repo publico por hoy.
 - [Resumen para JIRA Timeboard](feedback_jira_worklog.md) — título + 3-4 bullets de una línea en lenguaje de negocio + bullet final de pruebas/PRs.
 - [Entregables sin re-análisis](feedback_entregables_sin_reanalisis.md) — HU/plan/casos deben salir alineados con el requerimiento; todo defecto detectado se vuelve regla de prompt o validación (validador + test), no corrección manual.
+- [Autorización para mergear](feedback_merge_authorization.md) — mergear feature->develop y develop->main si npm test pasa y el PR está limpio (no hay CI); el modo auto puede bloquear gh pr merge.
