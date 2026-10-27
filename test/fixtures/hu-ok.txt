@@ -12,7 +12,7 @@ CA_4 | Dado que la solicitud se aprobó, Cuando se notifica al Aprobador, Entonc
 ---REGLAS_DE_NEGOCIO---
 RN_1 | El monto máximo por solicitud de reembolso es 500. [src: 1]
 RN_2 | La aprobación automática aplica solo cuando el monto no supera el máximo, salvo las solicitudes con factura electrónica validada (RN_3). [src: 2]
-RN_3 | Las solicitudes con factura electrónica validada se aprueban automáticamente aunque superen el monto máximo. [src: 3]
+RN_3 | Las solicitudes con factura electrónica validada son la única excepción al monto máximo para la aprobación automática. [src: 3]
 RN_4 | El Solicitante puede adjuntar hasta 3 soportes por solicitud. [src: 4]
 RN_5 | La integración con el sistema contable queda fuera del alcance. [src: 7]
 ---RIESGOS---
