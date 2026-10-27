@@ -20,3 +20,11 @@ Los entregables de QA (HU, plan de pruebas, casos) deben salir de la herramienta
 - "Cliente" con mayuscula; "por ejemplo," con coma despues y nunca antes; N/N-1/X en vez de cifras inventadas; equipo "TestIAlab".
 - Titulo del proyecto con conectores en minuscula ("B2B y Cadenas"); Responsables nunca con relleno: 3 filas solo con Equipo si el QA no dio datos.
 - Si el analisis de M1 cambia (S.analysisHash distinto de S.planAnalysisHash), el plan se marca desactualizado.
+
+**Casos de prueba (M4, brief 3, 2026-10-27):** los casos reciben de M1/M3 inventario, glosario, HU y plan con trazas; marcas `[src]`/`[cubre]` en la linea del ID (en el front viven en `c.marks`, nunca en pantalla ni en el Excel); `validators/casesValidator.js` (V1-V10, tests en `test/casesValidator.test.js`) + auditor (siempre) + casos para lo faltante + una reparacion + revalidacion. Reglas que no se negocian en los casos:
+- Cobertura por trazabilidad, no por cantidad: todo CA/RN/ESC y cada item de "Dentro del Alcance" del plan con al menos un caso; sin "Minimo 8" ni relleno.
+- Conjunto exacto / auditoria campo por campo SOLO si un CA/RN lo exige explicitamente.
+- La condicion viaja completa ("Condicionado a <Ref>" con todos los codigos) y el resultado no inventa lo que el pendiente no fija; un caso, un comportamiento (sin "A o B").
+- Una EXCLUSION se cubre solo con el caso negativo (que NO ocurre). Ese caso es obligatorio: el auditor no lo reporta como incoherencia y la reparacion nunca puede eliminar el unico caso que cubre un CA/RN/ESC (salvaguarda en `mergeRepairedCases`, con test; se detecto en prueba real: la reparacion borraba el caso negativo de la exclusion).
+- Escenario = titulo exacto de un ESC de la HU; nombres del glosario; Tipo Smoke/Funcional/UI/UX (Excel "Func"); cada paso con su resultado.
+- Si cambia el analisis de M1 o el plan de M3 (hash), los casos se marcan desactualizados; consolidar o agregar faltantes revalida sin IA (`/api/validate-cases`); Excel importado = "No auditado".
