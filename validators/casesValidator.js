@@ -209,8 +209,58 @@ function validateCases(opts) {
   return { hallazgos: hallazgos, cobertura: cobertura, cases: cases };
 }
 
+// Bloques "### CP_N ..." de un texto de casos, por ID (conserva las marcas).
+function caseBlocks(text) {
+  var body = String(text || '');
+  var i = body.search(/---\s*CASOS_DE_PRUEBA\s*---/i);
+  if (i >= 0) body = body.slice(i).replace(/---\s*CASOS_DE_PRUEBA\s*---/i, '');
+  var j = body.search(/\n---\s*[A-Z_]+\s*---/);
+  if (j >= 0) body = body.slice(0, j);
+  return body.split(/\n(?=\s*###\s*CP_\d+)/).map(function(s){ return s.trim(); })
+    .filter(function(s){ return /^###\s*CP_\d+/.test(s); })
+    .map(function(s){ return { id: /^###\s*(CP_\d+)/.exec(s)[1], text: s }; });
+}
+function joinCases(blocks) {
+  return '---CASOS_DE_PRUEBA---\n' + blocks.map(function(b){ return b.text; }).join('\n');
+}
+function renumber(blocks) {
+  return blocks.map(function(b, k){ return { id: 'CP_' + (k + 1), text: b.text.replace(/^###\s*CP_\d+/, '### CP_' + (k + 1)) }; });
+}
+
+// Aplica la respuesta de la reparacion (solo los casos corregidos, o "Eliminar: SI") sobre
+// los casos actuales. Una eliminacion que dejaria sin caso un CA/RN/ESC no se aplica: se
+// conserva el caso original y se reporta (p. ej. el caso negativo de una exclusion que el
+// auditor tomo por "prueba algo excluido"). Devuelve { ok, traced, conservados }.
+function mergeRepairedCases(traced, fixedText) {
+  var fixed = caseBlocks(fixedText);
+  if (!fixed.length && !/SIN_CAMBIOS/.test(String(fixedText || ''))) return { ok: false, traced: traced, conservados: [] };
+  var byId = {};
+  fixed.forEach(function(b){ byId[b.id] = b; });
+  var isDel = function(b){ return /^\s*Eliminar\s*:\s*S[IÍ]/im.test(b.text); };
+  var cubreOf = function(b){ var p = parseCasesTraced('---CASOS_DE_PRUEBA---\n' + b.text)[0]; return p ? p.cubre : []; };
+  var current = caseBlocks(traced);
+  var proposed = current.map(function(b){ return byId[b.id] || b; });
+  var kept = [];
+  proposed.forEach(function(b){ if (!isDel(b)) kept = kept.concat(cubreOf(b)); });
+  var merged = proposed.map(function(b, k){
+    if (!isDel(b)) return b;
+    var lost = uniq(cubreOf(current[k]).filter(function(id){ return kept.indexOf(id) < 0; }));
+    if (!lost.length) return null;
+    kept = kept.concat(lost);
+    return { id: current[k].id, text: current[k].text, lost: lost };
+  }).filter(Boolean);
+  var out = renumber(merged);
+  // El mensaje usa el ID final (despues de renumerar), que es el que ve el QA.
+  var conservados = merged.map(function(b, k){ return b.lost ? { codigo: 'REPARACION', severidad: 'advertencia', ids: [out[k].id], origen: 'sistema',
+    mensaje: out[k].id + ' no se elimino: es el unico caso que cubre ' + b.lost.join(', ') + '. Revisalo a mano.' } : null; }).filter(Boolean);
+  return { ok: true, traced: joinCases(out), conservados: conservados };
+}
+
 module.exports = {
   parseCasesTraced: parseCasesTraced,
+  caseBlocks: caseBlocks,
+  joinCases: joinCases,
+  mergeRepairedCases: mergeRepairedCases,
   validateCases: validateCases,
   stripTraceMarks: H.stripTraceMarks,
   auditEstado: H.auditEstado,

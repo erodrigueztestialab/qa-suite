@@ -104,3 +104,26 @@ test('V9 referencia inexistente y V10 duplicado', function(){
   var dup = CASES_OK + '\n' + CASES_OK.slice(CASES_OK.indexOf('### CP_6')).replace('### CP_6', '### CP_7');
   assert.ok(has(validate(dup), 'V10', 'CP_7'));
 });
+
+test('mergeRepairedCases: reemplaza solo los devueltos, elimina relleno y renumera', function(){
+  var dup = CASES_OK + '\n' + CASES_OK.slice(CASES_OK.indexOf('### CP_1'), CASES_OK.indexOf('### CP_2')).replace('### CP_1', '### CP_7').trim();
+  var fixed = '---CASOS_DE_PRUEBA---\n### CP_3 [src: CA_3] [cubre: CA_3, ESC_3]\nRequisito: CA_3\nTipo: Funcional\nComplejidad: Bajo\n' +
+    'Escenario: Monto fuera del límite\nCaso: Corregido\nObjetivo: Corregido.\nPasos:\n1. Paso >> Resultado\n### CP_7\nEliminar: SI';
+  var m = C.mergeRepairedCases(dup, fixed);
+  assert.ok(m.ok);
+  var ids = C.caseBlocks(m.traced).map(function(b){ return b.id; });
+  assert.deepStrictEqual(ids, ['CP_1', 'CP_2', 'CP_3', 'CP_4', 'CP_5', 'CP_6']);
+  assert.ok(/Caso: Corregido/.test(m.traced));
+  assert.strictEqual(m.conservados.length, 0);
+  assert.ok(!has(validate(m.traced), 'V10'));
+});
+
+test('mergeRepairedCases: no elimina el unico caso que cubre un item (caso negativo de la exclusion)', function(){
+  var m = C.mergeRepairedCases(CASES_OK, '---CASOS_DE_PRUEBA---\n### CP_6\nEliminar: SI');
+  assert.ok(m.ok);
+  assert.strictEqual(C.caseBlocks(m.traced).length, 6);
+  assert.ok(/no se elimino/.test(m.conservados[0].mensaje) && /RN_5/.test(m.conservados[0].mensaje));
+  assert.ok(!has(validate(m.traced), 'V1'));
+  assert.strictEqual(C.mergeRepairedCases(CASES_OK, 'texto sin casos').ok, false);
+  assert.ok(C.mergeRepairedCases(CASES_OK, '---CASOS_DE_PRUEBA---\nSIN_CAMBIOS').ok);
+});

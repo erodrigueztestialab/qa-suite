@@ -3011,6 +3011,9 @@ function buildCasesAuditorPrompt(inventoryPath, analysisPath, planPath, casesPat
     '- INCOHERENCIA: el caso contradice la HU o el plan (condicionado alla y no aqui, escenario con otro nombre, prueba',
     '  algo excluido del alcance).',
     '- RELLENO: un caso que no cubre ningun CA, RN, ESC o item del plan que no este ya cubierto, agregado solo por cantidad.',
+    'NO es defecto: el caso NEGATIVO que verifica que una EXCLUSION del inventario no ocurre (por ejemplo, que no existe la',
+    'opcion o la integracion excluida). Ese caso es obligatorio para cubrir la exclusion; no lo reportes como INCOHERENCIA,',
+    'RELLENO ni "prueba algo excluido". Solo es defecto si EJECUTA la funcionalidad excluida.',
     'No reportes estilo ni cosas que la fuente respalda. Si no hay defectos, responde [].',
     '',
     'Responde SOLO con un arreglo JSON, sin texto adicional ni bloque de codigo:',
@@ -3035,9 +3038,12 @@ function buildCasesRepairPrompt(inventoryPath, analysisPath, planPath, casesPath
     '1. Devuelve SOLO los casos que corriges, completos y con su MISMO ID (### CP_N [src: ...] [cubre: ...]). No devuelvas',
     '   los casos que no cambian: la herramienta los conserva tal cual.',
     '2. Si un hallazgo dice que un caso es RELLENO o que hay que eliminarlo, devuelvelo con la linea "Eliminar: SI" debajo',
-    '   del ID y nada mas.',
+    '   del ID y nada mas. Nunca elimines el unico caso que cubre un CA_N, RN_N o ESC_N (corrigelo en su lugar), ni el caso',
+    '   negativo que verifica que una EXCLUSION no ocurre.',
     '3. Conserva el formato de cada caso (Requisito, Tipo, Complejidad, Escenario, Caso, Objetivo, Pasos "N. paso >>',
     '   resultado") y sus marcas.',
+    '3.1 "por ejemplo" nunca lleva coma antes: si la frase queda "..., por ejemplo, ...", reescribela con parentesis',
+    '   ("X igual al maximo permitido (por ejemplo, facturas)") o en una oracion aparte ("Por ejemplo, ...").',
     '4. Respeta estas reglas mientras corriges:',
     REGLAS_ALINEACION_CASOS,
     '',
@@ -3048,20 +3054,9 @@ function buildCasesRepairPrompt(inventoryPath, analysisPath, planPath, casesPath
   ].filter(function(l){ return l !== null; }).join('\n');
 }
 
-// Bloques "### CP_N ..." de un texto de casos, por ID (conserva las marcas).
-function m4CaseBlocks(text) {
-  var body = String(text || '');
-  var i = body.search(/---\s*CASOS_DE_PRUEBA\s*---/i);
-  if (i >= 0) body = body.slice(i).replace(/---\s*CASOS_DE_PRUEBA\s*---/i, '');
-  var j = body.search(/\n---\s*[A-Z_]+\s*---/);
-  if (j >= 0) body = body.slice(0, j);
-  return body.split(/\n(?=\s*###\s*CP_\d+)/).map(function(s){ return s.trim(); })
-    .filter(function(s){ return /^###\s*CP_\d+/.test(s); })
-    .map(function(s){ return { id: /^###\s*(CP_\d+)/.exec(s)[1], text: s }; });
-}
-function m4JoinCases(blocks) {
-  return '---CASOS_DE_PRUEBA---\n' + blocks.map(function(b){ return b.text; }).join('\n');
-}
+// Bloques "### CP_N ..." de un texto de casos (conserva las marcas); viven en el validador.
+var m4CaseBlocks = casesValidator.caseBlocks;
+var m4JoinCases = casesValidator.joinCases;
 
 // Casos: validador -> auditor (siempre) -> faltantes de cobertura con el prompt de
 // /api/generate-gap-cases (modelo fuerte, lista exacta) -> reparacion Sonnet de los casos
@@ -3097,7 +3092,7 @@ async function auditAndRepairCases(o) {
   lap('auditoria', tAud);
 
   var toFix = v1.hallazgos.filter(function(h){ return h.severidad === 'error' || h.severidad === 'advertencia'; }).concat(auditorFindings);
-  var reparado = false, repairError = null, gapAdded = 0;
+  var reparado = false, repairError = null, gapAdded = 0, keptDeletes = [];
 
   // Cobertura faltante: mismo prompt de "Generar casos para lo faltante", con la lista exacta.
   var gaps = v1.cobertura.hu.faltantes.map(function(id){ return { id: id, justificacion: 'Ningun caso lo cubre ([cubre]).' }; })
@@ -3132,14 +3127,12 @@ async function auditAndRepairCases(o) {
     var fixPath = m1TmpFile('cases-fix-', JSON.stringify(caseFix, null, 1), o.tmpList);
     try {
       var fixedText = stripCodeFences(await callAI(buildCasesRepairPrompt(o.inventoryPath, analysisPath, o.planPath, casesPath2, fixPath), o.fixOpts));
-      var fixed = m4CaseBlocks(fixedText);
-      if (fixed.length || /SIN_CAMBIOS/.test(fixedText)) {
-        var byId = {};
-        fixed.forEach(function(b){ byId[b.id] = b; });
-        var merged = m4CaseBlocks(traced).map(function(b){ return byId[b.id] || b; })
-          .filter(function(b){ return !/^\s*Eliminar\s*:\s*S[IÍ]/im.test(b.text); });
-        merged = merged.map(function(b, k){ return { id: 'CP_' + (k + 1), text: b.text.replace(/^###\s*CP_\d+/, '### CP_' + (k + 1)) }; });
-        traced = m4JoinCases(merged);
+      // Reemplaza solo los casos devueltos, aplica "Eliminar: SI" salvo que deje sin caso
+      // un CA/RN/ESC (salvaguarda) y renumera.
+      var m = casesValidator.mergeRepairedCases(traced, fixedText);
+      if (m.ok) {
+        traced = m.traced;
+        keptDeletes = m.conservados;
         reparado = true;
       } else repairError = 'la reparacion no devolvio casos en el formato esperado';
     } catch (e) {
@@ -3161,6 +3154,7 @@ async function auditAndRepairCases(o) {
     return h;
   });
   if (!reparado) hallazgos = hallazgos.concat(auditorFindings);
+  hallazgos = hallazgos.concat(keptDeletes);
   if (!auditorOk) hallazgos.push({ codigo: 'AUDITOR', severidad: 'advertencia', ids: [], origen: 'sistema',
     mensaje: 'El auditor IA no devolvio un resultado valido; solo se aplico el validador automatico.' });
   if (repairError) hallazgos.push({ codigo: 'REPARACION', severidad: 'advertencia', ids: [], origen: 'sistema',
@@ -3208,10 +3202,19 @@ app.post('/api/generate-cases', async function(req, res) {
   var engineLabel = engine === 'claude' ? 'Claude Opus' : 'Gemini (Antigravity)';
   var reqId       = req.body.reqId || '';
   if (!analysisRaw) return res.status(400).json({ error: 'Se requiere analysisRaw.' });
-  var prompt = buildCasesPrompt(analysisRaw, m2Context, engine, transcripts);
+  // Desde M1/M3: inventario + glosario + HU y plan con trazas. Sin inventario (analisis
+  // viejo, HU importado sin requerimiento) los casos salen como antes y no se auditan.
+  var tmpList = [];
+  var ctx = m4Context(req.body, tmpList);
+  var prompt = buildCasesPrompt(analysisRaw, m2Context, engine, transcripts, ctx);
 
   emitProgress(reqId, 8, 'Preparando prompt para '+engineLabel+'...');
-  var stages = [
+  // Con auditoria, la generacion llega hasta ~50% y el resto lo reporta auditAndRepairCases.
+  var stages = ctx ? [
+    [15, 'Enviando a '+engineLabel+'...'],
+    [30, 'Disenando escenarios y casos...'],
+    [45, 'Redactando pasos y resultados esperados...'],
+  ] : [
     [20, 'Enviando a '+engineLabel+'...'],
     [40, 'Disenando escenarios y casos...'],
     [65, 'Verificando cobertura de CA/RN...'],
@@ -3227,14 +3230,38 @@ app.post('/api/generate-cases', async function(req, res) {
     // gemini-4-argon-high para Gemini via GEMINI_MODEL_MAP) -- antes solo
     // Claude recibia ese override; con Gemini caia al default 'sonnet'
     // (gemini-4-argon-low), el modelo mas debil, sin que nadie lo pidiera asi.
-    var callOpts = { engine: engine, model: 'opus' };
-    var text = await callAI(prompt, callOpts);
+    var genOpts = { engine: engine, model: 'opus' };
+    if (ctx) { genOpts.addDir = os.tmpdir(); genOpts.allowedTools = ['Read']; }
+    var t0 = Date.now(), tiempos = {};
+    var traced = stripCodeFences(await callAI(prompt, genOpts));
     clearInterval(stageTimer);
+    tiempos.generacion = Math.round((Date.now() - t0) / 100) / 10;
+    var result;
+    if (ctx) {
+      result = await auditAndRepairCases({
+        engine: engine, genOpts: genOpts,
+        fixOpts: { engine: engine, model: 'sonnet', effort: 'medium', addDir: os.tmpdir(), allowedTools: ['Read'] },
+        inventory: ctx.inventory, inventoryPath: ctx.inventoryPath, glossary: ctx.glossary,
+        analysisTraced: ctx.analysisTraced, analysisRaw: analysisRaw, planTraced: ctx.planTraced, planPath: ctx.planPath,
+        m2Context: m2Context, traced: traced, tmpList: tmpList, tiempos: tiempos,
+        progress: function(pct, label){ emitProgress(reqId, pct, label); },
+      });
+    } else {
+      result = { traced: traced, audit: { estado: 'NO_AUDITADO', hallazgos: [], corregidos: [], reparado: false,
+        motivo: 'El analisis de M1 no trae inventario (analisis anterior a la auditoria de alineacion o HU importado sin requerimiento).' } };
+    }
+    tiempos.total = Math.round((Date.now() - t0) / 100) / 10;
+    result.audit.tiempos = tiempos;
+    m4Cleanup(tmpList);
     emitProgress(reqId, 98, 'Procesando respuesta...');
     emitDone(reqId);
-    return res.json({ cases: text, engine: engine });
+    console.log('[/api/generate-cases] ' + engine + ' tiempos(s)=' + JSON.stringify(tiempos) + ' estado=' + result.audit.estado +
+      ' hallazgos=' + result.audit.hallazgos.length + ' reparado=' + result.audit.reparado + ' agregados=' + (result.audit.casosAgregados || 0));
+    // cases: sin marcas (pantalla/Excel); casesTraced: con [src]/[cubre] (validador, consolidacion).
+    return res.json({ cases: casesValidator.stripTraceMarks(result.traced).trim(), casesTraced: result.traced, audit: result.audit, engine: engine });
   } catch (err) {
     clearInterval(stageTimer);
+    m4Cleanup(tmpList);
     emitDone(reqId);
     console.error('[/api/generate-cases]', err.message);
     return res.status(502).json({ error: engineLabel + ': ' + err.message });
@@ -3264,14 +3291,21 @@ app.post('/api/consolidate-cases', async function(req, res) {
   var stageTimer = setInterval(function(){
     if (stageIdx < stages.length) { emitProgress(reqId, stages[stageIdx][0], stages[stageIdx][1]); stageIdx++; }
   }, 9000);
+  var tmpList = [];
+  var ctx = m4Context(req.body, tmpList);
+  var callOpts = { engine: engine, model: 'opus' };
+  if (ctx) { callOpts.addDir = os.tmpdir(); callOpts.allowedTools = ['Read']; }
   try {
-    var text = await callAI(buildConsolidateCasesPrompt(analysisRaw, cases, sources, m2Context), { engine: engine, model: 'opus' });
+    var text = await callAI(buildConsolidateCasesPrompt(analysisRaw, cases, sources, m2Context, ctx), callOpts);
     clearInterval(stageTimer);
+    m4Cleanup(tmpList);
     emitProgress(reqId, 98, 'Procesando respuesta...');
     emitDone(reqId);
+    // Con marcas si hubo contexto: el front las separa y revalida al aplicar (/api/validate-cases).
     return res.json({ raw: text, engine: engine });
   } catch (err) {
     clearInterval(stageTimer);
+    m4Cleanup(tmpList);
     emitDone(reqId);
     console.error('[/api/consolidate-cases]', err.message);
     return res.status(502).json({ error: engineLabel + ': ' + err.message });
@@ -3291,7 +3325,9 @@ app.post('/api/generate-gap-cases', async function(req, res) {
   var reqId          = req.body.reqId || '';
   if (!analysisRaw) return res.status(400).json({ error: 'Se requiere analysisRaw.' });
   if (!gapItems.length) return res.status(400).json({ error: 'No hay items sin cubrir para generar.' });
-  var prompt = buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, engine);
+  var tmpList = [];
+  var ctx = m4Context(req.body, tmpList);
+  var prompt = buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, engine, ctx);
 
   emitProgress(reqId, 10, 'Preparando prompt para '+engineLabel+'...');
   var stages = [
@@ -3310,13 +3346,16 @@ app.post('/api/generate-gap-cases', async function(req, res) {
     // Claude recibia ese override; con Gemini caia al default 'sonnet'
     // (gemini-4-argon-low), el modelo mas debil, sin que nadie lo pidiera asi.
     var callOpts = { engine: engine, model: 'opus' };
+    if (ctx) { callOpts.addDir = os.tmpdir(); callOpts.allowedTools = ['Read']; }
     var text = await callAI(prompt, callOpts);
     clearInterval(stageTimer);
+    m4Cleanup(tmpList);
     emitProgress(reqId, 98, 'Procesando respuesta...');
     emitDone(reqId);
     return res.json({ cases: text, engine: engine });
   } catch (err) {
     clearInterval(stageTimer);
+    m4Cleanup(tmpList);
     emitDone(reqId);
     console.error('[/api/generate-gap-cases]', err.message);
     return res.status(502).json({ error: engineLabel + ': ' + err.message });
@@ -3334,7 +3373,9 @@ app.post('/api/verify-coverage', async function(req, res) {
   var engineLabel = engine === 'claude' ? 'Claude Opus' : 'Gemini (Antigravity)';
   var reqId       = req.body.reqId || '';
   if (!analysisRaw) return res.status(400).json({ error: 'Se requiere analysisRaw.' });
-  var prompt = buildCoverageVerificationPrompt(analysisRaw, cases);
+  var tmpList = [];
+  var ctx = m4Context(req.body, tmpList);
+  var prompt = buildCoverageVerificationPrompt(analysisRaw, cases, ctx);
 
   emitProgress(reqId, 10, 'Preparando prompt para '+engineLabel+'...');
   var stages = [
@@ -3353,16 +3394,38 @@ app.post('/api/verify-coverage', async function(req, res) {
     // Claude recibia ese override; con Gemini caia al default 'sonnet'
     // (gemini-4-argon-low), el modelo mas debil, sin que nadie lo pidiera asi.
     var callOpts = { engine: engine, model: 'opus' };
+    if (ctx) { callOpts.addDir = os.tmpdir(); callOpts.allowedTools = ['Read']; }
     var text = await callAI(prompt, callOpts);
     clearInterval(stageTimer);
+    m4Cleanup(tmpList);
     emitProgress(reqId, 98, 'Procesando respuesta...');
     emitDone(reqId);
     return res.json({ raw: text, engine: engine });
   } catch (err) {
     clearInterval(stageTimer);
+    m4Cleanup(tmpList);
     emitDone(reqId);
     console.error('[/api/verify-coverage]', err.message);
     return res.status(502).json({ error: engineLabel + ': ' + err.message });
+  }
+});
+
+// ── Escenarios y Casos QA: revalidar sin IA ────────────────────────────────────
+// Despues de aplicar una consolidacion o agregar casos faltantes el set cambia: se
+// vuelve a correr solo el validador deterministico (gratis, sin auditor ni reparacion).
+app.post('/api/validate-cases', function(req, res) {
+  var b = req.body || {};
+  if (!b.inventory) return res.json({ audit: { estado: 'NO_AUDITADO', hallazgos: [], corregidos: [], reparado: false,
+    motivo: 'El analisis de M1 no trae inventario.' } });
+  if (!b.casesTraced) return res.status(400).json({ error: 'Se requiere casesTraced.' });
+  try {
+    var v = casesValidator.validateCases({ traced: b.casesTraced, inventory: b.inventory, glossary: b.glossary || [],
+      analysisTraced: b.analysisTraced || '', planTraced: b.planTraced || '' });
+    return res.json({ audit: { estado: casesValidator.auditEstado(v.hallazgos), hallazgos: v.hallazgos, corregidos: [],
+      cobertura: v.cobertura, reparado: false, auditor: 'no', soloValidador: true } });
+  } catch (err) {
+    console.error('[/api/validate-cases]', err.message);
+    return res.status(500).json({ error: err.message });
   }
 });
 
