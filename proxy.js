@@ -301,7 +301,7 @@ function spawnGeminiOnce(bin, args, timeoutMs, onProcess) {
       if (settled) return;
       settled = true;
       proc.kill();
-      reject(new Error('Antigravity CLI timeout (8 min).'));
+      reject(new Error('Antigravity CLI timeout (' + Math.round(timeoutMs / 60000) + ' min).'));
     }, timeoutMs);
 
     proc.on('error', function(err){
@@ -320,9 +320,28 @@ function spawnGeminiOnce(bin, args, timeoutMs, onProcess) {
   });
 }
 
+// Limite por llamada a la IA. El modelo fuerte (solo M4: generar y completar casos) tiene
+// 15 min: con un HU largo, Gemini tardo 631 s solo en generar los casos (2026-10-28) y el
+// limite general de 8 min lo cortaba.
+var AI_TIMEOUT_MS = 480000, AI_TIMEOUT_FUERTE_MS = 900000;
+function aiTimeoutMs(opts) { return opts.timeoutMs || (opts.model === 'opus' ? AI_TIMEOUT_FUERTE_MS : AI_TIMEOUT_MS); }
+
+// Margen bajo el limite de 32767 de Windows: la ruta del binario, --model, --add-dir y el
+// escape de comillas que agrega cross-spawn tambien cuentan en la linea de comandos.
+var GEMINI_INLINE_PROMPT_MAX = 20000;
+
+function buildGeminiPromptFileRef(promptFile) {
+  return [
+    'Tus instrucciones completas estan en este archivo: ' + promptFile,
+    'Leelo COMPLETO con tu herramienta de lectura de archivos antes de responder (si es largo, leelo por partes hasta el final)',
+    'y cumple exactamente lo que pide. Tu respuesta es solo lo que esas instrucciones piden, con su formato exacto:',
+    'sin comentar el archivo ni explicar lo que hiciste.',
+  ].join('\n');
+}
+
 async function callGemini(prompt, opts) {
   opts = opts || {};
-  var timeoutMs = opts.timeoutMs || 480000;
+  var timeoutMs = aiTimeoutMs(opts);
   var tier      = GEMINI_MODEL_MAP[opts.model] ? opts.model : 'sonnet';
   var model     = _geminiResolvedModel[tier] || GEMINI_MODEL_MAP[tier];
   var filePath  = opts.filePath || null;
@@ -331,15 +350,28 @@ async function callGemini(prompt, opts) {
              : (imagePaths && imagePaths.length) ? path.dirname(imagePaths[0])
              : null);
 
-  var args = ['-p', prompt, '--model', model];
+  // agy recibe el prompt como argumento y Windows corta la linea de comandos en 32767
+  // caracteres ("spawn ENAMETOOLONG"): un HU largo de Gemini (~40 mil) pegado en el prompt
+  // del plan o de los casos lo supera. Un prompt largo va a un .txt y agy lo lee por ruta.
+  var promptFile = null, sentPrompt = prompt;
+  if (prompt.length > GEMINI_INLINE_PROMPT_MAX) {
+    var promptDir = addDir || os.tmpdir();
+    promptFile = path.join(promptDir, 'agy-prompt-' + Date.now() + '-' + Math.round(Math.random()*1e6) + '.txt');
+    fs.writeFileSync(promptFile, prompt, 'utf-8');
+    addDir = promptDir;
+    sentPrompt = buildGeminiPromptFileRef(promptFile);
+  }
+
+  var args = ['-p', sentPrompt, '--model', model];
   if (addDir) args.push('--add-dir', addDir);
 
   var candidates = candidateGeminiBins();
   var lastErr = null;
 
+  try {
   for (var i = 0; i < candidates.length; i++) {
     var bin = candidates[i];
-    console.log('\n-> GEMINI/AGY  bin='+bin+'  model='+model+'  prompt_len='+prompt.length+(addDir?'  addDir='+addDir:''));
+    console.log('\n-> GEMINI/AGY  bin='+bin+'  model='+model+'  prompt_len='+prompt.length+(promptFile?'  (por archivo)':'')+(addDir?'  addDir='+addDir:''));
     try {
       var result = await spawnGeminiOnce(bin, args, timeoutMs, opts.onProcess);
       var text = result.stdout.trim();
@@ -373,6 +405,9 @@ async function callGemini(prompt, opts) {
       }
       // ENOENT: este candidato no existe/no se encontro; probar el siguiente.
     }
+  }
+  } finally {
+    if (promptFile) fs.unlink(promptFile, function(){});
   }
 
   throw new Error(
@@ -500,7 +535,7 @@ function spawnClaudeOnce(bin, args, prompt, timeoutMs, extraEnv, onProcess) {
       if (settled) return;
       settled = true;
       proc.kill();
-      reject(new Error('Claude CLI timeout (8 min).'));
+      reject(new Error('Claude CLI timeout (' + Math.round(timeoutMs / 60000) + ' min).'));
     }, timeoutMs);
 
     proc.on('error', function(err){
@@ -524,7 +559,7 @@ function spawnClaudeOnce(bin, args, prompt, timeoutMs, extraEnv, onProcess) {
 
 async function callClaude(prompt, opts) {
   opts = opts || {};
-  var timeoutMs   = opts.timeoutMs || 480000;
+  var timeoutMs   = aiTimeoutMs(opts);
   var filePath    = opts.filePath || null;
   var imagePaths  = opts.imagePaths || null; // imagenes extraidas de un DOCX (mismo tmp dir)
   var model       = opts.model || 'sonnet'; // 'sonnet' | 'opus' | 'haiku'
@@ -965,6 +1000,67 @@ function buildAnalysisInventoryPrompt(files) {
     '',
     buildAnalysisFileRefBlock(files),
   ].join('\n');
+}
+
+// ── M1, revision de contradicciones (ambos motores, despues del inventario) ─────
+// La pasada 1 pide marcar CONTRADICCION, pero esa es una busqueda abierta: Gemini la
+// salta y resuelve en silencio (medido 2026-10-28 con el requerimiento de Liz: Claude 2-3
+// contradicciones, Gemini 0 y una exclusion inventada). Esta llamada solo busca
+// contradicciones, con una lista de lugares concretos donde mirar, y devuelve JSON con
+// citas literales; huValidator.applyContradictions verifica las citas y marca el inventario.
+function buildContradictionsPrompt(files, inventoryPath) {
+  return [
+    'Eres un Analista de Requerimientos senior. Tu UNICA tarea es encontrar CONTRADICCIONES del requerimiento: puntos',
+    'donde las fuentes dicen dos cosas incompatibles sobre lo mismo y ninguna corrige explicitamente a la otra.',
+    '',
+    'Lee estos archivos:',
+    '- Inventario numerado del requerimiento (N | Tipo | Estado | Ref | Condicion): ' + inventoryPath,
+    '- El requerimiento original (todos sus archivos, completos):',
+    buildAnalysisFileRefBlock(files),
+    '',
+    'Revisa UNO POR UNO estos lugares (son donde suelen esconderse las contradicciones):',
+    '1. Cada LISTA del requerimiento (campos, criterios de busqueda, opciones de una lista, botones, columnas, estados,',
+    '   tipos): compara la lista con lo que dice cada otra fuente sobre esa misma lista. Si una fuente incluye un',
+    '   elemento y otra lo excluye o dice que no va, es contradiccion.',
+    '2. Cada NEGACION o RECTIFICACION en una conversacion o transcripcion ("no", "eso no", "por X no", "no se puede",',
+    '   "no aplica", "solo por") sobre algo que el documento afirma.',
+    '3. Cada VALOR concreto (numero, limite, unidad, mensaje, nombre de pantalla, responsable, orden de pasos) que',
+    '   aparezca dos veces con valores distintos.',
+    '4. Cada item del inventario que mezcle o suavice dos versiones (por ejemplo, convierte un "no va" en "no solo eso").',
+    '',
+    'NO es contradiccion: una fuente posterior que corrige de forma explicita a la anterior ("ya no", "se cambia",',
+    '"mejor hagamos", "queda asi"), un detalle que una fuente agrega y la otra no menciona, ni dos alternativas que el',
+    'requerimiento ofrece a proposito.',
+    '',
+    'Responde SOLO con un arreglo JSON (sin texto antes ni despues; [] si no hay ninguna), una entrada por contradiccion:',
+    '[{"items":[<N del inventario que afirman alguna de las versiones, el principal primero>],"tema":"<el punto, en pocas',
+    'palabras>","version1":"<lo que dice una fuente>","version2":"<lo que dice la otra>","cita1":"<fragmento LITERAL de',
+    'la fuente de la version 1, copiado tal cual, 4 a 15 palabras>","cita2":"<fragmento LITERAL de la fuente de la',
+    'version 2, copiado tal cual, 4 a 15 palabras>"}]',
+    'Las citas se verifican contra el texto del requerimiento: una cita que no aparezca tal cual se descarta.',
+    'Si ninguna linea del inventario recoge una de las versiones, pon en "items" las lineas que recogen la otra.',
+    'No cites nombres de archivos ni de personas en version1/version2.',
+  ].join('\n');
+}
+
+// Corre la revision de contradicciones sobre el inventario y devuelve el inventario
+// corregido. Nunca bloquea el analisis: si la llamada falla, sigue el inventario original.
+async function reviewContradictions(files, inventory, aiOpts, tmpList) {
+  try {
+    var invPath = m1TmpFile('contradictions-inventory-', inventory, tmpList);
+    var raw = await callAI(buildContradictionsPrompt(files, invPath), aiOpts);
+    var list = parseAuditorJson(raw);
+    if (!list) { console.log('[contradicciones] respuesta sin JSON valido: ' + String(raw).slice(0, 200)); return inventory; }
+    // Un PDF nativo no trae texto: sin todas las fuentes en texto, las citas no se verifican.
+    var sourceTexts = files.every(function(f){ return f.text != null; }) ? files.map(function(f){ return f.text; }) : null;
+    var r = huValidator.applyContradictions(inventory, list, sourceTexts);
+    console.log('[contradicciones] propuestas=' + list.length + ' aplicadas=' + JSON.stringify(r.aplicadas) +
+      ' descartadas=' + JSON.stringify(r.descartadas));
+    return r.inventory;
+  } catch (e) {
+    console.log('[contradicciones] error, se sigue con el inventario original: ' + e.message);
+    return inventory;
+  }
 }
 
 // Reglas de redaccion del HU (brief de alineacion M1). Genericas: aplican a cualquier
@@ -2946,6 +3042,10 @@ app.post('/api/analyze', async function(req, res) {
     var tInv = Date.now();
     var inventory = stripCodeFences(await callAI(buildAnalysisInventoryPrompt(files), ctx.aiOpts));
     lap('inventario', tInv);
+    emitProgress(reqId, 28, 'Buscando contradicciones entre las fuentes ('+engineLabel+')...');
+    var tCon = Date.now();
+    inventory = await reviewContradictions(files, inventory, ctx.aiOpts, textTmpPaths);
+    lap('contradicciones', tCon);
     var inventoryPath = m1TmpFile('analyze-inventory-', inventory, textTmpPaths);
 
     emitProgress(reqId, 35, 'Generando Historia de Usuario, criterios, reglas, riesgos y escenarios...');
@@ -3015,6 +3115,7 @@ app.post('/api/audit-hu', async function(req, res) {
     if (!inventory) {
       emitProgress(reqId, 15, 'Inventariando el requerimiento cargado ('+engineLabel+')...');
       inventory = stripCodeFences(await callAI(buildAnalysisInventoryPrompt(files), aiOpts));
+      inventory = await reviewContradictions(files, inventory, aiOpts, textTmpPaths);
       tiempos.inventario = Math.round((Date.now() - t0) / 100) / 10;
     }
     var inventoryPath = m1TmpFile('audit-inventory-', inventory, textTmpPaths);

@@ -241,3 +241,37 @@ test('V16: RN que solo dice que algo no esta definido; V3 no pide escenario a un
   assert.ok(res.cobertura.pendientes.sinEscCondicionado.indexOf(5) < 0, 'pendiente solo en riesgo: sin escenario exigido');
   assert.ok(validate(HU_OK.replace('Condicionado a DEP-01 [src: 5] [cubre: CA_4]', '[src: 1] [cubre: CA_4]')).cobertura.pendientes.sinEscCondicionado.indexOf(5) >= 0, 'si lo cita un CA, se exige');
 });
+
+test('applyContradictions: marca la contradiccion citada y condiciona los demas items', function(){
+  var fuentes = ['El Solicitante puede adjuntar hasta 3 soportes por solicitud.',
+    'En la reunion: no, soportes no se adjuntan desde el canal movil.'];
+  var r = V.applyContradictions(INVENTORY, [{ items: [4, 8], tema: 'Soportes', version1: 'se adjuntan hasta 3 soportes',
+    version2: 'no se adjuntan soportes desde el canal movil', cita1: 'puede adjuntar hasta 3 soportes',
+    cita2: 'soportes no se adjuntan desde el canal móvil' }], fuentes);
+  assert.deepStrictEqual(r.aplicadas.map(function(a){ return a.n; }), [4]);
+  var inv = V.parseInventory(r.inventory);
+  var it4 = inv.items.filter(function(i){ return i.n === 4; })[0], it8 = inv.items.filter(function(i){ return i.n === 8; })[0];
+  assert.ok(it4.contradiccion && /Version 1: .*; Version 2: /.test(it4.condicion));
+  assert.ok(!it8.contradiccion && it8.estado === 'PENDIENTE' && /contradiccion del item 4/.test(it8.condicion));
+  assert.strictEqual(inv.items.length, 8, 'no se pierden ni se agregan items');
+  assert.strictEqual(inv.glossary.length, 4, 'el glosario queda igual');
+  // La contradiccion queda en la cobertura que muestra el recuadro de M1.
+  assert.deepStrictEqual(validate(HU_OK, { inventory: r.inventory }).cobertura.contradicciones.map(function(c){ return c.n; }), [4]);
+});
+
+test('applyContradictions: descarta citas inventadas, items inexistentes y lo que ya era contradiccion', function(){
+  var fuentes = ['El Solicitante puede adjuntar hasta 3 soportes por solicitud.'];
+  var base = { tema: 'Soportes', version1: 'a', version2: 'b', cita1: 'puede adjuntar hasta 3 soportes' };
+  var r = V.applyContradictions(INVENTORY, [
+    Object.assign({ items: [4], cita2: 'esta frase no esta en ninguna fuente' }, base),
+    Object.assign({ items: [99], cita2: 'puede adjuntar hasta 3 soportes' }, base),
+  ], fuentes);
+  assert.strictEqual(r.aplicadas.length, 0);
+  assert.strictEqual(r.inventory, INVENTORY, 'sin contradicciones validas el inventario no cambia');
+  assert.strictEqual(r.descartadas.length, 2);
+  // Sin texto de las fuentes (PDF nativo) no se verifican las citas.
+  assert.strictEqual(V.applyContradictions(INVENTORY, [Object.assign({ items: [4], cita2: 'otra frase cualquiera' }, base)], null).aplicadas.length, 1);
+  // Lo que el inventario ya trae como contradiccion no se duplica.
+  var ya = V.applyContradictions(INVENTORY, [Object.assign({ items: [4], cita2: 'otra frase cualquiera' }, base)], null).inventory;
+  assert.strictEqual(V.applyContradictions(ya, [Object.assign({ items: [4], cita2: 'otra frase cualquiera' }, base)], null).aplicadas.length, 0);
+});
