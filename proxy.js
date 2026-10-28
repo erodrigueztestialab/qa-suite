@@ -1894,6 +1894,8 @@ function buildPlanRepairPrompt(inventoryPath, analysisPath, planPath, findingsPa
     '2. Si un hallazgo pide algo que falta (un pendiente en Dentro del Alcance condicionado, un codigo DEP en supuestos,',
     '   riesgos o criterios de entrada, un riesgo del analisis), agrega la linea en la seccion correspondiente.',
     '3. Si un item pendiente esta en ALCANCE_FUERA, muevelo a ALCANCE_DENTRO con "(condicionado a <Ref>)".',
+    '3.1 "por ejemplo" nunca lleva coma antes: si la frase queda "..., por ejemplo, ...", reescribela con parentesis',
+    '   ("tipos de inventario (por ejemplo, reservado)") o en una oracion aparte ("Por ejemplo, ...").',
     '4. Conserva el formato de cada seccion y las marcas [src: ...].',
     '5. Respeta estas reglas mientras corriges:',
     REGLAS_ALINEACION_PLAN,
@@ -3128,7 +3130,11 @@ async function auditAndRepairCases(o) {
     return casesValidator.validateCases({ traced: traced, inventory: o.inventory, glossary: o.glossary,
       analysisTraced: o.analysisTraced || o.analysisRaw, planTraced: o.planTraced });
   }
-  var traced = o.traced;
+  // "por ejemplo" con coma antes: correccion mecanica sin IA (igual que en el plan).
+  var pe = casesValidator.fixPorEjemploComma(o.traced);
+  var traced = pe.text;
+  var mecanicos = pe.count ? [{ codigo: 'V7', severidad: 'advertencia', ids: [], origen: 'sistema',
+    mensaje: pe.count + ' frase(s) con coma antes de "por ejemplo" reescritas con parentesis (correccion automatica, sin IA).' }] : [];
   o.progress(55, 'Validando los casos contra el requerimiento y el plan...');
   var v1 = validate(traced);
 
@@ -3196,7 +3202,7 @@ async function auditAndRepairCases(o) {
       // un CA/RN/ESC (salvaguarda) y renumera.
       var m = casesValidator.mergeRepairedCases(traced, fixedText);
       if (m.ok) {
-        traced = m.traced;
+        traced = casesValidator.fixPorEjemploComma(m.traced).text;
         keptDeletes = m.conservados;
         reparado = true;
       } else repairError = 'la reparacion no devolvio casos en el formato esperado';
@@ -3229,8 +3235,8 @@ async function auditAndRepairCases(o) {
   return {
     traced: traced,
     audit: {
-      estado: casesValidator.auditEstado(hallazgos), hallazgos: hallazgos, corregidos: fixedAny ? toFix : [],
-      cobertura: final.cobertura, reparado: reparado, casosAgregados: gapAdded, auditor: auditorOk ? 'ok' : 'fallo', tiempos: tiempos,
+      estado: casesValidator.auditEstado(hallazgos), hallazgos: hallazgos, corregidos: mecanicos.concat(fixedAny ? toFix : []),
+      cobertura: final.cobertura, reparado: reparado || mecanicos.length > 0, casosAgregados: gapAdded, auditor: auditorOk ? 'ok' : 'fallo', tiempos: tiempos,
     },
   };
 }
@@ -3558,6 +3564,12 @@ async function auditAndRepairPlan(o) {
   function validate(traced) {
     return planValidator.validatePlan({ traced: traced, inventory: o.inventory, glossary: o.glossary, analysis: o.analysis, responsables: o.responsables });
   }
+  // "por ejemplo" con coma antes: se corrige sin IA antes de validar (la reparacion no
+  // siempre lo aplicaba y quedaba como advertencia para el QA).
+  var pe = planValidator.fixPorEjemploComma(o.traced);
+  o.traced = pe.text;
+  var mecanicos = pe.count ? [{ codigo: 'V7', severidad: 'advertencia', ids: [], origen: 'sistema',
+    mensaje: pe.count + ' frase(s) con coma antes de "por ejemplo" reescritas con parentesis (correccion automatica, sin IA).' }] : [];
   o.progress(55, 'Validando el plan contra el requerimiento...');
   var v1 = validate(o.traced);
 
@@ -3589,7 +3601,7 @@ async function auditAndRepairPlan(o) {
     var fixPath = m1TmpFile('plan-fix-', JSON.stringify(toFix, null, 1), o.tmpList);
     try {
       var fixed = stripCodeFences(await callAI(buildPlanRepairPrompt(o.inventoryPath, analysisPath, planPath, fixPath), o.aiOpts));
-      if (/---ALCANCE_DENTRO---/i.test(fixed) && /---CRITERIOS_SALIDA---/i.test(fixed)) { traced = fixed; reparado = true; }
+      if (/---ALCANCE_DENTRO---/i.test(fixed) && /---CRITERIOS_SALIDA---/i.test(fixed)) { traced = planValidator.fixPorEjemploComma(fixed).text; reparado = true; }
       else repairError = 'la reparacion no devolvio un plan con todas sus secciones';
     } catch (e) {
       repairError = e.message;
@@ -3616,8 +3628,8 @@ async function auditAndRepairPlan(o) {
   return {
     traced: traced,
     audit: {
-      estado: planValidator.auditEstado(hallazgos), hallazgos: hallazgos, corregidos: reparado ? toFix : [],
-      cobertura: final.cobertura, reparado: reparado, auditor: auditorOk ? 'ok' : 'fallo', tiempos: tiempos,
+      estado: planValidator.auditEstado(hallazgos), hallazgos: hallazgos, corregidos: mecanicos.concat(reparado ? toFix : []),
+      cobertura: final.cobertura, reparado: reparado || mecanicos.length > 0, auditor: auditorOk ? 'ok' : 'fallo', tiempos: tiempos,
     },
   };
 }

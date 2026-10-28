@@ -345,4 +345,5 @@ module.exports = {
   validateCases: validateCases,
   stripTraceMarks: H.stripTraceMarks,
   auditEstado: H.auditEstado,
+  fixPorEjemploComma: H.fixPorEjemploComma,
 };
