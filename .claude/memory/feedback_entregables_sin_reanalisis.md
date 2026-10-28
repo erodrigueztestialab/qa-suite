@@ -20,6 +20,7 @@ Los entregables de QA (HU, plan de pruebas, casos) deben salir de la herramienta
 - "Cliente" con mayuscula; "por ejemplo," con coma despues y nunca antes; N/N-1/X en vez de cifras inventadas; equipo "TestIAlab".
 - Titulo del proyecto con conectores en minuscula ("B2B y Cadenas"); Responsables nunca con relleno: 3 filas solo con Equipo si el QA no dio datos.
 - Si el analisis de M1 cambia (S.analysisHash distinto de S.planAnalysisHash), el plan se marca desactualizado.
+- "por ejemplo" con coma antes (plan y casos): la reparacion IA no siempre lo corregia; desde la sesion 29 `fixPorEjemploComma` lo reescribe sin IA a " (por ejemplo, X)" cuando no es ambiguo (sin coma o lista que cierra con y/o; limites . ; : [ ) | / >), antes de validar y despues de reparar. Si es ambiguo ("facturas, hasta el maximo") no se toca: meter de mas en el parentesis cambia el sentido.
 
 **Casos de prueba (M4, brief 3, 2026-10-27):** los casos reciben de M1/M3 inventario, glosario, HU y plan con trazas; marcas `[src]`/`[cubre]` en la linea del ID (en el front viven en `c.marks`, nunca en pantalla ni en el Excel); `validators/casesValidator.js` (V1-V10, tests en `test/casesValidator.test.js`) + auditor (siempre) + casos para lo faltante + una reparacion + revalidacion. Reglas que no se negocian en los casos:
 - Cobertura por trazabilidad, no por cantidad: todo CA/RN/ESC y cada item de "Dentro del Alcance" del plan con al menos un caso; sin "Minimo 8" ni relleno.
