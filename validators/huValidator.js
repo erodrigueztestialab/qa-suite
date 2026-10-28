@@ -108,6 +108,55 @@ function parseInventory(text) {
   return { items: items, glossary: glossary };
 }
 
+// Revision de contradicciones (M1, ambos motores): el modelo devuelve
+// [{items:[N,...], tema, version1, version2, cita1, cita2}] y aqui se aplica sin IA.
+// Solo entra la que cita literalmente las dos versiones en las fuentes (sourceTexts;
+// null = fuentes sin texto, como un PDF nativo, y no se verifica) y nombra items que
+// existen. El primer item queda "Contradiccion | CONTRADICCION" con las dos versiones;
+// los demas pasan a PENDIENTE, condicionados a esa contradiccion.
+function citaKey(s) { return norm(s).replace(/[^a-z0-9]+/g, ' ').trim(); }
+function applyContradictions(inventory, list, sourceTexts) {
+  var text = String(inventory || '');
+  var inv = parseInventory(text);
+  var byN = {};
+  inv.items.forEach(function(it){ byN[it.n] = it; });
+  var sources = sourceTexts ? sourceTexts.map(citaKey) : null;
+  function citada(c) {
+    var k = citaKey(c);
+    if (k.split(' ').length < 2) return false;
+    return !sources || sources.some(function(s){ return s.indexOf(k) >= 0; });
+  }
+  var rewrite = {}, aplicadas = [], descartadas = [];
+  (Array.isArray(list) ? list : []).forEach(function(c){
+    var tema = String((c && c.tema) || '').trim();
+    var ns = uniq(((c && c.items) || []).map(function(n){ return parseInt(n, 10); }))
+      .filter(function(n){ return byN[n] && !rewrite[n]; });
+    var v1 = String((c && c.version1) || '').trim(), v2 = String((c && c.version2) || '').trim();
+    if (!ns.length || !v1 || !v2) return descartadas.push({ tema: tema, motivo: 'sin items del inventario o sin las dos versiones' });
+    if (!citada(c.cita1) || !citada(c.cita2)) return descartadas.push({ tema: tema, motivo: 'las citas no aparecen en el requerimiento' });
+    if (ns.some(function(n){ return byN[n].contradiccion; })) return descartadas.push({ tema: tema, motivo: 'ya estaba en el inventario' });
+    var first = byN[ns[0]];
+    rewrite[first.n] = first.n + ' | Contradiccion | CONTRADICCION | ' + first.ref + ' | Version 1: ' + v1.replace(/\|/g, '/') +
+      '; Version 2: ' + v2.replace(/\|/g, '/');
+    ns.slice(1).forEach(function(n){
+      var it = byN[n];
+      rewrite[n] = n + ' | ' + it.tipo + ' | PENDIENTE | ' + it.ref + ' | ' + it.condicion +
+        ' (por confirmar: contradiccion del item ' + first.n + ')';
+    });
+    aplicadas.push({ n: first.n, items: ns, tema: tema });
+  });
+  if (!aplicadas.length) return { inventory: text, aplicadas: aplicadas, descartadas: descartadas };
+  var glosIdx = text.search(/---\s*GLOSARIO\s*---/i);
+  var invPart = glosIdx >= 0 ? text.slice(0, glosIdx) : text;
+  var rest = glosIdx >= 0 ? text.slice(glosIdx) : '';
+  invPart = invPart.split(/\r?\n/).map(function(line){
+    var l = line.trim().replace(/^[-*]\s*/, '');
+    var nm = /^[A-Za-z]*\s*(\d+)\s*\|/.exec(l);
+    return nm && rewrite[parseInt(nm[1], 10)] ? rewrite[parseInt(nm[1], 10)] : line;
+  }).join('\n');
+  return { inventory: invPart + rest, aplicadas: aplicadas, descartadas: descartadas };
+}
+
 function isExclusion(it) { return /exclu/i.test(it.tipo); }
 // Items que NO son comportamiento del sistema: objetivo o beneficio, contexto
 // (antecedentes, situacion actual, ambiente o despliegue), tareas o compromisos del
@@ -507,6 +556,7 @@ function auditEstado(hallazgos) {
 
 module.exports = {
   parseInventory: parseInventory,
+  applyContradictions: applyContradictions,
   isExclusion: isExclusion,
   isContext: isContext,
   repeatsText: repeatsText,
