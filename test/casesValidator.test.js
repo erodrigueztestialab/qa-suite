@@ -127,3 +127,38 @@ test('mergeRepairedCases: no elimina el unico caso que cubre un item (caso negat
   assert.strictEqual(C.mergeRepairedCases(CASES_OK, 'texto sin casos').ok, false);
   assert.ok(C.mergeRepairedCases(CASES_OK, '---CASOS_DE_PRUEBA---\nSIN_CAMBIOS').ok);
 });
+
+// Casos extra sobre el set limpio: patrones vistos en un set real (validaciones de una
+// pantalla repartidas en un caso cada una, auditoria campo por campo sin requisito que la
+// pida, caso que repite lo que otro ya cubre).
+function caso(id, cubre, escenario, titulo, pasos) {
+  return '### ' + id + ' [src: ' + cubre[0] + '] [cubre: ' + cubre.join(', ') + ']\nRequisito: ' + cubre.filter(function(x){ return !/^ESC/.test(x); }).join(', ') +
+    '\nTipo: Funcional\nComplejidad: Bajo\nEscenario: ' + escenario + '\nCaso: ' + titulo + '\nObjetivo: Verificar ' + titulo.toLowerCase() + '.\nPasos:\n' +
+    pasos.map(function(p, i){ return (i + 1) + '. ' + p; }).join('\n');
+}
+var PREP = ['Ingresar al Portal de Reembolsos como Solicitante >> Se muestra el formulario de solicitud de reembolso',
+  'Abrir una solicitud registrada con soportes adjuntos >> Se muestra el detalle de la solicitud con sus soportes'];
+
+test('V11: casos con la misma preparacion que solo cambian la verificacion final', function(){
+  var extra = '\n' + caso('CP_7', ['RN_4'], 'Máximo de soportes', 'Nombre del soporte en el detalle', PREP.concat(['Revisar el nombre del soporte >> Se muestra el nombre del archivo adjunto'])) +
+    '\n' + caso('CP_8', ['RN_4'], 'Máximo de soportes', 'Fecha del soporte en el detalle', PREP.concat(['Revisar la fecha del soporte >> Se muestra la fecha de carga del archivo']));
+  var res = validate(CASES_OK + extra);
+  assert.ok(has(res, 'V11', 'CP_7') && has(res, 'V11', 'CP_8'));
+  assert.ok(!has(validate(CASES_OK), 'V11'), 'CP_1 y CP_2 comparten solo el ingreso: son variantes, no hermanos');
+});
+
+test('V12: conjunto exacto o campo por campo sin requisito que lo exija', function(){
+  var extra = '\n' + caso('CP_7', ['CA_1', 'ESC_1'], 'Monto dentro del límite', 'Auditoría campo por campo de la solicitud aprobada', PREP.concat(['Comparar cada campo con el origen >> Todos los campos coinciden']));
+  assert.ok(has(validate(CASES_OK + extra), 'V12', 'CP_7'));
+  var hu = HU.replace('RN_4 | El Solicitante puede adjuntar hasta 3 soportes por solicitud.', 'RN_4 | El detalle muestra exactamente los campos nombre, fecha y tamaño de cada soporte.');
+  var extra2 = '\n' + caso('CP_7', ['RN_4'], 'Máximo de soportes', 'Conjunto exacto de campos del soporte', PREP.concat(['Revisar los campos del soporte >> Se muestran nombre, fecha y tamaño, ni más ni menos']));
+  assert.ok(!has(validate(CASES_OK + extra2, { analysisTraced: hu }), 'V12'), 'si el requisito pide exactitud, el caso va');
+});
+
+test('V10: caso que no aporta cobertura (lo que cubre y verifica ya esta en otro del mismo escenario)', function(){
+  var extra = '\n' + caso('CP_7', ['CA_1'], 'Monto dentro del límite', 'Aprobación automática (Smoke)', ['Registrar una solicitud con monto N menor o igual al máximo y enviarla >> La solicitud se aprueba automáticamente']);
+  var res = validate(CASES_OK + extra);
+  assert.ok(has(res, 'V10', 'CP_7') && has(res, 'V10', 'CP_1'));
+  var distinto = '\n' + caso('CP_7', ['CA_1'], 'Monto dentro del límite', 'Monto igual al máximo', ['Registrar una solicitud con monto igual al máximo >> La solicitud queda en estado pendiente de revisión']);
+  assert.ok(!has(validate(CASES_OK + distinto), 'V10', 'CP_7'), 'verifica algo distinto: no es duplicado');
+});

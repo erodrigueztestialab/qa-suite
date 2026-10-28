@@ -63,6 +63,25 @@ function parseCasesTraced(raw) {
   });
 }
 
+// Raices de contenido (5 letras, sin palabras vacias) para comparar pasos y resultados.
+var STEM_STOP_RE = /^(dado|cuando|entonces|sistema|usuario|que|con|para|por|una|uno|del|desde|este|esta|como|sobre|segun|verificar|validar|ingresar|seleccionar|dar|clic)$/;
+function stems(text) {
+  return uniq((norm(text).match(/[a-z]{4,}/g) || []).filter(function(w){ return !STEM_STOP_RE.test(w); }).map(function(w){ return w.slice(0, 5); }));
+}
+function containment(small, big) {
+  if (!small.length) return 0;
+  return small.filter(function(x){ return big.indexOf(x) >= 0; }).length / small.length;
+}
+function jaccard(a, b) {
+  var inter = a.filter(function(x){ return b.indexOf(x) >= 0; }).length;
+  var union = uniq(a.concat(b)).length;
+  return union ? inter / union : 0;
+}
+// Un caso de "conjunto exacto" o "auditoria campo por campo" solo se justifica si algun
+// CA/RN que cubre (o su fuente en el inventario) lo exige con palabras de exactitud.
+var EXACT_CASE_RE = /\b(campo por campo|conjunto exacto|ni de mas ni de menos|ni mas ni menos|exactamente (las|los) (opciones|campos|columnas|elementos))\b/;
+var EXACT_DEMAND_RE = /\b(exactamente|solo|solamente|unicamente)\b(\s+[a-z]+){0,3}\s+(columnas|campos|opciones|elementos|valores|siguientes)\b|\bni (de )?mas ni (de )?menos\b|\btodos los campos\b|\btodas las columnas\b|\bcampo a campo\b|\buno a uno\b|\bcada campo\b/;
+
 function caseText(c) {
   return [c.escenario, c.caso, c.objetivo].concat(c.steps.map(function(s){ return s.paso + ' ' + s.resultado; })).join('\n');
 }
@@ -199,11 +218,73 @@ function validateCases(opts) {
   }
 
   // V10: casos duplicados (mismo cubrimiento y mismos pasos).
-  var seen = {};
+  var seen = {}, dupIds = {};
   cases.forEach(function(c){
     var key = c.cubre.slice().sort().join(',') + '|' + norm(c.steps.map(function(s){ return s.paso; }).join(' ')).replace(/\s+/g, ' ');
-    if (seen[key]) add('V10', 'advertencia', [seen[key], c.id], c.id + ' duplica ' + seen[key] + ' (mismo requisito y mismos pasos).');
+    if (seen[key]) { add('V10', 'advertencia', [seen[key], c.id], c.id + ' duplica ' + seen[key] + ' (mismo requisito y mismos pasos).'); dupIds[c.id] = true; }
     else seen[key] = c.id;
+  });
+  // V10 por cobertura: todo lo que cubre el caso ya lo cubre otro caso del mismo escenario,
+  // y lo que verifica (sus resultados esperados) ya esta en ese otro caso. Es el caso que
+  // repite a otros "como unidad" o un Smoke que repite un Funcional.
+  var isExclCase = function(c){ return c.cubre.concat(c.src).some(function(id){ return exclHu.indexOf(id) >= 0; }); };
+  cases.forEach(function(c){
+    if (dupIds[c.id] || !c.cubre.length || isExclCase(c)) return;
+    var res = stems(c.steps.map(function(s){ return s.resultado; }).join(' '));
+    var acts = stems(c.steps.map(function(s){ return s.paso; }).join(' '));
+    var other = cases.find(function(o){
+      if (o === c || norm(o.escenario).trim() !== norm(c.escenario).trim()) return false;
+      if (!c.cubre.every(function(id){ return o.cubre.indexOf(id) >= 0; })) return false;
+      if (o.cubre.length === c.cubre.length && o.steps.length < c.steps.length) return false; // el mas completo se queda
+      // Lo que hace (pasos) y lo que verifica (resultados) ya esta en el otro: una variante
+      // con otros datos ("inexistente" frente a "sin inventario", otra configuracion) no lo es.
+      return containment(res, stems(o.steps.map(function(s){ return s.resultado; }).join(' '))) === 1 &&
+        containment(acts, stems(o.steps.map(function(s){ return s.paso; }).join(' '))) >= 0.9;
+    });
+    if (other) add('V10', 'advertencia', [c.id, other.id], c.id + ' no aporta cobertura: todo lo que cubre y verifica ya esta en ' + other.id +
+      ' (mismo escenario). Eliminarlo o dejar en ' + other.id + ' lo que le falte.');
+  });
+
+  // V11: casos fragmentados. Dos o mas casos con la MISMA preparacion (todos los pasos
+  // menos el ultimo) que solo cambian la verificacion final son un solo caso con un paso
+  // de verificacion por cada uno (las precargas de una pantalla, los valores invalidos de
+  // un mismo dato). Infla el set sin agregar cobertura. Se exigen al menos 2 pasos de
+  // preparacion: un solo paso comun (entrar a la pantalla) no hace hermanos a dos variantes.
+  // Dos criterios (calibrados con un set real): (a) toda la preparacion casi igual, o
+  // (b) mismo escenario y misma accion justo antes de la verificacion final (cada caso
+  // redacta distinto como llega al registro, pero todos "presionan X" y "verifican Y").
+  var prep = cases.map(function(c){ return c.steps.length >= 3 && !isExclCase(c) ? stems(c.steps.slice(0, -1).map(function(s){ return s.paso + ' ' + s.resultado; }).join(' ')) : null; });
+  var penult = cases.map(function(c){ return c.steps.length >= 2 && !isExclCase(c) ? stems(c.steps[c.steps.length - 2].paso + ' ' + c.steps[c.steps.length - 2].resultado) : null; });
+  var parent = cases.map(function(c, i){ return i; });
+  function root(i) { while (parent[i] !== i) i = parent[i] = parent[parent[i]]; return i; }
+  cases.forEach(function(c, i){
+    cases.forEach(function(o, j){
+      if (j <= i) return;
+      var a = prep[i] && prep[j] && prep[i].length >= 3 && o.steps.length === c.steps.length && jaccard(prep[i], prep[j]) >= 0.8;
+      var b = penult[i] && penult[j] && penult[i].length >= 2 && norm(c.escenario).trim() && norm(c.escenario).trim() === norm(o.escenario).trim() &&
+        jaccard(penult[i], penult[j]) >= 0.8;
+      if (a || b) parent[root(j)] = root(i);
+    });
+  });
+  var groups = {};
+  cases.forEach(function(c, i){ var r = root(i); (groups[r] = groups[r] || []).push(c); });
+  Object.keys(groups).forEach(function(r){
+    var group = groups[r];
+    if (group.length < 2) return;
+    var gIds = group.map(function(g){ return g.id; });
+    add('V11', 'advertencia', gIds, gIds.join(', ') + ' repiten la misma preparacion y solo cambian la verificacion final: unirlos en ' + gIds[0] +
+      ' con un paso de verificacion por cada uno (y la union de lo que cubren).');
+  });
+
+  // V12: caso de "conjunto exacto" o "auditoria campo por campo" que ningun CA/RN exige.
+  cases.forEach(function(c){
+    var title = norm(c.caso + ' ' + c.objetivo);
+    if (!EXACT_CASE_RE.test(title)) return;
+    var sources = c.cubre.concat(c.src).map(function(id){ return huById[id]; }).filter(Boolean);
+    var srcText = norm(sources.map(function(it){ return it.text; }).join(' ') + ' ' +
+      invNumsOfCase(c).map(function(n){ return invByN[n] ? invByN[n].condicion : ''; }).join(' '));
+    if (!EXACT_DEMAND_RE.test(srcText)) add('V12', 'error', [c.id], c.id + ' es de "conjunto exacto" o "auditoria campo por campo" y ningun CA/RN que cubre lo exige (' +
+      (c.cubre.join(', ') || 'sin requisito') + '): esos casos solo van si el requisito pide exactitud. Eliminarlo (lo que cubre ya lo cubren los demas casos).');
   });
 
   return { hallazgos: hallazgos, cobertura: cobertura, cases: cases };
@@ -264,4 +345,5 @@ module.exports = {
   validateCases: validateCases,
   stripTraceMarks: H.stripTraceMarks,
   auditEstado: H.auditEstado,
+  fixPorEjemploComma: H.fixPorEjemploComma,
 };

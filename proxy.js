@@ -1210,6 +1210,11 @@ var REGLAS_ALINEACION_CASOS = [
   '   el caso invente van como N, N-1 o X (las cifras que el requerimiento define si se usan). Tipo SOLO Smoke, Funcional,',
   '   UI o UX. Cada paso tiene su resultado esperado (mismo numero de pasos y de resultados). La complejidad y el riesgo',
   '   del caso heredan los del CA o escenario que cubre.',
+  'I. UN CASO POR FLUJO: lo que se verifica en la misma ejecucion (precargas de una pantalla, botones, datos de un',
+  '   registro) son pasos de UN caso que cita todos los CA/RN/ESC que cubre; los valores invalidos de un mismo dato, un',
+  '   caso con un paso por valor. "Conjunto exacto" o "auditoria campo por campo" SOLO si un CA/RN exige exactitud.',
+  'J. NADA DE CONTEXTO COMO CASO: objetivo, antecedentes, tareas del proyecto (accesos, ubicar codigo, estimar),',
+  '   decisiones tecnicas, ambiente o pais de despliegue no se prueban como caso; son precondiciones o notas del plan.',
   'H. MARCAS INTERNAS: la linea del ID de cada caso termina con [src: ...] (el CA_N/RN_N/ESC_N o el codigo del inventario',
   '   del que sale) y [cubre: ...] (todos los CA_N/RN_N/ESC_N que valida). Ej: "### CP_4 [src: CA_4,DEP-01] [cubre: CA_4,',
   '   ESC_4]". La herramienta las quita antes de mostrar o exportar. El campo "Requisito" sigue citando los CA_N/RN_N.',
@@ -1288,13 +1293,17 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts, ctx) {
     '   registro/reporte HEREDA, REMAPEA o COPIA campos desde un documento/registro origen hacia un destino, genera un',
     '   caso de AUDITORIA CAMPO POR CAMPO dedicado que compare TODOS los campos remapeados contra el origen de uno en',
     '   uno -- esto es distinto y adicional a los casos que ya validan campos especificos por separado; cubre el remapeo',
-    '   completo como unidad, no reemplaza a esos otros casos. IMPORTANTE: estas dos reglas se aplican POR CADA CA_N/RN_N',
-    '   que las cumpla, no una sola vez para todo el requerimiento. Si el requerimiento tiene VARIOS flujos, modulos o',
-    '   tipos de registro distintos que cada uno hace su propio remapeo/herencia de campos o define su propio conjunto',
-    '   configurable (ej: un flujo A y un flujo B, cada uno con su propia configuracion), un solo',
-    '   caso para uno de ellos NO cubre al otro -- genera el caso de conjunto exacto y/o el de auditoria campo por campo',
-    '   PARA CADA flujo/modulo que lo requiera, de forma simetrica. No asumas que aplicar la regla una vez ya la satisface',
-    '   para el resto del requerimiento.',
+    '   completo como unidad, no reemplaza a esos otros casos. Si VARIOS flujos lo exigen explicitamente, cada uno tiene',
+    '   el suyo. Si ningun CA_N/RN_N lo exige con palabras de exactitud ("exactamente", "solo estas columnas", "ni mas ni',
+    '   menos", "todos los campos"), NO generes estos casos: que un CA liste campos o precargas no es exigir exactitud',
+    '   (sus campos se verifican como pasos del caso de ese flujo, regla 4).',
+    '   (e) ENTRADAS DEL USUARIO: por cada dato que el usuario digita o escanea en el flujo (cantidades, codigos,',
+    '   ubicaciones, fechas, textos), genera UN caso negativo que agrupe, un paso por valor, las clases invalidas que',
+    '   tienen sentido para ese dato (vacio, cero, negativo, no numerico, mayor al disponible o al maximo, inexistente,',
+    '   igual al origen, de otro almacen o entidad, etc.) y, si el requerimiento define un limite, un caso de borde con el',
+    '   valor justo en el limite. Solo clases que apliquen al dato; si el requerimiento no define el mensaje, el',
+    '   resultado esperado dice que el sistema no permite continuar o rechaza el valor, sin inventar el texto del mensaje.',
+    '   Si un CA_N/RN_N ya cubre una de esas clases, ese caso la incluye como paso (no un caso aparte).',
     '   (d) VALIDACION DE CAMPOS: por CADA RN_N que especifique un campo con sus atributos (tipo, longitud, obligatoriedad,',
     '   formato, valores permitidos, etc.), genera UN caso dedicado a ese campo, con un paso por cada validacion que el',
     '   RN_N documente, segun aplique: dejarlo vacio si es obligatorio (se rechaza con el mensaje correspondiente),',
@@ -1308,20 +1317,15 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts, ctx) {
     '   tambien reemplaza, para esos campos, el caso "campo obligatorio vacio" de la regla (b). Los CA_N que involucran',
     '   varios campos o un comportamiento distinto (ej: formulario completo vacio, dato duplicado, que no se notifique si',
     '   falla una validacion) si van en su propio caso.',
-    '4. COBERTURA SIN COMPACTAR: no hay numero minimo ni maximo de casos -- la cantidad la determina unicamente lo que el',
-    '   analisis necesita cubrir, no un objetivo de "ser breve". NO fusiones validaciones distintas en un solo caso grande',
-    '   solo para reducir la cantidad total; cada caso debe seguir centrado en UN objetivo de prueba claro. Variantes',
-    '   distintas de un mismo flujo (camino feliz, dato invalido, campo vacio, limite de caracteres, rol sin permiso,',
-    '   valor limite, etc.) NO son redundantes entre si -- van como casos separados. Solo evita la REDUNDANCIA real:',
-    '   dos casos que terminarian validando exactamente lo mismo (mismos pasos, mismo objetivo, mismo resultado esperado),',
-    '   esos si fusionalos o elimina el duplicado. Cada caso debe aportar cobertura que ningun otro caso ya aporta.',
-    '   SENAL DE ALERTA: si un caso termina citando 3 o mas IDs (CA_N/RN_N) distintos, detente y revisalo antes de',
-    '   continuar -- en la gran mayoria de los casos eso significa que en realidad son 2 o 3 casos distintos que deberias',
-    '   separar. Fusionar 3 o mas IDs en un solo caso solo se justifica cuando son literalmente inseparables en una unica',
-    '   ejecucion (ej: dos validaciones que ocurren en el mismo paso y no pueden probarse por separado sin repetir todo el',
-    '   flujo). Si tienes duda, separa -- el costo de un caso de mas es menor que el de perder trazabilidad clara.',
-    '   EXCEPCION: el caso de validacion de un campo de la regla 3(d) agrupa a proposito todas las validaciones de ese',
-    '   campo en pasos distintos -- no lo separes aunque cite 3 o mas IDs, siempre que todos sean del mismo campo.',
+    '4. UN CASO POR FLUJO, NO POR VERIFICACION: no hay numero minimo ni maximo de casos; la cantidad sale de la cobertura.',
+    '   Lo que se verifica en la MISMA ejecucion del mismo flujo, con los mismos datos y precondiciones (los campos que una',
+    '   pantalla precarga, los botones que aparecen, los datos que muestra un registro, el mensaje del mismo error), va en',
+    '   UN caso con un paso de verificacion por cada cosa, aunque cubra varios CA_N/RN_N/ESC_N: cita todos en Requisito y',
+    '   en [cubre]. Prohibido repetir la misma preparacion en varios casos cambiando solo la verificacion final.',
+    '   Van en casos SEPARADOS las variantes que necesitan otros datos u otra precondicion: camino feliz frente a dato',
+    '   invalido, parametro activo frente a apagado, rol con y sin permiso, registro con y sin un atributo. Los valores',
+    '   invalidos de un MISMO dato son un solo caso con un paso por valor (regla 3(e)), igual que el caso de un campo de la',
+    '   regla 3(d). Elimina la redundancia: ningun caso puede verificar solo lo que otro caso ya verifica.',
     '5. Cada paso a paso debe ser ejecutable por un QA sin conocimiento previo del sistema.',
     '5.1 ' + REGLA_CASOS_OPERATIVOS,
     '6. El resultado esperado debe ser verificable, no ambiguo.',
@@ -1352,9 +1356,10 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts, ctx) {
     '   (b) Cada escenario QA de tipo Negativo o Borde del analisis quedo convertido en al menos un caso -- si falta alguno, agregalo.',
     '   (c) Cada filtro/parametro de ejecucion y cada campo obligatorio mencionado en el analisis tiene su caso negativo/borde',
     '   correspondiente (sin diligenciar, sin resultados, vacio) segun aplique -- si falta, agregalo.',
-    '   (d) Ningun caso quedo citando 3 o mas IDs sin que sea una inseparabilidad real -- si encuentras uno, separalo en 2-3 casos',
-    '   (salvo el caso de validacion de un campo, regla 3(d)).',
-    '   (e) No hay dos casos redundantes entre si (misma validacion exacta) -- si los hay, fusionalos.',
+    '   (d) Ningun grupo de casos repite la misma preparacion cambiando solo la verificacion final -- si lo hay, unelos en un',
+    '   caso con un paso de verificacion por cada uno (regla 4).',
+    '   (e) No hay casos redundantes: ninguno verifica solo lo que otro ya verifica (un Smoke no repite un Funcional) -- si',
+    '   los hay, fusionalos. Cada dato que el usuario digita tiene su caso negativo (regla 3(e)).',
     '   (f) Cada CA_N/RN_N que EXIGE EXPLICITAMENTE un conjunto exacto de elementos tiene su caso de "conjunto exacto" (ni',
     '   de mas ni de menos) -- si hay VARIOS flujos/modulos distintos que cada uno lo exige, cada uno tiene el suyo -- si',
     '   falta alguno, agregalo. Si ningun CA_N/RN_N lo exige, no agregues casos de este tipo.',
@@ -1889,6 +1894,8 @@ function buildPlanRepairPrompt(inventoryPath, analysisPath, planPath, findingsPa
     '2. Si un hallazgo pide algo que falta (un pendiente en Dentro del Alcance condicionado, un codigo DEP en supuestos,',
     '   riesgos o criterios de entrada, un riesgo del analisis), agrega la linea en la seccion correspondiente.',
     '3. Si un item pendiente esta en ALCANCE_FUERA, muevelo a ALCANCE_DENTRO con "(condicionado a <Ref>)".',
+    '3.1 "por ejemplo" nunca lleva coma antes: si la frase queda "..., por ejemplo, ...", reescribela con parentesis',
+    '   ("tipos de inventario (por ejemplo, reservado)") o en una oracion aparte ("Por ejemplo, ...").',
     '4. Conserva el formato de cada seccion y las marcas [src: ...].',
     '5. Respeta estas reglas mientras corriges:',
     REGLAS_ALINEACION_PLAN,
@@ -3052,7 +3059,12 @@ function buildCasesAuditorPrompt(inventoryPath, analysisPath, planPath, casesPat
     '- CONSECUENCIA_INFERIDA: una consecuencia que la fuente no declara, o un dano comercial presentado como legal.',
     '- INCOHERENCIA: el caso contradice la HU o el plan (condicionado alla y no aqui, escenario con otro nombre, prueba',
     '  algo excluido del alcance).',
-    '- RELLENO: un caso que no cubre ningun CA, RN, ESC o item del plan que no este ya cubierto, agregado solo por cantidad.',
+    '- RELLENO: un caso que no cubre ningun CA, RN, ESC o item del plan que no este ya cubierto, agregado solo por cantidad,',
+    '  o que prueba algo que no es comportamiento del sistema (una tarea del proyecto, un acceso, una estimacion, el pais',
+    '  o ambiente de despliegue).',
+    '- FALTA_NEGATIVO_ENTRADA: un dato que el usuario digita o escanea en el flujo no tiene caso negativo con sus clases',
+    '  invalidas (vacio, cero, negativo, mayor al disponible, inexistente, igual al origen...). En "caso" pon el CP_N del',
+    '  flujo donde se digita, en "frase" el nombre del dato y en "correccion" las clases invalidas que aplican.',
     'NO es defecto: el caso NEGATIVO que verifica que una EXCLUSION del inventario no ocurre (por ejemplo, que no existe la',
     'opcion o la integracion excluida). Ese caso es obligatorio para cubrir la exclusion; no lo reportes como INCOHERENCIA,',
     'RELLENO ni "prueba algo excluido". Solo es defecto si EJECUTA la funcionalidad excluida.',
@@ -3060,7 +3072,8 @@ function buildCasesAuditorPrompt(inventoryPath, analysisPath, planPath, casesPat
     '',
     'Responde SOLO con un arreglo JSON, sin texto adicional ni bloque de codigo:',
     '[{"caso":"CP_N","frase":"<frase exacta del caso>","tipo":"<MAS_FUERTE_QUE_FUENTE|PREMISA_COMO_HECHO|CONSECUENCIA_INFERIDA|',
-    'INCOHERENCIA|RELLENO>","motivo":"<que dice la fuente>","correccion":"<como deberia quedar, o ELIMINAR si es relleno>"}]',
+    'INCOHERENCIA|RELLENO|FALTA_NEGATIVO_ENTRADA>","motivo":"<que dice la fuente>","correccion":"<como deberia quedar, o',
+    'ELIMINAR si es relleno>"}]',
   ].filter(function(l){ return l !== null; }).join('\n');
 }
 
@@ -3082,6 +3095,13 @@ function buildCasesRepairPrompt(inventoryPath, analysisPath, planPath, casesPath
     '2. Si un hallazgo dice que un caso es RELLENO o que hay que eliminarlo, devuelvelo con la linea "Eliminar: SI" debajo',
     '   del ID y nada mas. Nunca elimines el unico caso que cubre un CA_N, RN_N o ESC_N (corrigelo en su lugar), ni el caso',
     '   negativo que verifica que una EXCLUSION no ocurre.',
+    '2.1 V11 (casos con la misma preparacion): devuelve el PRIMER caso del grupo con la preparacion una sola vez y un paso',
+    '   de verificacion por cada caso del grupo, con Requisito y [cubre] = la union de todos; los demas del grupo van con',
+    '   "Eliminar: SI". Si un caso del grupo necesita OTROS datos u otra precondicion (por ejemplo, un registro con un',
+    '   atributo y otro sin el, o una configuracion distinta), dejalo aparte: une solo los que se verifican en la misma',
+    '   ejecucion. V10 (no aporta cobertura) y V12 (conjunto exacto o campo por campo sin requisito que lo pida):',
+    '   "Eliminar: SI" (si cubre algo que ningun otro caso cubre, pasa esa verificacion como paso al caso que nombra el',
+    '   hallazgo y devuelvelo).',
     '3. Conserva el formato de cada caso (Requisito, Tipo, Complejidad, Escenario, Caso, Objetivo, Pasos "N. paso >>',
     '   resultado") y sus marcas.',
     '3.1 "por ejemplo" nunca lleva coma antes: si la frase queda "..., por ejemplo, ...", reescribela con parentesis',
@@ -3110,7 +3130,11 @@ async function auditAndRepairCases(o) {
     return casesValidator.validateCases({ traced: traced, inventory: o.inventory, glossary: o.glossary,
       analysisTraced: o.analysisTraced || o.analysisRaw, planTraced: o.planTraced });
   }
-  var traced = o.traced;
+  // "por ejemplo" con coma antes: correccion mecanica sin IA (igual que en el plan).
+  var pe = casesValidator.fixPorEjemploComma(o.traced);
+  var traced = pe.text;
+  var mecanicos = pe.count ? [{ codigo: 'V7', severidad: 'advertencia', ids: [], origen: 'sistema',
+    mensaje: pe.count + ' frase(s) con coma antes de "por ejemplo" reescritas con parentesis (correccion automatica, sin IA).' }] : [];
   o.progress(55, 'Validando los casos contra el requerimiento y el plan...');
   var v1 = validate(traced);
 
@@ -3138,7 +3162,12 @@ async function auditAndRepairCases(o) {
 
   // Cobertura faltante: mismo prompt de "Generar casos para lo faltante", con la lista exacta.
   var gaps = v1.cobertura.hu.faltantes.map(function(id){ return { id: id, justificacion: 'Ningun caso lo cubre ([cubre]).' }; })
-    .concat(v1.cobertura.plan.faltantes.map(function(t){ return { id: 'ALCANCE DEL PLAN', justificacion: t }; }));
+    .concat(v1.cobertura.plan.faltantes.map(function(t){ return { id: 'ALCANCE DEL PLAN', justificacion: t }; }))
+    // Un dato que el usuario digita sin caso negativo: se genera con el mismo paso (no lo inventa la reparacion).
+    .concat(auditorFindings.filter(function(h){ return h.codigo === 'FALTA_NEGATIVO_ENTRADA'; }).map(function(h){
+      return { id: 'NEGATIVO DE UNA ENTRADA DEL USUARIO', justificacion: h.mensaje + (h.correccion ? ' Clases invalidas: ' + h.correccion : '') +
+        ' Un solo caso con un paso por valor invalido (regla 3(e)), en el flujo de ' + (h.ids[0] || 'ese dato') + '.' };
+    }));
   if (gaps.length) {
     o.progress(68, 'Generando casos para ' + gaps.length + ' item(s) sin cubrir...');
     var tGap = Date.now();
@@ -3161,7 +3190,7 @@ async function auditAndRepairCases(o) {
   }
 
   // Reparacion de los casos senalados (cobertura ya se atendio arriba).
-  var caseFix = toFix.filter(function(h){ return h.codigo !== 'V1' && h.ids.some(function(id){ return /^CP_\d+$/.test(id); }); });
+  var caseFix = toFix.filter(function(h){ return h.codigo !== 'V1' && h.codigo !== 'FALTA_NEGATIVO_ENTRADA' && h.ids.some(function(id){ return /^CP_\d+$/.test(id); }); });
   if (caseFix.length) {
     o.progress(82, 'Corrigiendo ' + caseFix.length + ' hallazgo(s) en los casos...');
     var tRep = Date.now();
@@ -3173,7 +3202,7 @@ async function auditAndRepairCases(o) {
       // un CA/RN/ESC (salvaguarda) y renumera.
       var m = casesValidator.mergeRepairedCases(traced, fixedText);
       if (m.ok) {
-        traced = m.traced;
+        traced = casesValidator.fixPorEjemploComma(m.traced).text;
         keptDeletes = m.conservados;
         reparado = true;
       } else repairError = 'la reparacion no devolvio casos en el formato esperado';
@@ -3195,7 +3224,8 @@ async function auditAndRepairCases(o) {
     if (h.severidad === 'error' && fixedAny) return Object.assign({}, h, { severidad: 'advertencia' });
     return h;
   });
-  if (!reparado) hallazgos = hallazgos.concat(auditorFindings);
+  // Los negativos faltantes ya se atendieron con casos nuevos si el paso de faltantes agrego alguno.
+  if (!reparado) hallazgos = hallazgos.concat(auditorFindings.filter(function(h){ return !(gapAdded && h.codigo === 'FALTA_NEGATIVO_ENTRADA'); }));
   hallazgos = hallazgos.concat(keptDeletes);
   if (!auditorOk) hallazgos.push({ codigo: 'AUDITOR', severidad: 'advertencia', ids: [], origen: 'sistema',
     mensaje: 'El auditor IA no devolvio un resultado valido; solo se aplico el validador automatico.' });
@@ -3205,8 +3235,8 @@ async function auditAndRepairCases(o) {
   return {
     traced: traced,
     audit: {
-      estado: casesValidator.auditEstado(hallazgos), hallazgos: hallazgos, corregidos: fixedAny ? toFix : [],
-      cobertura: final.cobertura, reparado: reparado, casosAgregados: gapAdded, auditor: auditorOk ? 'ok' : 'fallo', tiempos: tiempos,
+      estado: casesValidator.auditEstado(hallazgos), hallazgos: hallazgos, corregidos: mecanicos.concat(fixedAny ? toFix : []),
+      cobertura: final.cobertura, reparado: reparado || mecanicos.length > 0, casosAgregados: gapAdded, auditor: auditorOk ? 'ok' : 'fallo', tiempos: tiempos,
     },
   };
 }
@@ -3534,6 +3564,12 @@ async function auditAndRepairPlan(o) {
   function validate(traced) {
     return planValidator.validatePlan({ traced: traced, inventory: o.inventory, glossary: o.glossary, analysis: o.analysis, responsables: o.responsables });
   }
+  // "por ejemplo" con coma antes: se corrige sin IA antes de validar (la reparacion no
+  // siempre lo aplicaba y quedaba como advertencia para el QA).
+  var pe = planValidator.fixPorEjemploComma(o.traced);
+  o.traced = pe.text;
+  var mecanicos = pe.count ? [{ codigo: 'V7', severidad: 'advertencia', ids: [], origen: 'sistema',
+    mensaje: pe.count + ' frase(s) con coma antes de "por ejemplo" reescritas con parentesis (correccion automatica, sin IA).' }] : [];
   o.progress(55, 'Validando el plan contra el requerimiento...');
   var v1 = validate(o.traced);
 
@@ -3565,7 +3601,7 @@ async function auditAndRepairPlan(o) {
     var fixPath = m1TmpFile('plan-fix-', JSON.stringify(toFix, null, 1), o.tmpList);
     try {
       var fixed = stripCodeFences(await callAI(buildPlanRepairPrompt(o.inventoryPath, analysisPath, planPath, fixPath), o.aiOpts));
-      if (/---ALCANCE_DENTRO---/i.test(fixed) && /---CRITERIOS_SALIDA---/i.test(fixed)) { traced = fixed; reparado = true; }
+      if (/---ALCANCE_DENTRO---/i.test(fixed) && /---CRITERIOS_SALIDA---/i.test(fixed)) { traced = planValidator.fixPorEjemploComma(fixed).text; reparado = true; }
       else repairError = 'la reparacion no devolvio un plan con todas sus secciones';
     } catch (e) {
       repairError = e.message;
@@ -3592,8 +3628,8 @@ async function auditAndRepairPlan(o) {
   return {
     traced: traced,
     audit: {
-      estado: planValidator.auditEstado(hallazgos), hallazgos: hallazgos, corregidos: reparado ? toFix : [],
-      cobertura: final.cobertura, reparado: reparado, auditor: auditorOk ? 'ok' : 'fallo', tiempos: tiempos,
+      estado: planValidator.auditEstado(hallazgos), hallazgos: hallazgos, corregidos: mecanicos.concat(reparado ? toFix : []),
+      cobertura: final.cobertura, reparado: reparado || mecanicos.length > 0, auditor: auditorOk ? 'ok' : 'fallo', tiempos: tiempos,
     },
   };
 }

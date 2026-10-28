@@ -153,3 +153,25 @@ test('pendiente que el analisis solo tiene en un riesgo: no se exige en Alcance,
   var huCa = hu.replace('CA_3 | Dado que', 'CA_3 | Dado que el ambiente está disponible y').replace('permitido". [src: 8]', 'permitido". [src: 8, 9]');
   assert.ok(has(validate(PLAN_OK, { inventory: inv, analysis: huCa }), 'V1', 'item 9'), 'si lo cita un CA, si es alcance');
 });
+
+test('fixPorEjemploComma: ", por ejemplo, X" -> " (por ejemplo, X)" sin cambiar el sentido', function(){
+  function fx(t) { return P.fixPorEjemploComma(t); }
+  assert.strictEqual(fx('Validar las cantidades, por ejemplo, 3 unidades.').text, 'Validar las cantidades (por ejemplo, 3 unidades).');
+  assert.strictEqual(fx('- Datos del registro, por ejemplo ubicación y artículo [src: 2]').text, '- Datos del registro (por ejemplo, ubicación y artículo) [src: 2]');
+  assert.strictEqual(fx('Campos precargados, por ejemplo, ubicación, artículo y lote.').text, 'Campos precargados (por ejemplo, ubicación, artículo y lote).');
+  assert.strictEqual(fx('Pruebas negativas | Cantidad superior al disponible, por ejemplo, N+1 unidades / Destino inexistente').text,
+    'Pruebas negativas | Cantidad superior al disponible (por ejemplo, N+1 unidades) / Destino inexistente');
+  assert.strictEqual(fx('1. Ingresar una cantidad inválida, por ejemplo, cero >> El sistema no permite continuar').text,
+    '1. Ingresar una cantidad inválida (por ejemplo, cero) >> El sistema no permite continuar');
+  var ambiguo = 'Límite por reserva, por ejemplo, con N unidades y X reservadas, se mueven N-X.';
+  assert.strictEqual(fx(ambiguo).text, ambiguo, 'si no se sabe donde termina el ejemplo, no se toca');
+  var intacto = 'Por ejemplo, el Solicitante adjunta X soportes. Campos (nombre, por ejemplo, el del soporte).';
+  var r = fx(intacto);
+  assert.strictEqual(r.text, intacto, 'no toca el inicio de oracion ni lo que ya esta entre parentesis');
+  assert.strictEqual(r.count, 0);
+  var plan = PLAN_OK.replace('Adjuntar soportes hasta el máximo permitido por solicitud.', 'Adjuntar soportes hasta el máximo permitido, por ejemplo, facturas.');
+  assert.ok(has(validate(plan), 'V7'), 'el validador lo detecta');
+  var fixed = fx(plan);
+  assert.strictEqual(fixed.count, 1);
+  assert.ok(!has(validate(fixed.text), 'V7'), 'y despues de la correccion ya no');
+});
