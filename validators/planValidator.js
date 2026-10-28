@@ -288,4 +288,5 @@ module.exports = {
   validatePlan: validatePlan,
   stripTraceMarks: H.stripTraceMarks,
   auditEstado: H.auditEstado,
+  fixPorEjemploComma: H.fixPorEjemploComma,
 };

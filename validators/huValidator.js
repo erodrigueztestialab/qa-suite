@@ -476,6 +476,30 @@ function validateHU(opts) {
   return { hallazgos: hallazgos, cobertura: cobertura, inventario: inv.items, glosario: glossary };
 }
 
+// Convencion "por ejemplo" nunca con coma antes: ", por ejemplo, X." -> " (por ejemplo, X)."
+// Correccion mecanica (no cambia el sentido) para cuando la reparacion IA no la aplica.
+// No toca "Por ejemplo," al inicio de una oracion ni una frase que ya esta dentro de un
+// parentesis (anidarlos empeora la lectura: ahi queda la advertencia para el QA).
+// Devuelve { text, count }.
+function fixPorEjemploComma(text) {
+  var count = 0;
+  var out = String(text || '').split('\n').map(function(line){
+    // El ejemplo termina en fin de oracion, en una marca [src], o en un separador de celda o
+    // de item (" | ", " / ") de las filas de Tipos y Niveles de prueba, o en el ">>" que
+    // separa el paso del resultado esperado en los casos de M4.
+    return line.replace(/,\s*por ejemplo,?\s+([^.;:\n\[\]()|\/>]+?)(?=\s*(?:[.;:\[)|\/>]|$))/gi, function(m, x, off){
+      var before = line.slice(0, off);
+      if ((before.match(/\(/g) || []).length > (before.match(/\)/g) || []).length) return m;
+      // Con comas, solo si es una lista que cierra con "y/o" ("a, b y c"); si no, no se sabe
+      // donde termina el ejemplo ("facturas, hasta el maximo") y meter de mas cambia el sentido.
+      if (x.indexOf(',') >= 0 && !/,[^,]*\s(y|e|o|u)\s[^,]*$/.test(x)) return m;
+      count++;
+      return ' (por ejemplo, ' + x.trim() + ')';
+    });
+  }).join('\n');
+  return { text: out, count: count };
+}
+
 // Estado global de la auditoria a partir de los hallazgos que quedaron.
 function auditEstado(hallazgos) {
   return (hallazgos || []).some(function(h){ return h.severidad !== 'info'; }) ? 'CON_ADVERTENCIAS' : 'OK';
@@ -491,5 +515,6 @@ module.exports = {
   stripTraceMarks: stripTraceMarks,
   validateHU: validateHU,
   auditEstado: auditEstado,
+  fixPorEjemploComma: fixPorEjemploComma,
   norm: norm,
 };
