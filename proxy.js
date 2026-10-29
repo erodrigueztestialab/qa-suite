@@ -859,31 +859,46 @@ function parseHUDocxHtml(html) {
   return raw;
 }
 
-async function extractDocx(docxPath) {
-  var imgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'docx-img-'));
+// opts.imageMarkers: deja "[IMAGEN N]" en el texto, en la posicion de cada imagen (para
+// que la IA asocie leyenda y captura). opts.markerOffset desplaza la numeracion cuando hay
+// varios DOCX en el mismo caso. opts.imgDir: carpeta donde guardar las imagenes (si no, se
+// crea una temporal). Sin opts el comportamiento es el de siempre (M1/M3/M4).
+async function extractDocx(docxPath, opts) {
+  opts = opts || {};
+  var markers = !!opts.imageMarkers;
+  var offset = opts.markerOffset || 0;
+  var ownDir = !opts.imgDir;
+  var imgDir = opts.imgDir || fs.mkdtempSync(path.join(os.tmpdir(), 'docx-img-'));
   var imagePaths = [];
   var imgIdx = 0;
 
   var result = await mammoth.convertToHtml(
     { path: docxPath },
     { convertImage: mammoth.images.imgElement(function(image) {
+        // El indice se toma ANTES del read() asincrono: asi la numeracion sigue el orden
+        // del documento aunque las lecturas terminen desordenadas.
+        var n = ++imgIdx;
         return image.read().then(function(buffer) {
-          imgIdx++;
           var subtype = (image.contentType || 'image/png').split('/')[1] || 'png';
-          var imgPath = path.join(imgDir, 'img_' + String(imgIdx).padStart(3, '0') + '.' + subtype);
+          var imgPath = path.join(imgDir, 'img_' + String(offset + n).padStart(3, '0') + '.' + subtype);
           fs.writeFileSync(imgPath, buffer);
-          imagePaths.push(imgPath);
-          return { src: '' }; // no hace falta el data-URI en el HTML, ya la guardamos en disco
+          imagePaths[n - 1] = imgPath;
+          // no hace falta el data-URI en el HTML, ya la guardamos en disco
+          return markers ? { src: '', alt: '[IMAGEN ' + (offset + n) + ']' } : { src: '' };
         });
       })
     }
   );
 
-  var text = htmlToPlainText(result.value);
-  if (!imagePaths.length) {
+  var html = result.value;
+  if (markers) {
+    html = html.replace(/<img\b[^>]*\balt="(\[IMAGEN \d+\])"[^>]*>/gi, '<br>$1<br>');
+  }
+  var text = htmlToPlainText(html);
+  if (ownDir && !imagePaths.length) {
     try { fs.rmdirSync(imgDir); } catch (e) {}
   }
-  return { text: text, imagePaths: imagePaths, imgDir: imagePaths.length ? imgDir : null };
+  return { text: text, imagePaths: imagePaths, imgDir: (ownDir && !imagePaths.length) ? null : imgDir };
 }
 
 // ── Bloque de secciones de salida, compartido por el prompt de analisis ───────
@@ -2456,6 +2471,16 @@ function buildEvidenceVerdictPrompt(caseData, filePaths, engine, textEvidence) {
   var fileRefs = filePaths.map(function(fp){
     return 'Evidencia a analizar (usa tu herramienta de lectura de archivos sobre esta ruta exacta antes de responder -- puede ser imagen o PDF): ' + fp;
   }).join('\n');
+  // Imagenes incrustadas en los DOCX: el texto extraido trae "[IMAGEN N]" en la posicion de
+  // cada una, y aca se listan numeradas con su ruta para que el motor las lea (vision).
+  var docxImages = [];
+  textEvidence.forEach(function(t){ (t.images || []).forEach(function(im){ docxImages.push(im); }); });
+  docxImages.sort(function(a, b){ return a.n - b.n; });
+  var hasDocxImages = docxImages.length > 0;
+  var docxImageRefs = hasDocxImages
+    ? 'IMAGENES DE LOS DOCUMENTOS WORD (' + docxImages.length + '). Lee TODAS con tu herramienta de lectura de archivos, en paralelo y sobre estas rutas exactas, antes de responder. En el texto de abajo, "[IMAGEN N]" marca la posicion de cada una:\n' +
+      docxImages.map(function(im){ return 'IMAGEN ' + im.n + ': ' + im.path; }).join('\n')
+    : '';
   var textEvidenceBlock = textEvidence.length
     ? '\nEVIDENCIA EN TEXTO (' + textEvidence.length + ' documento(s) DOCX/TXT, ya extraido):\n' +
       textEvidence.map(function(t){ return '--- ' + t.filename + ' ---\n' + t.text; }).join('\n\n') + '\n'
@@ -2470,6 +2495,7 @@ function buildEvidenceVerdictPrompt(caseData, filePaths, engine, textEvidence) {
     pasosText,
     '',
     fileRefs,
+    docxImageRefs,
     textEvidenceBlock,
     '',
     'INSTRUCCIONES CRITICAS:',
@@ -2477,6 +2503,13 @@ function buildEvidenceVerdictPrompt(caseData, filePaths, engine, textEvidence) {
     '   de este caso (ej: es una pantalla de otro modulo, un caso distinto, o algo irrelevante), marca EVIDENCIA_VALIDA=NO --',
     '   en ese escenario NO evalues veredicto por contenido, es simplemente evidencia incorrecta que hay que resubir.',
     '2. Si la evidencia SI corresponde, compara lo que se ve contra el resultado esperado de CADA paso individualmente.',
+  ].concat(hasDocxImages ? [
+    '2.1 Las LEYENDAS y textos del documento Word son lo que el QA AFIRMA haber observado: NO son evidencia. La evidencia son las',
+    '   imagenes ([IMAGEN N]). Contrasta la leyenda de cada paso con la captura correspondiente: que el texto diga "Exitoso",',
+    '   "OK" o "se muestra el mensaje X" no basta si la captura no lo muestra.',
+    '2.2 Marca FAIL en un paso si la captura contradice la leyenda, o si en la captura NO se puede ver lo que la leyenda afirma',
+    '   (el check, el mensaje, el estado o el dato citado). Una leyenda sin respaldo visual no cumple el paso.',
+  ] : []).concat([
     '3. Al comparar, distingue el DATO de ejemplo (un correo, nombre, ID, monto o fecha concreta escrita en el paso solo para',
     '   ilustrar el caso) de la ASERCION FUNCIONAL real que el paso quiere validar. El centro de la prueba es la funcionalidad,',
     '   no la data. Si la evidencia muestra el mismo comportamiento funcional esperado pero con un dato valido distinto al',
@@ -2487,7 +2520,9 @@ function buildEvidenceVerdictPrompt(caseData, filePaths, engine, textEvidence) {
     '   si compara el dato literal, porque en ese caso el dato ES la funcionalidad bajo prueba.',
     '4. El veredicto general es BINARIO: PASS solo si TODOS los pasos se cumplieron. Si algun paso fallo o la evidencia es',
     '   insuficiente/ambigua para confirmarlo, el veredicto general es FAIL -- no existe un tercer estado ambiguo.',
-    '5. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional.',
+    '5. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional. Decide cada paso ANTES de escribir su renglon y',
+    '   escribe solo la conclusion final: el PASS/FAIL del inicio del renglon debe ser coherente con su razon y nunca te corrijas',
+    '   dentro de la respuesta ("corrijo", "en realidad", "este paso es PASS"). Incluye siempre las 4 secciones, completas.',
     '',
     '---EVIDENCIA_VALIDA---',
     'Una sola palabra: SI o NO.',
@@ -2497,7 +2532,7 @@ function buildEvidenceVerdictPrompt(caseData, filePaths, engine, textEvidence) {
     '',
     '---PASOS_VERDICTO---',
     'Un renglon por paso EN EL MISMO ORDEN que los pasos de arriba, SIEMPRE con una razon puntual (1 frase corta) citando',
-    'especificamente que se ve en la evidencia -- tanto si el paso paso como si fallo, el QA necesita poder auditar el',
+    'especificamente que se ve en la evidencia' + (hasDocxImages ? ' (numero de IMAGEN y el dato visible en ella, no solo lo que dice la leyenda)' : '') + ' -- tanto si el paso paso como si fallo, el QA necesita poder auditar el',
     'criterio de la IA en ambos casos, no solo cuando algo sale mal.',
     'Si el paso paso: escribe PASS seguido de " -- " y la razon puntual de por que se da por cumplido. Ejemplo:',
     '"PASS -- La pantalla muestra el pedido en estado Enviado, tal como pide el resultado esperado."',
@@ -2508,7 +2543,10 @@ function buildEvidenceVerdictPrompt(caseData, filePaths, engine, textEvidence) {
     '---OBSERVACIONES---',
     '2 a 4 oraciones especificas citando lo observado en la(s) evidencia(s), paso por paso cuando sea relevante.',
     'Si EVIDENCIA_VALIDA es NO, explica aca claramente que evidencia se esperaba en su lugar para que el QA suba la correcta.',
-  ].join('\n');
+  ]).concat(hasDocxImages ? [
+    'Agrega SIEMPRE al final una linea "Leyendas sin respaldo visual: ..." con las afirmaciones de las leyendas que NO se puedan',
+    'comprobar en las capturas (cita la IMAGEN N); si todas tienen respaldo, escribe "Leyendas sin respaldo visual: ninguna".',
+  ] : []).join('\n');
 }
 
 // ── Build prompt: Certificacion de Calidad QA (M7c, cierre) ──────────────────
@@ -4028,6 +4066,7 @@ app.post('/api/draft-bug', async function(req, res) {
 // Acepta 1 a MAX_EVIDENCE_FILES archivos de evidencia por caso. No se parte en lotes:
 // la IA juzga cada paso con toda la evidencia junta.
 var MAX_EVIDENCE_FILES = 40;
+var MAX_DOCX_IMAGES = 20; // imagenes de Word por caso que la IA lee con vision
 function evidenceUpload(req, res, next) {
   upload.array('evidence', MAX_EVIDENCE_FILES)(req, res, function(err) {
     if (!err) return next();
@@ -4055,9 +4094,18 @@ app.post('/api/verify-evidence', evidenceUpload, async function(req, res) {
     if (!res.headersSent && childProc) { try { childProc.kill(); } catch(e){} }
   });
 
-  var visionPaths = []; // imagenes + PDF -- se referencian como archivo (vision nativa / Read tool)
-  var textEvidence = []; // [{filename, text}] -- DOCX/TXT, extraidos a texto real
+  var visionPaths = []; // imagenes + PDF + imagenes de los DOCX -- se referencian como archivo (vision nativa / Read tool)
+  var loosePaths = [];  // solo las evidencias sueltas (imagen/PDF); las de DOCX van numeradas en textEvidence[].images
+  var textEvidence = []; // [{filename, text, images?}] -- DOCX/TXT, extraidos a texto real
   var cleanupPaths = [];
+  // Los motores solo habilitan UNA carpeta para leer archivos (--add-dir = dirname del primero),
+  // asi que todo lo visual del caso (sueltas + imagenes de los DOCX) se junta en una carpeta propia.
+  var evidenceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evidence-'));
+  var docxImageCount = 0;
+  function cleanupEvidence() {
+    cleanupPaths.forEach(function(p){ fs.unlink(p, function(){}); });
+    fs.rm(evidenceDir, { recursive: true, force: true }, function(){});
+  }
   try {
     for (var i = 0; i < req.files.length; i++) {
       var f = req.files[i];
@@ -4067,22 +4115,28 @@ app.post('/api/verify-evidence', evidenceUpload, async function(req, res) {
         var docxPath = f.path + ext;
         fs.renameSync(f.path, docxPath);
         cleanupPaths.push(docxPath);
-        var extracted = await extractDocx(docxPath);
-        textEvidence.push({ filename: f.originalname, text: extracted.text });
-        extracted.imagePaths.forEach(function(p){ cleanupPaths.push(p); });
+        var extracted = await extractDocx(docxPath, { imageMarkers: true, markerOffset: docxImageCount, imgDir: evidenceDir });
+        var docxImages = extracted.imagePaths.map(function(p, k){ return { n: docxImageCount + k + 1, path: p }; });
+        docxImageCount += docxImages.length;
+        if (docxImageCount > MAX_DOCX_IMAGES) {
+          // Aviso explicito, sin recortar en silencio: la IA debe ver TODAS las capturas o ninguna.
+          throw Object.assign(new Error('La evidencia en Word trae ' + docxImageCount + ' imagenes y el maximo por caso es ' + MAX_DOCX_IMAGES + '. Divide la evidencia en menos capturas por caso o sube un Word mas corto.'), { userError: true });
+        }
+        textEvidence.push({ filename: f.originalname, text: extracted.text, images: docxImages });
+        docxImages.forEach(function(im){ visionPaths.push(im.path); });
       } else if (ext === '.doc') {
         throw new Error('"'+f.originalname+'": el formato .doc no es soportado, usa .docx.');
       } else if (ext === '.txt') {
         cleanupPaths.push(f.path);
         textEvidence.push({ filename: f.originalname, text: fs.readFileSync(f.path, 'utf-8') });
       } else {
-        var refPath = f.path + (ext || '.png');
+        var refPath = path.join(evidenceDir, 'evidencia_' + String(i + 1).padStart(2, '0') + (ext || '.png'));
         fs.renameSync(f.path, refPath);
         visionPaths.push(refPath);
-        cleanupPaths.push(refPath);
+        loosePaths.push(refPath);
       }
     }
-    var prompt = buildEvidenceVerdictPrompt(caseData, visionPaths, engine, textEvidence);
+    var prompt = buildEvidenceVerdictPrompt(caseData, loosePaths, engine, textEvidence);
     emitProgress(reqId, 30, 'Enviando a '+engineLabel+'...');
     var stageIdx = 0;
     var stages = [
@@ -4097,15 +4151,16 @@ app.post('/api/verify-evidence', evidenceUpload, async function(req, res) {
       onProcess: function(p){ childProc = p; },
     });
     clearInterval(stageTimer);
-    cleanupPaths.forEach(function(p){ fs.unlink(p, function(){}); });
+    cleanupEvidence();
     emitProgress(reqId, 98, 'Procesando respuesta...');
     emitDone(reqId);
     return res.json({ raw: text, engine: engine });
   } catch (err) {
     if (typeof stageTimer !== 'undefined') clearInterval(stageTimer);
-    try { cleanupPaths.forEach(function(p){ fs.unlink(p, function(){}); }); } catch(e){}
+    cleanupEvidence();
     emitDone(reqId);
     console.error('[/api/verify-evidence]', err.message);
+    if (err.userError && !res.headersSent) return res.status(400).json({ error: err.message });
     if (!res.headersSent) return res.status(502).json({ error: engineLabel + ': ' + err.message });
   }
 });
@@ -4237,6 +4292,8 @@ app.post('/api/generate-certification', async function(req, res) {
 // modelo ONNX ocurria en medio de la PRIMERA pregunta real del QA (varios minutos
 // sin ningun mensaje que lo explicara). Se paga el costo una sola vez aca, sin
 // bloquear app.listen.
+// Solo al correr `node proxy.js`: los tests hacen require() de este archivo para probar funciones puras.
+if (require.main === module) {
 getEmbedder().then(function(){
   console.log('  🤖 Chatbot QA: modelo de embeddings ('+EMBED_MODEL+') precargado.');
 }).catch(function(e){
@@ -4266,3 +4323,6 @@ app.listen(PORT, function() {
   console.log('  POST /api/verify-evidence        M4  Veredicto IA sobre evidencia');
   console.log('  POST /api/generate-certification M7c Certificacion de Calidad\n');
 });
+}
+
+module.exports = { extractDocx, buildEvidenceVerdictPrompt, MAX_DOCX_IMAGES };
