@@ -4962,7 +4962,7 @@ function renderAvance() {
   // 2) Secciones automaticas (siempre al dia, no editables).
   var secPass = avanceSectionHtml(AVANCE_COLORS.pass, '&#9989;', 'Validaciones exitosas', d.pass.length,
     d.pass.length ? '<div style="font-size:12.5px;color:var(--text2)">'+d.passHoy.length+' de hoy.</div>' +
-      avanceDetailsHtml('Ver casos exitosos', d.pass.map(function(x){ return esc(avanceCaseLabel(x))+(avanceIsToday(x.statusTs)?' <span class="badge b-green" style="font-size:9px">hoy</span>':''); })) : '');
+      avanceDetailsHtml('Ver casos exitosos', d.pass.map(function(x){ return esc(avanceCaseLabel(x)); })) : '');
   var secRetired = avanceSectionHtml(AVANCE_COLORS.retired, '&#9898;', 'Casos desestimados', d.retired.length,
     d.retired.length ? avanceListHtml(d.retired.map(function(x){ return '<b>'+esc(avanceCaseLabel(x))+'</b>: '+esc(avanceMotivo(x)); })) : '');
   var secBlocked = avanceSectionHtml(AVANCE_COLORS.blocked, '&#9940;', 'Casos bloqueados', d.blocked.length,
