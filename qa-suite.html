@@ -4090,8 +4090,8 @@ async function verifyEvidence(i) {
     fd.append('engine', _engine);
     fd.append('reqId', evtSrc.reqId);
     var r = await fetch(API+'/api/verify-evidence', { method:'POST', body: fd, signal: _evidenceAbortController.signal });
-    var d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'Error verificando evidencia');
+    var d = await r.json().catch(function(){ return {}; });
+    if (!r.ok) throw new Error(d.error || 'Error verificando evidencia (HTTP '+r.status+')');
     addAiTime((Date.now()-t0)/1000);
     var evidenciaValida = parseSection(d.raw,'EVIDENCIA_VALIDA').toUpperCase().trim() !== 'NO';
     var veredicto = parseSection(d.raw,'VEREDICTO').toUpperCase().trim();
