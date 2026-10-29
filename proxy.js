@@ -4025,8 +4025,19 @@ app.post('/api/draft-bug', async function(req, res) {
 });
 
 // ── Ejecucion y Evidencias: Verificar evidencia con IA (veredicto por caso) ────
-// Acepta 1 a 6 archivos de evidencia por caso (antes solo uno).
-app.post('/api/verify-evidence', upload.array('evidence', 6), async function(req, res) {
+// Acepta 1 a MAX_EVIDENCE_FILES archivos de evidencia por caso. No se parte en lotes:
+// la IA juzga cada paso con toda la evidencia junta.
+var MAX_EVIDENCE_FILES = 40;
+function evidenceUpload(req, res, next) {
+  upload.array('evidence', MAX_EVIDENCE_FILES)(req, res, function(err) {
+    if (!err) return next();
+    var msg = err.code === 'LIMIT_UNEXPECTED_FILE'
+      ? 'Se subieron demasiados archivos de evidencia (maximo ' + MAX_EVIDENCE_FILES + ' por caso).'
+      : 'No se pudo recibir la evidencia: ' + err.message;
+    return res.status(400).json({ error: msg });
+  });
+}
+app.post('/api/verify-evidence', evidenceUpload, async function(req, res) {
   if (!req.files || !req.files.length) return res.status(400).json({ error: 'No se recibio ninguna evidencia.' });
   var engine = (req.body.engine === 'gemini' || req.body.engine === 'claude') ? req.body.engine : ENGINE_DEFAULT;
   var engineLabel = engine === 'claude' ? 'Claude CLI' : 'Gemini (Antigravity CLI)';
