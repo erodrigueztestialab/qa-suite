@@ -155,6 +155,30 @@ function validatePlan(opts) {
       (inDentro.length ? ' esta en Dentro del Alcance sin "(condicionado a ' + (p.ref || '...') + ')".' : ' no aparece en Dentro del Alcance condicionado.'));
   });
 
+  // V1 (exclusiones): una exclusion del inventario nunca va en Dentro y siempre aparece en Fuera.
+  var exclN = inv.items.filter(isExcl).map(function(it){ return it.n; });
+  dentro.forEach(function(it){
+    var ex = it.src.nums.filter(function(n){ return exclN.indexOf(n) >= 0; });
+    if (ex.length) add('V1', 'error', [it.id], it.id + ' esta en Dentro del Alcance pero sale de una exclusion del requerimiento (item ' + ex.join(', ') +
+      '): va en Fuera del Alcance; la dependencia, si la hay, se cita en supuestos, riesgos o criterios de entrada.');
+  });
+  if (items.some(function(i){ return i.src.hasSrc; })) {
+    exclN.forEach(function(n){
+      if (!fuera.some(function(it){ return it.src.nums.indexOf(n) >= 0; })) {
+        add('V1', 'error', [], 'La exclusion del requerimiento (item ' + n + ') no aparece en Fuera del Alcance.');
+      }
+    });
+  }
+  // V1 (mezcla, heuristica): un item de Dentro condicionado que ademas sale de reglas o validaciones DEFINIDAS
+  // probablemente condiciona de mas; el auditor semantico decide.
+  dentro.forEach(function(it){
+    if (!CONDITIONED_RE.test(norm(it.text))) return;
+    var pendIn = it.src.nums.filter(function(n){ var p = invByN[n]; return p && p.estado === 'PENDIENTE'; });
+    var defRules = it.src.nums.filter(function(n){ var p = invByN[n]; return p && p.estado === 'DEFINIDO' && /^(regla|validacion)/.test(norm(p.tipo).trim()); });
+    if (pendIn.length && defRules.length) add('V1', 'advertencia', [it.id], it.id + ' esta condicionado pero tambien sale de reglas o validaciones definidas (item ' +
+      defRules.join(', ') + '): la condicion va solo en la parte pendiente; separa lo definido de lo pendiente.');
+  });
+
   // V2: el mismo item condicionado en todos los apartados donde aparece, con TODAS sus Ref.
   bySec(CONDITIONED_SECTIONS).forEach(function(it){
     if (it.sec === 'ALCANCE_DENTRO' && !it.src.hasSrc) return;
