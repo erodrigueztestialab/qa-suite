@@ -907,14 +907,29 @@ async function extractDocx(docxPath, opts) {
   // salir con 0 imagenes). Se leen directo del paquete del DOCX las que falten.
   try {
     var extra = await docxImagesNotSeen(docxPath, seenHashes);
-    unsupportedImages += extra.unsupported;
-    extra.images.forEach(function(im) {
-      var n = ++imgIdx;
-      var imgPath = path.join(imgDir, 'img_' + String(offset + n).padStart(3, '0') + '.' + im.ext);
-      fs.writeFileSync(imgPath, im.buffer);
-      imagePaths[n - 1] = imgPath;
-      if (markers) text += (text ? '\n' : '') + '[IMAGEN ' + (offset + n) + ']';
-    });
+    if (extra.images.length || extra.unsupported) {
+      // A mammoth se le escaparon imagenes: se rehace el contenido (texto + imagenes) leyendo el
+      // documento en su orden real, para que cada marcador [IMAGEN N] quede junto a su leyenda.
+      var ordered = null;
+      try { ordered = await docxOrderedContent(docxPath, { offset: offset, imgDir: imgDir, markers: markers }); } catch (e) {
+        console.warn('[extractDocx] no se pudo leer el documento en orden:', e.message);
+      }
+      if (ordered && ordered.imagePaths.length >= imagePaths.length) {
+        imagePaths.forEach(function(ip) { try { fs.unlinkSync(ip); } catch (e) {} });
+        imagePaths = ordered.imagePaths;
+        text = ordered.text;
+        unsupportedImages = ordered.unsupported;
+      } else {
+        unsupportedImages += extra.unsupported;
+        extra.images.forEach(function(im) {
+          var n = ++imgIdx;
+          var imgPath = path.join(imgDir, 'img_' + String(offset + n).padStart(3, '0') + '.' + im.ext);
+          fs.writeFileSync(imgPath, im.buffer);
+          imagePaths[n - 1] = imgPath;
+          if (markers) text += (text ? '\n' : '') + '[IMAGEN ' + (offset + n) + ']';
+        });
+      }
+    }
   } catch (e) {
     console.warn('[extractDocx] no se pudo revisar el paquete del DOCX:', e.message);
   }
@@ -922,6 +937,78 @@ async function extractDocx(docxPath, opts) {
     try { fs.rmdirSync(imgDir); } catch (e) {}
   }
   return { text: text, imagePaths: imagePaths, unsupportedImages: unsupportedImages, imgDir: (ownDir && !imagePaths.length) ? null : imgDir };
+}
+
+function xmlDecode(t) {
+  return String(t).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+}
+// Lee word/document.xml en su orden real (parrafos y filas de tablas) y devuelve el texto con cada
+// "[IMAGEN N]" justo despues del parrafo que contiene la imagen, mas las imagenes escritas en imgDir.
+// Alcanza imagenes que mammoth no ve (formas, cuadros de texto, objetos flotantes). EMF/WMF/SVG no se
+// pueden leer con vision: se cuentan en `unsupported`.
+async function docxOrderedContent(docxPath, o) {
+  o = o || {};
+  var offset = o.offset || 0, markers = !!o.markers;
+  var zip = await JSZip.loadAsync(fs.readFileSync(docxPath));
+  var docFile = zip.file('word/document.xml'), relsFile = zip.file('word/_rels/document.xml.rels');
+  if (!docFile || !relsFile) throw new Error('el DOCX no trae document.xml o sus relaciones');
+  var xml = await docFile.async('string');
+  var relsXml = await relsFile.async('string');
+  var rels = {};
+  (relsXml.match(/<Relationship\b[^>]*>/g) || []).forEach(function(tag) {
+    var id = (tag.match(/\bId="([^"]+)"/) || [])[1];
+    var type = (tag.match(/\bType="([^"]+)"/) || [])[1] || '';
+    var target = (tag.match(/\bTarget="([^"]+)"/) || [])[1];
+    var mode = (tag.match(/\bTargetMode="([^"]+)"/) || [])[1];
+    if (id && target && /\/image$/.test(type) && mode !== 'External') rels[id] = target;
+  });
+  var imagePaths = [], unsupported = 0, usedRid = {}, usedHash = {}, n = 0;
+  async function takeImage(rid) {
+    if (!rels[rid] || usedRid[rid]) return null;
+    usedRid[rid] = true;
+    var target = rels[rid];
+    var zpath = target.charAt(0) === '/' ? target.slice(1) : path.posix.normalize('word/' + target);
+    var f = zip.file(zpath);
+    if (!f) return null;
+    var buf = await f.async('nodebuffer');
+    var h = crypto.createHash('sha1').update(buf).digest('hex');
+    if (usedHash[h]) return null;
+    usedHash[h] = true;
+    var ext = path.extname(zpath).slice(1).toLowerCase();
+    if (!/^(png|jpe?g|gif|bmp|webp|tiff?)$/.test(ext)) { unsupported++; return null; }
+    n++;
+    var imgPath = path.join(o.imgDir, 'img_' + String(offset + n).padStart(3, '0') + '.' + ext);
+    fs.writeFileSync(imgPath, buf);
+    imagePaths.push(imgPath);
+    return offset + n;
+  }
+  async function paragraph(pXml) {
+    var text = '', marks = [];
+    var re = /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>|<w:tab\s*\/>|<w:br\b[^>]*\/>|<(?:a:blip|v:imagedata)\b[^>]*?\b(?:r:embed|r:id)="([^"]+)"[^>]*>/g, m;
+    while ((m = re.exec(pXml))) {
+      if (m[2]) { var num = await takeImage(m[2]); if (num && markers) marks.push('[IMAGEN ' + num + ']'); }
+      else if (m[1] !== undefined) text += xmlDecode(m[1]);
+      else if (/^<w:tab/.test(m[0])) text += ' ';
+      else text += ' ';
+    }
+    return { text: text.replace(/\s+/g, ' ').trim(), marks: marks };
+  }
+  var lines = [], row = null, cell = null;
+  var tokRe = /<w:tr\b[^>]*>|<\/w:tr>|<w:tc\b[^>]*>|<\/w:tc>|<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, t;
+  while ((t = tokRe.exec(xml))) {
+    var tok = t[0];
+    if (/^<w:tr\b/.test(tok)) row = [];
+    else if (tok === '</w:tr>') { if (row && row.some(function(c){ return c; })) lines.push(row.join(' | ')); row = null; }
+    else if (/^<w:tc\b/.test(tok)) cell = [];
+    else if (tok === '</w:tc>') { if (row) row.push(cell.join(' ').trim()); cell = null; }
+    else {
+      var para = await paragraph(tok);
+      var piece = [para.text].concat(para.marks).filter(Boolean).join('\n');
+      if (!piece) continue;
+      if (cell) cell.push(piece.replace(/\n/g, ' ')); else lines.push(piece);
+    }
+  }
+  return { text: lines.join('\n'), imagePaths: imagePaths, unsupported: unsupported };
 }
 
 // Imagenes referenciadas en word/document.xml (en orden de aparicion, una vez por relacion) cuyo
@@ -4492,4 +4579,4 @@ app.listen(PORT, function() {
 });
 }
 
-module.exports = { extractDocx, buildEvidenceVerdictPrompt, MAX_DOCX_IMAGES };
+module.exports = { extractDocx, docxOrderedContent, buildEvidenceVerdictPrompt, MAX_DOCX_IMAGES };
