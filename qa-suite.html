@@ -1531,7 +1531,7 @@ function analysisHashOf(text) {
 var AUDIT_CODE_LABELS = {
   V1:'IDs', V2:'Referencia', V3:'Cobertura', V4:'Pendiente', V4b:'Condicion heredada', V5:'Cifra fija', V6:'Criticidad',
   V7:'Absoluto', V8:'Modal o premisa', V9:'Calificativo', V10:'Meta-cita', V11:'Impacto inferido', V12:'Alternativas',
-  V13:'Convencion', V14:'Contexto como regla', V15:'RN repite un CA', CONTRADICCION:'Contradiccion', SIN_SUSTENTO:'Sin sustento', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
+  V13:'Convencion', V14:'Contexto como regla', V15:'RN repite un CA', V16:'RN sin definicion', V17:'Autorreferencia', V18:'Condicion heredada de mas', CONTRADICCION:'Contradiccion', SIN_SUSTENTO:'Sin sustento', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
   PENDIENTE_NO_MARCADO:'Pendiente no marcado', AUDITOR:'Auditor', REPARACION:'Reparacion'
 };
 // Llamar siempre con un solo argumento o con un diccionario: map(auditItemHtml) pasaba el
@@ -2058,7 +2058,7 @@ function toggleResBlock(a) {
    sesion mas reciente se retoma automaticamente en el ultimo estado.
    ══════════════════════════════════════════════════════════════════ */
 var DB_NAME = 'testialab_qa_suite';
-var DB_VERSION = 1;
+var DB_VERSION = 2;
 var _db = null;
 var _persistTimer = null;
 
@@ -2070,6 +2070,8 @@ function openDb() {
     req.onupgradeneeded = function(e){
       var db = e.target.result;
       if (!db.objectStoreNames.contains('history')) db.createObjectStore('history', { keyPath: 'id' });
+      // Archivos originales de la evidencia (Word, PDF, imagenes...) tal como se subieron.
+      if (!db.objectStoreNames.contains('attachments')) db.createObjectStore('attachments', { keyPath: 'uid' });
     };
     req.onsuccess = function(e){ _db = e.target.result; resolve(_db); };
     req.onerror = function(e){ reject(e.target.error); };
@@ -2104,6 +2106,48 @@ function dbDeleteHistory(id) {
     });
   });
 }
+
+// ── Adjuntos originales (evidencia) ───────────────────────────────────────────
+// El snapshot de la sesion pasa por JSON y pierde los File; para que el archivo original
+// (Word, PDF...) se pueda volver a descargar o reenviar a la IA aunque se cierre el navegador,
+// cada adjunto se guarda en dos lugares: IndexedDB (store 'attachments') y una copia en disco
+// via el proxy (data/evidencias/). Se lee de IndexedDB y, si no esta, de la copia en disco.
+function newAttachmentUid() { return 'att_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,10); }
+function attPut(uid, file) {
+  return openDb().then(function(db){
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction('attachments','readwrite');
+      tx.objectStore('attachments').put({ uid: uid, name: file.name, type: file.type || '', blob: file, savedAt: Date.now() });
+      tx.oncomplete = function(){ resolve(); };
+      tx.onerror = function(e){ reject(e.target.error); };
+    });
+  });
+}
+function attGet(uid) {
+  return openDb().then(function(db){
+    return new Promise(function(resolve, reject){
+      var req = db.transaction('attachments','readonly').objectStore('attachments').get(uid);
+      req.onsuccess = function(){ resolve(req.result || null); };
+      req.onerror = function(e){ reject(e.target.error); };
+    });
+  });
+}
+function attBackupToDisk(uid, file) {
+  return fetch(API+'/api/evidence-backup/'+encodeURIComponent(uid), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name), 'X-File-Type': encodeURIComponent(file.type || '') },
+    body: file
+  }).then(function(r){ if (!r.ok) throw new Error('HTTP '+r.status); });
+}
+function attFromDisk(uid, name) {
+  return fetch(API+'/api/evidence-backup/'+encodeURIComponent(uid)).then(function(r){
+    if (!r.ok) return null;
+    var type = r.headers.get('Content-Type') || '';
+    return r.blob().then(function(b){ return new File([b], name || 'adjunto', { type: type.indexOf('octet-stream') === -1 ? type : '' }); });
+  }).catch(function(){ return null; });
+}
+// Pide al navegador que no borre el almacenamiento del sitio por falta de espacio.
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch(e) {}
 
 // JSON round-trip: descarta de forma segura los File() no serializables
 // (evidencia subida) -- lo que importa persistir son los nombres, no el binario.
@@ -2657,7 +2701,8 @@ var CASES_AUDIT_LABELS = {
   V8:'Pasos y resultados', V9:'Marca [src]', V10:'Duplicado', V11:'Casos fragmentados', V12:'Exactitud sin requisito',
   FALTA_NEGATIVO_ENTRADA:'Falta negativo de una entrada', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
   PREMISA_COMO_HECHO:'Premisa como hecho', CONSECUENCIA_INFERIDA:'Consecuencia inferida', INCOHERENCIA:'Incoherencia',
-  RELLENO:'Relleno', AUDITOR:'Auditor', REPARACION:'Reparacion'
+  RELLENO:'Relleno', CONDICION_AJENA:'Condicion ajena', VALIDACION_NO_DEFINIDA:'Validacion no definida', VARIANTE_FUSIONABLE:'Variante fusionable',
+  AUDITOR:'Auditor', REPARACION:'Reparacion'
 };
 function toggleCasesAuditDetail() {
   var d = document.getElementById('cases-audit-det'), t = document.getElementById('cases-audit-toggle');
@@ -3110,6 +3155,8 @@ function syncEditDraftFromDOM() {
   if (steps.length) _caseEditDraft.steps = steps;
 }
 function addEditStep() { syncEditDraftFromDOM(); _caseEditDraft.steps.push({paso:'',resultado:''}); renderCaseEditModal(); }
+// Inserta un paso nuevo justo debajo del paso i (o al inicio con i = -1); los numeros se recalculan solos.
+function insertEditStepAfter(i) { syncEditDraftFromDOM(); _caseEditDraft.steps.splice(i+1,0,{paso:'',resultado:''}); renderCaseEditModal(); setTimeout(function(){ var rows=document.querySelectorAll('#case-edit-modal .step-row [data-step]'); if (rows[i+1]) rows[i+1].focus(); }, 0); }
 function removeEditStep(i) { syncEditDraftFromDOM(); _caseEditDraft.steps.splice(i,1); if (!_caseEditDraft.steps.length) _caseEditDraft.steps=[{paso:'',resultado:''}]; renderCaseEditModal(); }
 function clearEditStepResult(i) { syncEditDraftFromDOM(); _caseEditDraft.steps[i].resultado = ''; renderCaseEditModal(); }
 function closeCaseEditModal() {
@@ -3156,6 +3203,7 @@ function renderCaseEditModal() {
           '<button class="btn btn-ghost" style="padding:4px 7px;font-size:10px" onclick="clearEditStepResult('+i+')" title="Vaciar solo el resultado esperado">&times;</button>' +
         '</div>' +
       '</div>' +
+      '<button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="insertEditStepAfter('+i+')" title="Insertar un paso nuevo debajo de este (los pasos se renumeran solos)">+&darr;</button>' +
       '<button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="removeEditStep('+i+')" title="Eliminar este paso completo">&times;</button></div>';
   }).join('');
   var html =
@@ -3170,7 +3218,8 @@ function renderCaseEditModal() {
         '<label>Escenario</label><input type="text" id="edit-escenario" value="'+esc(d.escenario)+'">' +
         '<label>Caso</label><input type="text" id="edit-caso" value="'+esc(d.caso)+'">' +
         '<label>Objetivo</label><textarea id="edit-objetivo">'+esc(d.objetivo)+'</textarea>' +
-        '<label>Paso a paso (con su resultado esperado)</label>' + stepsHtml +
+        '<label>Paso a paso (con su resultado esperado)</label>' +
+          '<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-bottom:4px" onclick="insertEditStepAfter(-1)" title="Insertar un paso al inicio">+ Paso al inicio</button>' + stepsHtml +
         '<button class="btn btn-ghost" style="font-size:11px;padding:5px 10px;margin-top:2px" onclick="addEditStep()">+ Agregar paso</button>' +
         '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">' +
           '<button class="btn btn-ghost" onclick="closeCaseEditModal()">Cancelar</button>' +
@@ -3799,7 +3848,7 @@ var PLAN_AUDIT_LABELS = {
   V1:'Pendiente en alcance', V2:'Condicion inconsistente', V3:'Codigo inexistente', V4:'Trazabilidad', V5:'Nombre propio',
   V6:'Cifra o fecha', V7:'Convencion', V8:'Responsables', V9:'Marca [src]', V10:'Contexto en alcance', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
   PREMISA_COMO_HECHO:'Premisa como hecho', CONSECUENCIA_INFERIDA:'Consecuencia inferida', INCOHERENCIA:'Incoherencia',
-  SIN_SUSTENTO:'Sin sustento', AUDITOR:'Auditor', REPARACION:'Reparacion'
+  REDACCION:'Redaccion', SIN_SUSTENTO:'Sin sustento', AUDITOR:'Auditor', REPARACION:'Reparacion'
 };
 // Si el analisis de M1 cambio despues de generar el Plan, el Plan ya no corresponde a ese HU.
 function planIsStale() {
@@ -3935,6 +3984,9 @@ async function exportPlanPruebas_PDF() {
 const STATUS_LABELS = { todo:'Sin ejecutar', pass:'Exitoso', retired:'Desestimado', fail:'Fallido', blocked:'Bloqueado' };
 const STATUS_BADGE  = { todo:'b-gray', pass:'b-green', retired:'b-dark', fail:'b-red', blocked:'b-orange' };
 var _exSelectedIdx = 0;
+// El estado de cada caso va DENTRO de la lista desplegable (marca + nombre del estado) para ver de un vistazo cuáles faltan.
+var EX_STATUS_MARK  = { todo:'○', pass:'✓', fail:'✗', blocked:'■', retired:'◇' };
+var EX_STATUS_COLOR = { todo:'#6b7280', pass:'#16a34a', fail:'#dc2626', blocked:'#ea580c', retired:'#6b7280' };
 
 function evCounts() {
   var c = {todo:0,pass:0,retired:0,fail:0,blocked:0};
@@ -3979,10 +4031,58 @@ function handleEvidenceUpload(i, input) {
   var files = Array.prototype.slice.call(input.files || []);
   if (!files.length) return;
   var c = S.cases[i];
-  c._evidenceFiles = (c._evidenceFiles || []).concat(files);
-  c.evidenceNames = c._evidenceFiles.map(function(f){ return f.name; });
-  appendEvidenceData(c, files);
+  registerEvidence(c, files);
   renderM4();
+}
+// Alta de evidencia nueva: conserva el File en memoria, guarda el original en IndexedDB y en
+// disco (via proxy), y deja evidenceIds paralelo a evidenceNames/_evidenceFiles/evidenceData.
+function registerEvidence(c, files) {
+  var prev = (c.evidenceNames || []).length;
+  if (!c.evidenceIds) c.evidenceIds = [];
+  while (c.evidenceIds.length < prev) c.evidenceIds.push(null); // evidencia de antes de esta funcion
+  if (!c._evidenceFiles) c._evidenceFiles = [];
+  while (c._evidenceFiles.length < prev) c._evidenceFiles.push(null); // File ya no disponible
+  files.forEach(function(f){
+    f._uid = newAttachmentUid();
+    c.evidenceIds.push(f._uid);
+    c._evidenceFiles.push(f);
+    attPut(f._uid, f).then(schedulePersist).catch(function(e){ console.error('[adjunto IndexedDB]', e); });
+    attBackupToDisk(f._uid, f).catch(function(e){ console.warn('[adjunto copia en disco]', e.message); });
+  });
+  c.evidenceNames = c._evidenceFiles.map(function(f, k){ return f ? f.name : (c.evidenceNames||[])[k]; });
+  appendEvidenceData(c, files);
+}
+// Reconstruye los File que no estan en memoria (sesion recargada / cargada del Historico)
+// desde IndexedDB o, si no estan ahi, desde la copia en disco. Devuelve los nombres que no
+// se pudieron recuperar.
+async function ensureEvidenceFiles(c) {
+  var names = c.evidenceNames || [];
+  if (!c._evidenceFiles) c._evidenceFiles = [];
+  while (c._evidenceFiles.length < names.length) c._evidenceFiles.push(null);
+  var missing = [];
+  for (var k = 0; k < names.length; k++) {
+    if (c._evidenceFiles[k]) continue;
+    var uid = (c.evidenceIds || [])[k];
+    var file = null;
+    if (uid) {
+      try { var rec = await attGet(uid); if (rec && rec.blob) file = new File([rec.blob], rec.name || names[k], { type: rec.type || '' }); } catch(e) {}
+      if (!file) file = await attFromDisk(uid, names[k]);
+    }
+    if (file) { file._uid = uid; c._evidenceFiles[k] = file; }
+    else missing.push(names[k]);
+  }
+  return missing;
+}
+async function downloadEvidence(i, fi) {
+  var c = S.cases[i];
+  var f = (c._evidenceFiles || [])[fi];
+  if (!f) { await ensureEvidenceFiles(c); f = (c._evidenceFiles || [])[fi]; }
+  if (!f) { toast('El archivo original de esta evidencia no se guardo (se subio antes de esta mejora). Vuelve a subirlo.', 'err'); return; }
+  var url = URL.createObjectURL(f);
+  var a = document.createElement('a');
+  a.href = url; a.download = f.name || (c.evidenceNames||[])[fi] || 'evidencia';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
 }
 // Pegar una captura directo del portapapeles (Ctrl+V) sin tener que guardarla
 // como archivo primero -- solo activo mientras M5/Ejecucion esta en pantalla.
@@ -4004,24 +4104,21 @@ document.addEventListener('paste', function(e){
   var named = imgFiles.map(function(f, idx){
     return f.name ? f : new File([f], 'captura-pegada-'+Date.now()+'-'+idx+'.png', { type: f.type });
   });
-  c._evidenceFiles = (c._evidenceFiles || []).concat(named);
-  c.evidenceNames = c._evidenceFiles.map(function(f){ return f.name; });
-  appendEvidenceData(c, named);
+  registerEvidence(c, named);
   renderM4();
   toast('Imagen pegada como evidencia','ok');
 });
 function removeEvidenceFile(i, fi) {
   var c = S.cases[i];
-  // c._evidenceFiles puede venir mas corto que c.evidenceNames (o no existir) si la
-  // sesion se cargo del Historico -- los File reales no sobreviven a IndexedDB, solo
-  // sus nombres. Se quita por indice de cada array por separado, sin asumir que estan
-  // sincronizados.
-  if (c._evidenceFiles && c._evidenceFiles[fi]) {
+  // Todos los arrays van paralelos por indice (nombres, File, dataURL, ids); _evidenceFiles
+  // puede venir mas corto o con huecos si la sesion se cargo del Historico.
+  if (c._evidenceFiles && fi < c._evidenceFiles.length) {
     var removed = c._evidenceFiles.splice(fi, 1)[0];
-    if (removed._previewUrl) URL.revokeObjectURL(removed._previewUrl);
+    if (removed && removed._previewUrl) URL.revokeObjectURL(removed._previewUrl);
   }
   if (c.evidenceNames) c.evidenceNames.splice(fi, 1);
   if (c.evidenceData) c.evidenceData.splice(fi, 1);
+  if (c.evidenceIds) c.evidenceIds.splice(fi, 1);
   renderM4();
 }
 // Miniatura clicable (abre en pestana nueva a tamano original) para evidencia de
@@ -4072,9 +4169,17 @@ function stopVerifyEvidence() {
 }
 async function verifyEvidence(i) {
   var c = S.cases[i];
-  if (!c._evidenceFiles || !c._evidenceFiles.length) { toast('Sube al menos una evidencia primero.','err'); return; }
+  if (!(c.evidenceNames && c.evidenceNames.length)) { toast('Sube al menos una evidencia primero.','err'); return; }
   var btn = document.getElementById('btn-verify-'+i);
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; }
+  // Un caso ya fallido (o recargado del Historico) conserva los nombres pero no los File:
+  // se recuperan los originales guardados antes de enviarlos a la IA.
+  var faltan = await ensureEvidenceFiles(c);
+  if (faltan.length) {
+    toast('No se pudo recuperar el original de: '+faltan.join(', ')+'. Quitalo y vuelve a subirlo.','err');
+    renderM4();
+    return;
+  }
   var stopBtn = document.getElementById('btn-stop-verify');
   if (stopBtn) stopBtn.style.display = '';
   sideConsoleStart('m4', 'Verificando evidencia con '+(_engine==='claude'?'Claude':'Gemini (Antigravity)'));
@@ -4084,7 +4189,7 @@ async function verifyEvidence(i) {
   _evidenceAbortController = new AbortController();
   try {
     var fd = new FormData();
-    c._evidenceFiles.forEach(function(f){ fd.append('evidence', f); });
+    c._evidenceFiles.forEach(function(f){ fd.append('evidence', f, f.name); });
     fd.append('objetivo', c.objetivo || '');
     fd.append('steps', JSON.stringify((c.steps||[]).map(function(s){ return {paso:s.paso, resultado:s.resultado}; })));
     fd.append('engine', _engine);
@@ -4136,14 +4241,24 @@ async function verifyEvidence(i) {
 // estado -> To Do) para volver a subir evidencia y procesar de nuevo. No toca
 // ningun otro caso -- cada uno conserva su propio historico.
 function reExecuteCase(i) {
-  if (!confirm('¿Re-ejecutar este caso? Se borra su evidencia y veredicto actuales para volver a empezar. Los demas casos no se afectan.')) return;
+  if (!confirm('¿Re-ejecutar este caso? Su evidencia y veredicto actuales se guardan como ejecución anterior (se pueden descargar) y el caso vuelve a Sin ejecutar. Los demás casos no se afectan.')) return;
   var c = S.cases[i];
+  // La evidencia NO se pierde: pasa al archivo de ejecuciones anteriores del caso.
+  if ((c.evidenceNames||[]).length) {
+    if (!c.evidenceArchive) c.evidenceArchive = [];
+    c.evidenceArchive.push({
+      ts: Date.now(), verdict: c.verdict || null, status: c.status || 'todo',
+      names: (c.evidenceNames||[]).slice(), ids: (c.evidenceIds||[]).slice(),
+      data: (c.evidenceData||[]).slice()
+    });
+  }
   // Se cuenta la re-ejecucion ANTES de resetear -- alimenta el Re-test/Regresion
   // automatico del Informe de Avance (Regresion = 2+ re-ejecuciones antes de Pass).
   c.reExecCount = (c.reExecCount || 0) + 1;
   c._evidenceFiles = [];
   c.evidenceNames = [];
   c.evidenceData = [];
+  c.evidenceIds = [];
   c.verdict = null;
   c.verdictNote = null;
   c.stepVerdicts = null;
@@ -4152,6 +4267,7 @@ function reExecuteCase(i) {
   setCaseStatus(c, 'todo');
   c.estadoNota = null;
   c.bloqueoDestino = null;
+  c.bloqueoOtro = null;
   toast('Caso reiniciado para re-ejecucion','ok');
   renderM4();
 }
@@ -4170,7 +4286,8 @@ function renderM4() {
   var cs = S.cases[_exSelectedIdx];
 
   var selectOptions = S.cases.map(function(item, i){
-    return '<option value="'+i+'" '+(i===_exSelectedIdx?'selected':'')+'>'+esc(item.id)+' - '+esc(item.caso)+'</option>';
+    var st = item.status || 'todo';
+    return '<option value="'+i+'" '+(i===_exSelectedIdx?'selected':'')+' style="color:'+EX_STATUS_COLOR[st]+'">'+EX_STATUS_MARK[st]+' '+esc(STATUS_LABELS[st])+' · '+esc(item.id)+' - '+esc(item.caso)+'</option>';
   }).join('');
   // Un <select> nativo no puede colorear texto parcial de una opcion -- en vez de
   // meter el estado dentro del combo, va un icono aparte (chulo verde/x roja).
@@ -4211,7 +4328,7 @@ function renderM4() {
     // -- antes la miniatura simplemente desaparecia en ese caso.
     var dataEntry = (cs.evidenceData||[])[fi];
     var thumb = f ? evidenceFilePreviewHtml(f) : (dataEntry ? evidenceDataThumbHtml(dataEntry) : '');
-    return '<div class="ev-file-chip">'+thumb+'<span>'+esc(name)+'</span> <button onclick="removeEvidenceFile('+_exSelectedIdx+','+fi+')" title="Quitar">&times;</button></div>';
+    return '<div class="ev-file-chip">'+thumb+'<span>'+esc(name)+'</span> <button onclick="downloadEvidence('+_exSelectedIdx+','+fi+')" title="Descargar el archivo original">&#11015;</button><button onclick="removeEvidenceFile('+_exSelectedIdx+','+fi+')" title="Quitar">&times;</button></div>';
   }).join('');
 
   // El veredicto se compone de 2 secciones: "Resultado" (la tabla de pasos de
@@ -4258,7 +4375,8 @@ function renderM4() {
             '<select class="m2-select" style="min-width:280px" onchange="onBloqueoDestinoChange('+_exSelectedIdx+',this.value)">' +
               '<option value="">Sin definir</option>' +
               Object.keys(BLOQUEO_DESTINO_LABELS).map(function(k){ return '<option value="'+k+'" '+(cs.bloqueoDestino===k?'selected':'')+'>'+BLOQUEO_DESTINO_LABELS[k]+'</option>'; }).join('') +
-            '</select></div>'
+            '</select></div>' +
+          (cs.bloqueoDestino === 'otro' ? '<input type="text" class="m2-select" style="width:100%;margin-top:6px" placeholder="Escribe el motivo..." value="'+esc(cs.bloqueoOtro||'')+'" onchange="onBloqueoOtroChange('+_exSelectedIdx+',this.value)">' : '')
         : '') +
     '</div>';
   }
@@ -4276,7 +4394,7 @@ function renderM4() {
     '<div class="m2-card"><div class="m2-card-hdr">Caso a ejecutar</div>' +
       '<div style="display:flex;gap:10px;align-items:center">' +
         '<select class="m2-select" style="flex:1" onchange="selectExCase(this.value)">'+selectOptions+'</select>' +
-        '<span style="flex-shrink:0;width:20px;text-align:center">'+statusIcon+'</span>' +
+        '<span class="badge '+STATUS_BADGE[cs.status||'todo']+'" style="flex-shrink:0;font-size:11px;font-weight:600">'+STATUS_LABELS[cs.status||'todo']+'</span>' +
       '</div>' +
     '</div>' +
 
@@ -4301,15 +4419,16 @@ function renderM4() {
         '<div class="drop-s">Capturas de pantalla, PDF, Word o TXT &middot; puedes subir varias por caso &middot; también puedes pegar (Ctrl+V) una captura directo del portapapeles</div>' +
       '</div>' +
       (evidenceList ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">'+evidenceList+'</div>' : '') +
+      evidenceArchiveHtml(cs) +
       // Re-ejecutar caso vive al lado de Verificar con IA (antes en una tarjeta
       // "Gestionar caso" aparte) -- son las dos acciones que el QA hace en el mismo
       // momento de ejecucion, con una leyenda corta debajo de cada una para que no
       // haga falta adivinar que hace cada boton.
       '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px">' +
-        '<div><button class="btn btn-primary" id="btn-verify-'+_exSelectedIdx+'" onclick="verifyEvidence('+_exSelectedIdx+')" '+((cs._evidenceFiles&&cs._evidenceFiles.length)?'':'disabled')+'>Verificar con IA</button>' +
+        '<div><button class="btn btn-primary" id="btn-verify-'+_exSelectedIdx+'" onclick="verifyEvidence('+_exSelectedIdx+')" '+((cs.evidenceNames&&cs.evidenceNames.length)?'':'disabled')+'>Verificar con IA</button>' +
           '<div style="font-size:10px;color:var(--text3);margin-top:4px;max-width:200px">Le pide a la IA que confirme el resultado comparando la evidencia subida contra el paso a paso.</div></div>' +
         '<div><button class="btn btn-ghost" onclick="reExecuteCase('+_exSelectedIdx+')">&#8635; Re-ejecutar caso</button>' +
-          '<div style="font-size:10px;color:var(--text3);margin-top:4px;max-width:200px">Borra la evidencia y el veredicto actuales de este caso para volver a intentarlo desde cero.</div></div>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:4px;max-width:200px">Deja el caso en Sin ejecutar para volver a intentarlo. La evidencia anterior queda guardada y se puede descargar.</div></div>' +
         '<button class="btn btn-ghost" id="btn-stop-verify" style="display:none;align-self:flex-start" onclick="stopVerifyEvidence()">&#9632; Detener</button>' +
       '</div>' +
       // Blocked/Retired: unicos dos estados que el QA manual puede setear a mano
@@ -4322,6 +4441,34 @@ function renderM4() {
       estadoNotaHtml +
       (cs.status==='fail' ? '<button class="btn btn-ghost" style="margin-top:10px" onclick="reportBugFromCase('+_exSelectedIdx+')">Reportar bug</button>' : '') +
     '</div>';
+}
+
+// Ejecuciones anteriores del caso (evidencia que se guardo al re-ejecutar): se pueden descargar.
+function evidenceArchiveHtml(cs) {
+  var arch = cs.evidenceArchive || [];
+  if (!arch.length) return '';
+  var rows = arch.map(function(a, ai){
+    var when = new Date(a.ts).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    var files = (a.names||[]).map(function(n, fi){
+      return '<span class="ev-file-chip"><span>'+esc(n)+'</span> <button onclick="downloadArchivedEvidence('+_exSelectedIdx+','+ai+','+fi+')" title="Descargar el archivo original">&#11015;</button></span>';
+    }).join(' ');
+    return '<div style="margin-top:6px"><b>Ejecución anterior #'+(ai+1)+'</b> ('+esc(when)+(a.verdict?' · '+esc(a.verdict):'')+')<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">'+files+'</div></div>';
+  }).join('');
+  return '<details style="margin-top:10px;font-size:11.5px"><summary style="cursor:pointer;color:var(--text2)">Evidencia de ejecuciones anteriores ('+arch.length+')</summary>'+rows+'</details>';
+}
+async function downloadArchivedEvidence(i, ai, fi) {
+  var a = (S.cases[i].evidenceArchive||[])[ai];
+  if (!a) return;
+  var uid = (a.ids||[])[fi], name = (a.names||[])[fi] || 'evidencia', file = null;
+  if (uid) {
+    try { var rec = await attGet(uid); if (rec && rec.blob) file = new File([rec.blob], rec.name || name, { type: rec.type || '' }); } catch(e) {}
+    if (!file) file = await attFromDisk(uid, name);
+  }
+  if (!file) { toast('El archivo original de esta evidencia no se guardó.', 'err'); return; }
+  var url = URL.createObjectURL(file);
+  var l = document.createElement('a'); l.href = url; l.download = file.name;
+  document.body.appendChild(l); l.click(); l.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
 }
 
 // Blocked/Retired manual -- ver Fase 4 del ajuste de estados de M5. Disponible
@@ -4341,11 +4488,27 @@ function setCaseStatus(c, status) {
   c.statusTs = Date.now();
 }
 // Que pasa con un caso bloqueado (demo 2026-10-08): el bloqueo no siempre es definitivo.
-var BLOQUEO_DESTINO_LABELS = { insumo: 'Pendiente de insumo del cliente o especialista', uat: 'Se ejecutará en UAT' };
+var BLOQUEO_DESTINO_LABELS = {
+  insumo:   'Pendiente de insumo del cliente o especialista',
+  uat:      'Se ejecutará en UAT',
+  ambiente: 'Problema de ambiente (indisponibilidad, datos o configuración del ambiente de pruebas)',
+  otro:     'Otro (el motivo no está en la lista)'
+};
+// Texto del destino de un caso bloqueado; con "Otro" se usa lo que escribió el QA.
+function bloqueoDestinoLabel(c) {
+  if (!c || !c.bloqueoDestino) return '';
+  if (c.bloqueoDestino === 'otro') return 'Otro: ' + ((c.bloqueoOtro && c.bloqueoOtro.trim()) || 'sin detallar');
+  return BLOQUEO_DESTINO_LABELS[c.bloqueoDestino] || '';
+}
+function onBloqueoOtroChange(i, val) {
+  var c = S.cases[i];
+  if (c) c.bloqueoOtro = val;
+}
 function onBloqueoDestinoChange(i, val) {
   var c = S.cases[i];
   if (!c) return;
   c.bloqueoDestino = val || null;
+  renderM4(); // muestra u oculta el campo de texto de "Otro"
 }
 function onEstadoNotaChange(i, val) {
   var c = S.cases[i];
@@ -4829,7 +4992,7 @@ function buildAvanceMessage(kind) {
     return { html: esc(t), text: t };
   }));
   if (d.blocked.length) list('Casos bloqueados ('+d.blocked.length+'):', 'Casos bloqueados ('+d.blocked.length+'):', d.blocked.map(function(c){
-    var dest = c.bloqueoDestino ? BLOQUEO_DESTINO_LABELS[c.bloqueoDestino] : '';
+    var dest = bloqueoDestinoLabel(c);
     var t = avanceCaseLabel(c)+': '+avanceMotivo(c)+(dest ? ' → '+dest : '');
     return { html: esc(avanceCaseLabel(c))+': '+esc(avanceMotivo(c))+(dest ? ' → <i>'+esc(dest)+'</i>' : ''), text: t };
   }));
@@ -4967,7 +5130,7 @@ function renderAvance() {
     d.retired.length ? avanceListHtml(d.retired.map(function(x){ return '<b>'+esc(avanceCaseLabel(x))+'</b>: '+esc(avanceMotivo(x)); })) : '');
   var secBlocked = avanceSectionHtml(AVANCE_COLORS.blocked, '&#9940;', 'Casos bloqueados', d.blocked.length,
     d.blocked.length ? avanceListHtml(d.blocked.map(function(x){
-      var dest = x.bloqueoDestino ? BLOQUEO_DESTINO_LABELS[x.bloqueoDestino] : '';
+      var dest = bloqueoDestinoLabel(x);
       return '<b>'+esc(avanceCaseLabel(x))+'</b>: '+esc(avanceMotivo(x))+(dest ? ' → <i>'+esc(dest)+'</i>' : ' <span style="color:var(--text3)">(destino sin definir en Ejecución)</span>');
     })) : '');
   var secFail = avanceSectionHtml(AVANCE_COLORS.fail, '&#10060;', 'Casos fallidos', d.fail.length,
@@ -5075,7 +5238,7 @@ async function generateCertification() {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         analysisRaw: _analysis,
-        cases: S.cases.map(function(c){ return {id:c.id, caso:c.caso, escenario:c.escenario, status:c.status, verdict:c.verdict, estadoNota:c.estadoNota, bloqueoDestino:c.status==='blocked' && c.bloqueoDestino ? BLOQUEO_DESTINO_LABELS[c.bloqueoDestino] : null}; }),
+        cases: S.cases.map(function(c){ return {id:c.id, caso:c.caso, escenario:c.escenario, status:c.status, verdict:c.verdict, estadoNota:c.estadoNota, bloqueoDestino:c.status==='blocked' && c.bloqueoDestino ? bloqueoDestinoLabel(c) : null}; }),
         bugs: S.bugs,
         // Objetivo/Alcance ya aprobados en el Plan de Pruebas -- Certificacion los
         // reusa como referencia principal en vez de re-derivarlos del analisis crudo.

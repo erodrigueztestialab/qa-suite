@@ -121,6 +121,16 @@ function applyContradictions(inventory, list, sourceTexts) {
   var byN = {};
   inv.items.forEach(function(it){ byN[it.n] = it; });
   var sources = sourceTexts ? sourceTexts.map(citaKey) : null;
+  // Parrafos (o reglas) de cada fuente, ya normalizados: una linea del texto o un bloque sin lineas en blanco.
+  var paragraphs = sourceTexts ? [].concat.apply([], sourceTexts.map(function(t){
+    return String(t || '').split(/\r?\n/).map(citaKey).filter(Boolean);
+  })) : null;
+  // Si las dos citas salen del mismo parrafo o regla, es un matiz del mismo punto, no dos versiones.
+  function mismoParrafo(c1, c2) {
+    if (!paragraphs) return false;
+    var k1 = citaKey(c1), k2 = citaKey(c2);
+    return paragraphs.some(function(p){ return p.indexOf(k1) >= 0 && p.indexOf(k2) >= 0; });
+  }
   function citada(c) {
     var k = citaKey(c);
     if (k.split(' ').length < 2) return false;
@@ -134,6 +144,7 @@ function applyContradictions(inventory, list, sourceTexts) {
     var v1 = String((c && c.version1) || '').trim(), v2 = String((c && c.version2) || '').trim();
     if (!ns.length || !v1 || !v2) return descartadas.push({ tema: tema, motivo: 'sin items del inventario o sin las dos versiones' });
     if (!citada(c.cita1) || !citada(c.cita2)) return descartadas.push({ tema: tema, motivo: 'las citas no aparecen en el requerimiento' });
+    if (mismoParrafo(c.cita1, c.cita2)) return descartadas.push({ tema: tema, motivo: 'las dos citas salen del mismo parrafo o regla: es un matiz, no dos versiones' });
     if (ns.some(function(n){ return byN[n].contradiccion; })) return descartadas.push({ tema: tema, motivo: 'ya estaba en el inventario' });
     var first = byN[ns[0]];
     rewrite[first.n] = first.n + ' | Contradiccion | CONTRADICCION | ' + first.ref + ' | Version 1: ' + v1.replace(/\|/g, '/') +
@@ -369,6 +380,31 @@ function validateHU(opts) {
       }
     });
 
+    // V18 (heuristica, advertencia): un ESC solo hereda la condicion de lo que su texto verifica.
+    // (a) lleva una condicion cuyo tema su texto no menciona; (b) su texto nombra un prerrequisito definido
+    // por una dependencia del inventario y no la cita en su condicion. El auditor semantico decide el caso dudoso.
+    escs.forEach(function(e){
+      var body = contentStems(e.text);
+      var condNorm = norm(e.condicion);
+      if (e.condicion) {
+        var named = inv.items.filter(function(p){ return p.estado === 'PENDIENTE' && p.ref && condNorm.indexOf(norm(p.ref)) >= 0; });
+        var topics = named.length ? named.map(function(p){ return contentStems(p.condicion); }) : [contentStems(e.condicion)];
+        topics.forEach(function(stems, k){
+          if (stems.length < 2) return;
+          var overlap = stems.filter(function(x){ return body.indexOf(x) >= 0; }).length;
+          if (!overlap) add('V18', 'advertencia', [e.id], e.id + ' lleva la condicion "' + e.condicion + '" pero su texto no menciona' +
+            (named[k] ? ' lo que define ' + named[k].ref : ' ese tema') + ': solo debe heredar la condicion de lo que verifica.');
+        });
+      }
+      inv.items.forEach(function(d){
+        if (!/depend/.test(norm(d.tipo)) || !d.ref || condNorm.indexOf(norm(d.ref)) >= 0) return;
+        var stems = contentStems(d.condicion);
+        if (stems.length < 3) return;
+        var overlap = stems.filter(function(x){ return body.indexOf(x) >= 0; }).length;
+        if (overlap >= 3 && overlap / stems.length >= 0.5) add('V18', 'advertencia', [e.id], e.id + ' nombra un prerrequisito definido por ' + d.ref + ' y no la cita en su condicion.');
+      });
+    });
+
     // V6: nivel del riesgo vs criticidad del elemento fuente
     rs.forEach(function(r){
       var lvl = norm(r.parts[1] || '').trim().toUpperCase();
@@ -517,10 +553,34 @@ function validateHU(opts) {
       if (!mentioned) add('V13', 'advertencia', [c.id], c.id + ': usa el generico "' + g[1] + '" en vez del nombre propio del documento (' +
         thirdTerms.map(function(x){ return x.termino; }).join(', ') + ').');
     });
+    // Mayusculas de los terminos del glosario (los que el glosario escribe con mayuscula inicial).
+    var huTextRaw = [A.hu, A.justificacion].concat(A.items.map(function(i){ return i.text; })).join('\n');
+    glossary.forEach(function(term){
+      var t = String(term.termino || '').trim();
+      if (!/^[A-ZÁÉÍÓÚÑ]/.test(t) || /^[A-ZÁÉÍÓÚÑ]{2,}$/.test(t)) return;
+      var re = new RegExp('(^|[^A-Za-zÁÉÍÓÚÑáéíóúñ])(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?![A-Za-zÁÉÍÓÚÑáéíóúñ])', 'gi'), m;
+      while ((m = re.exec(huTextRaw))) {
+        if (m[2] !== t) { add('V13', 'advertencia', [], 'El termino del glosario "' + t + '" aparece escrito como "' + m[2] + '": usa las mayusculas del glosario.'); break; }
+      }
+    });
+    if (/\)\s*\(/.test(A.hu || '')) add('V13', 'advertencia', [], 'HISTORIA_DE_USUARIO tiene dos parentesis seguidos: deja una sola aclaracion o reescribe la frase.');
     thirdTerms.forEach(function(term){
       if (allHuText.indexOf(norm(term.termino)) < 0) add('V13', 'advertencia', [], 'El nombre propio "' + term.termino + '" del glosario no aparece en el HU.');
     });
   }
+
+  // V17: un item no puede quedar "Condicionado a" su propia Ref (el inventario) ni su propio ID (HU).
+  inv.items.forEach(function(it){
+    var m = COND_RE.exec(it.condicion || '');
+    if (m && it.ref && norm(m[1]).indexOf(norm(it.ref)) >= 0) {
+      add('V17', 'error', [], 'El item ' + it.n + ' del inventario dice "Condicionado a ' + it.ref + '", que es su propia referencia.');
+    }
+  });
+  A.items.forEach(function(it){
+    if (it.condicion && norm(it.condicion).replace(/\s+/g, '') === norm(it.id).replace(/\s+/g, '')) {
+      add('V17', 'error', [it.id], it.id + ' esta condicionado a si mismo.');
+    }
+  });
 
   return { hallazgos: hallazgos, cobertura: cobertura, inventario: inv.items, glosario: glossary };
 }

@@ -29,6 +29,8 @@ const express  = require('express');
 const cors     = require('cors');
 const multer   = require('multer');
 const mammoth  = require('mammoth');
+const JSZip    = require('jszip');
+const crypto   = require('crypto');
 const { PDFParse } = require('pdf-parse');
 const { spawn, execFile } = require('child_process');
 const crossSpawn = require('cross-spawn');
@@ -871,6 +873,8 @@ async function extractDocx(docxPath, opts) {
   var imgDir = opts.imgDir || fs.mkdtempSync(path.join(os.tmpdir(), 'docx-img-'));
   var imagePaths = [];
   var imgIdx = 0;
+  var seenHashes = {};
+  var unsupportedImages = 0;
 
   var result = await mammoth.convertToHtml(
     { path: docxPath },
@@ -880,6 +884,8 @@ async function extractDocx(docxPath, opts) {
         var n = ++imgIdx;
         return image.read().then(function(buffer) {
           var subtype = (image.contentType || 'image/png').split('/')[1] || 'png';
+          seenHashes[crypto.createHash('sha1').update(buffer).digest('hex')] = true;
+          if (/emf|wmf|svg/i.test(subtype)) unsupportedImages++; // los motores de vision no leen estos formatos
           var imgPath = path.join(imgDir, 'img_' + String(offset + n).padStart(3, '0') + '.' + subtype);
           fs.writeFileSync(imgPath, buffer);
           imagePaths[n - 1] = imgPath;
@@ -895,10 +901,66 @@ async function extractDocx(docxPath, opts) {
     html = html.replace(/<img\b[^>]*\balt="(\[IMAGEN \d+\])"[^>]*>/gi, '<br>$1<br>');
   }
   var text = htmlToPlainText(html);
+
+  // Mammoth solo ve las imagenes "en linea"; las que viven en formas, cuadros de texto, objetos
+  // flotantes o bloques alternativos de Word se le escapan (un Word que solo trae capturas puede
+  // salir con 0 imagenes). Se leen directo del paquete del DOCX las que falten.
+  try {
+    var extra = await docxImagesNotSeen(docxPath, seenHashes);
+    unsupportedImages += extra.unsupported;
+    extra.images.forEach(function(im) {
+      var n = ++imgIdx;
+      var imgPath = path.join(imgDir, 'img_' + String(offset + n).padStart(3, '0') + '.' + im.ext);
+      fs.writeFileSync(imgPath, im.buffer);
+      imagePaths[n - 1] = imgPath;
+      if (markers) text += (text ? '\n' : '') + '[IMAGEN ' + (offset + n) + ']';
+    });
+  } catch (e) {
+    console.warn('[extractDocx] no se pudo revisar el paquete del DOCX:', e.message);
+  }
   if (ownDir && !imagePaths.length) {
     try { fs.rmdirSync(imgDir); } catch (e) {}
   }
-  return { text: text, imagePaths: imagePaths, imgDir: (ownDir && !imagePaths.length) ? null : imgDir };
+  return { text: text, imagePaths: imagePaths, unsupportedImages: unsupportedImages, imgDir: (ownDir && !imagePaths.length) ? null : imgDir };
+}
+
+// Imagenes referenciadas en word/document.xml (en orden de aparicion, una vez por relacion) cuyo
+// contenido no esta en `seenHashes`. EMF/WMF se cuentan aparte (no se pueden leer).
+async function docxImagesNotSeen(docxPath, seenHashes) {
+  var zip = await JSZip.loadAsync(fs.readFileSync(docxPath));
+  var docFile = zip.file('word/document.xml');
+  var relsFile = zip.file('word/_rels/document.xml.rels');
+  var out = { images: [], unsupported: 0 };
+  if (!docFile || !relsFile) return out;
+  var xml = await docFile.async('string');
+  var relsXml = await relsFile.async('string');
+  var rels = {};
+  (relsXml.match(/<Relationship\b[^>]*>/g) || []).forEach(function(tag) {
+    var id = (tag.match(/\bId="([^"]+)"/) || [])[1];
+    var type = (tag.match(/\bType="([^"]+)"/) || [])[1] || '';
+    var target = (tag.match(/\bTarget="([^"]+)"/) || [])[1];
+    var mode = (tag.match(/\bTargetMode="([^"]+)"/) || [])[1];
+    if (id && target && /\/image$/.test(type) && mode !== 'External') rels[id] = target;
+  });
+  var order = [], used = {};
+  var re = /\b(?:r:embed|r:id|r:pict)="([^"]+)"/g, m;
+  while ((m = re.exec(xml))) {
+    if (rels[m[1]] && !used[m[1]]) { used[m[1]] = true; order.push(m[1]); }
+  }
+  for (var k = 0; k < order.length; k++) {
+    var target = rels[order[k]];
+    var zpath = target.charAt(0) === '/' ? target.slice(1) : path.posix.normalize('word/' + target);
+    var f = zip.file(zpath);
+    if (!f) continue;
+    var buf = await f.async('nodebuffer');
+    var h = crypto.createHash('sha1').update(buf).digest('hex');
+    if (seenHashes[h]) continue;
+    seenHashes[h] = true;
+    var ext = path.extname(zpath).slice(1).toLowerCase();
+    if (/^(emf|wmf|svg)$/.test(ext) || !/^(png|jpe?g|gif|bmp|webp|tiff?)$/.test(ext)) { out.unsupported++; continue; }
+    out.images.push({ buffer: buf, ext: ext });
+  }
+  return out;
 }
 
 // ── Bloque de secciones de salida, compartido por el prompt de analisis ───────
@@ -994,7 +1056,9 @@ function buildAnalysisInventoryPrompt(files) {
     '  dependa de ella, es Tarea y no Dependencia); Decision = alternativa tecnica o de diseno que debe',
     '  resolver el equipo de desarrollo; IndicacionPrueba = como, donde o con que datos conviene probar.',
     '- Estado: DEFINIDO, PENDIENTE o CONTRADICCION. Es PENDIENTE todo lo que el documento marque como por definir,',
-    '  abierto, en revision, dependencia sin resolver, supuesto sin confirmar o pregunta abierta. Es CONTRADICCION',
+    '  abierto, en revision, dependencia sin resolver, supuesto sin confirmar o pregunta abierta. Lo que el documento',
+    '  ya responde con una frase afirmativa ("si ocurre X, se atiende mediante Y") es DEFINIDO: solo es PENDIENTE cuando',
+    '  el propio documento lo marca como por definir, por confirmar o abierto. Es CONTRADICCION',
     '  cuando el requerimiento dice dos cosas incompatibles sobre el mismo punto (entre archivos o dentro del mismo) y',
     '  ninguna corrige explicitamente a la otra; en Condicion escribe las dos: "Version 1: ...; Version 2: ...". Si una',
     '  fuente posterior corrige de forma explicita a la anterior ("ya no", "se cambia", "mejor"), no es contradiccion:',
@@ -1045,7 +1109,13 @@ function buildContradictionsPrompt(files, inventoryPath) {
     '',
     'NO es contradiccion: una fuente posterior que corrige de forma explicita a la anterior ("ya no", "se cambia",',
     '"mejor hagamos", "queda asi"), un detalle que una fuente agrega y la otra no menciona, ni dos alternativas que el',
-    'requerimiento ofrece a proposito.',
+    'requerimiento ofrece a proposito. Tampoco lo es:',
+    '- una frase que matiza, acota o amplia otra del MISMO punto (suele estar en el mismo parrafo o en la misma regla);',
+    '- un elemento incluido en el alcance frente a otro excluido cuando hablan de objetos distintos;',
+    '- un punto que el propio documento ya resuelve con una dependencia, una regla o una excepcion.',
+    'Para que sea contradiccion, version1 y version2 deben ser MUTUAMENTE EXCLUYENTES sobre el mismo sujeto: si las dos',
+    'pueden ser ciertas a la vez, no lo es. Las dos citas deben salir de lugares distintos (otra fuente, otro parrafo u',
+    'otra regla): si salen del mismo parrafo o de la misma regla, descartala.',
     '',
     'Responde SOLO con un arreglo JSON (sin texto antes ni despues; [] si no hay ninguna), una entrada por contradiccion:',
     '[{"items":[<N del inventario que afirman alguna de las versiones, el principal primero>],"tema":"<el punto, en pocas',
@@ -1091,7 +1161,10 @@ var REGLAS_ALINEACION_HU = [
   '   Si la fuente plantea algo con premisa ("si X ocurre, podria Y"), el item conserva la premisa y el modal.',
   'C. PENDIENTES: todo CA, RN o ESC que derive de un item PENDIENTE o CONTRADICCION del inventario termina con',
   '   "Condicionado a <Ref>" (o una descripcion corta si no tiene Ref; para una contradiccion, "Condicionado a confirmar',
-  '   <tema>"). Todo ESC que cubre un CA o RN condicionado lleva esa MISMA condicion. Una CONTRADICCION nunca se resuelve',
+  '   <tema>"). Todo ESC que cubre un CA o RN condicionado lleva la condicion de ese CA o RN, pero SOLO si el pendiente',
+  '   gobierna lo que ese ESC verifica: si un ESC cubre un CA condicionado y otro que no lo esta, y lo que verifica no',
+  '   depende del pendiente, no hereda la condicion. Y un item nunca queda condicionado a su propia Ref. Una',
+  '   CONTRADICCION nunca se resuelve',
   '   eligiendo una version: un R_N describe las dos versiones y el resultado esperado no fija ninguna.',
   '   La justificacion del riesgo no puede contradecir el estado del inventario (no digas que algo "sigue sin',
   '   definirse" si esta DEFINIDO, ni lo trates como definido si esta PENDIENTE). Si el documento define un mismo',
@@ -1110,6 +1183,9 @@ var REGLAS_ALINEACION_HU = [
   '   requerimiento (dependencias, supuestos, riesgos del documento), que si deben aparecer. MAL: "Segun el documento,',
   '   la notificacion depende del proveedor". BIEN: "La notificacion por correo se envia al aprobar. Condicionado a DEP-01".',
   'I. CONVENCIONES: "Por ejemplo," con coma despues de "ejemplo"; "Cliente" con mayuscula cuando es un rol; sin rayas',
+  '   Los terminos del GLOSARIO se escriben siempre con las mayusculas exactas del glosario (si el glosario dice',
+  '   "Aprobador", no escribas "aprobador"). En HISTORIA_DE_USUARIO nunca pongas dos parentesis seguidos: usa una sola',
+  '   aclaracion o reescribe la frase. Revisa los signos de puntuacion en espanol de Colombia.',
   '   largas (em dash). Las etiquetas del inventario (PENDIENTE, DEFINIDO, CONTRADICCION, "Version 1:") son internas:',
   '   en el HU se escribe en lenguaje natural ("esta por definir", "hay dos versiones: ... y ...").',
   'J. TRAZABILIDAD: cada linea de CA, RN, R y ESC termina con [src: N,N] (los numeros N del inventario de los que sale).',
@@ -1303,6 +1379,10 @@ var REGLAS_ALINEACION_CASOS = [
   '   inventario), cada caso que lo cubre lleva "Condicionado a <Ref>" en el titulo (Caso) o en el Objetivo, con TODOS',
   '   los codigos que apliquen, y su resultado esperado NO inventa lo que la definicion pendiente aun no fija (describe',
   '   que se verifica "segun lo que defina <Ref>"). La condicion es la misma que en la HU y en el plan.',
+  '   La condicion de un caso sale UNICAMENTE de los CA_N/RN_N/ESC_N de su [cubre] (y del inventario para esos items): un',
+  '   caso que cubre un item DEFINIDO no hereda la condicion de otro item pendiente del mismo tema ni la toma "por',
+  '   vecindad". Si un tema mezcla partes definidas y partes pendientes, van casos separados, cada uno con la condicion',
+  '   de lo que cubre. Nunca pongas "Condicionado a <Ref>" si la Ref no es la condicion de algun item que el caso cubre.',
   'B. UN CASO, UN COMPORTAMIENTO: prohibido "A o B" en un resultado esperado. Si hay dos alternativas posibles, son dos',
   '   casos (cada uno condicionado a lo que lo define) o un caso que describe de que definicion depende.',
   'C. EXCLUSIONES: un item EXCLUSION del inventario (lo que queda fuera del alcance) se cubre SOLO con un caso negativo que',
@@ -1312,7 +1392,12 @@ var REGLAS_ALINEACION_CASOS = [
   '   al menos un caso. Ningun caso se agrega para llegar a un numero; no hay minimos.',
   'E. FIDELIDAD: un resultado esperado no puede ser mas fuerte que su fuente. Conserva los modales ("puede", "podria",',
   '   "si ..., entonces ..."); no inventes plazos, "tiempo real" ni obligaciones ("exige"); no conviertas un dano',
-  '   comercial en legal o normativo.',
+  '   comercial en legal o normativo. Un paso de VALOR INVALIDO solo existe si su resultado esperado esta respaldado por',
+  '   la fuente: si el dato tiene una restriccion definida (rango, formato, igualdad con otro dato, obligatoriedad,',
+  '   existencia en una tabla), el paso incluye solo las clases invalidas que esa restriccion implica (si la regla dice',
+  '   que la suma debe coincidir con X, los pasos son suma mayor, menor e igual, no negativo ni texto). Si no hay',
+  '   restriccion definida, no inventes que el sistema "rechaza" o "no permite" el valor: si el equipo quiere validar ese',
+  '   dato, el caso se escribe "Condicionado a confirmar la validacion de <dato>" y su resultado no fija el comportamiento.',
   'F. NOMBRES Y TERMINOS: usa los nombres del GLOSARIO y los terminos exactos del requerimiento (si el documento dice',
   '   "solicitud", no escribas "solicitud de integracion"); nunca genericos como "terceros" o "el proveedor" cuando la',
   '   fuente nombra al actor. El campo Escenario usa el titulo EXACTO de un ESC_N de la HU (salvo el caso negativo de una',
@@ -1324,6 +1409,16 @@ var REGLAS_ALINEACION_CASOS = [
   'I. UN CASO POR FLUJO: lo que se verifica en la misma ejecucion (precargas de una pantalla, botones, datos de un',
   '   registro) son pasos de UN caso que cita todos los CA/RN/ESC que cubre; los valores invalidos de un mismo dato, un',
   '   caso con un paso por valor. "Conjunto exacto" o "auditoria campo por campo" SOLO si un CA/RN exige exactitud.',
+  '   Tambien son pasos de UN caso, no casos distintos: (a) la misma funcion sobre variantes de tipo de documento o de',
+  '   estado del registro; (b) un dato o una linea especial dentro del mismo documento o ejecucion; (c) la revision de',
+  '   un campo o pantalla que otro caso ya recorre. Se separan SOLO si: tienen condiciones distintas (nunca mezcles un',
+  '   item condicionado con uno sin condicion en el mismo caso), o los CA/RN que cubren se prueban con precondiciones',
+  '   independientes de modo que un fallo dejaria ambigua la causa, o un CA/RN exige exactitud propia. Un caso negativo',
+  '   de exclusion (regla C) NUNCA se fusiona: cada exclusion se mantiene como su propio caso.',
+  'K. AL FUSIONAR (consolidacion o reparacion): el caso resultante cita en "Requisito" y en [cubre] la UNION de los',
+  '   CA/RN/ESC fusionados, conserva el resultado esperado propio de cada parte (mismo numero de pasos y de resultados),',
+  '   mantiene la condicion comun y su Escenario usa el titulo de un ESC fusionado (no inventes uno). Despues de fusionar',
+  '   todos los CA/RN/ESC siguen cubiertos.',
   'J. NADA DE CONTEXTO COMO CASO: objetivo, antecedentes, tareas del proyecto (accesos, ubicar codigo, estimar),',
   '   decisiones tecnicas, ambiente o pais de despliegue no se prueban como caso; son precondiciones o notas del plan.',
   'H. MARCAS INTERNAS: la linea del ID de cada caso termina con [src: ...] (el CA_N/RN_N/ESC_N o el codigo del inventario',
@@ -1408,11 +1503,14 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts, ctx) {
     '   el suyo. Si ningun CA_N/RN_N lo exige con palabras de exactitud ("exactamente", "solo estas columnas", "ni mas ni',
     '   menos", "todos los campos"), NO generes estos casos: que un CA liste campos o precargas no es exigir exactitud',
     '   (sus campos se verifican como pasos del caso de ese flujo, regla 4).',
-    '   (e) ENTRADAS DEL USUARIO: por cada dato que el usuario digita o escanea en el flujo (cantidades, codigos,',
-    '   ubicaciones, fechas, textos), genera UN caso negativo que agrupe, un paso por valor, las clases invalidas que',
-    '   tienen sentido para ese dato (vacio, cero, negativo, no numerico, mayor al disponible o al maximo, inexistente,',
-    '   igual al origen, de otro almacen o entidad, etc.) y, si el requerimiento define un limite, un caso de borde con el',
-    '   valor justo en el limite. Solo clases que apliquen al dato; si el requerimiento no define el mensaje, el',
+    '   (e) ENTRADAS DEL USUARIO: por cada dato que el usuario digita o escanea en el flujo Y sobre el cual el CA/RN/ESC o',
+    '   el inventario DEFINE una restriccion (rango, formato, igualdad con otro dato, obligatoriedad, existencia en una',
+    '   tabla), genera UN caso negativo que agrupe, un paso por valor, SOLO las clases invalidas que esa restriccion',
+    '   implica (vacio, cero, negativo, no numerico, mayor al disponible o al maximo, inexistente, igual al origen, de otro',
+    '   almacen o entidad, etc., segun aplique) y, si el requerimiento define un limite, un caso de borde con el valor',
+    '   justo en el limite. Un dato SIN restriccion definida no lleva caso negativo ni resultado "rechaza": no inventes',
+    '   validaciones que nadie especifico (si el equipo quiere validarlo, "Condicionado a confirmar la validacion de',
+    '   <dato>"). Solo clases que apliquen al dato; si el requerimiento no define el mensaje, el',
     '   resultado esperado dice que el sistema no permite continuar o rechaza el valor, sin inventar el texto del mensaje.',
     '   Si un CA_N/RN_N ya cubre una de esas clases, ese caso la incluye como paso (no un caso aparte).',
     '   (d) VALIDACION DE CAMPOS: por CADA RN_N que especifique un campo con sus atributos (tipo, longitud, obligatoriedad,',
@@ -1485,6 +1583,7 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts, ctx) {
     '   (j) Ningun caso es de carga, estres, volumen masivo u otra prueba que el QA no pueda ejecutar en el ambiente (regla',
     '   5.1) -- si encuentras alguno, conviertelo en lo que el usuario puede observar o quitalo.',
     '10. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
+    '11. ' + ORTOGRAFIA_DOC_CLIENTE,
     ctx.inventoryPath ? '\n' + REGLAS_ALINEACION_CASOS : null,
     '',
     '---CASOS_DE_PRUEBA---',
@@ -1575,6 +1674,7 @@ function buildConsolidateCasesPrompt(analysisRaw, existingCases, sources, m2Cont
     '   archivos o personas): el origen va SOLO en las lineas Origen/Accion/Detalle. Los IDs CA_N/RN_N van SOLO en',
     '   "Requisito".',
     '10. Responde UNICAMENTE con las dos secciones delimitadas. Sin texto adicional.',
+    '10.1 ' + ORTOGRAFIA_DOC_CLIENTE,
     ctx.inventoryPath
       ? '11. Al fusionar o mejorar un caso, CONSERVA su "Condicionado a <Ref>" y sus marcas [src]/[cubre] (unelas si fusionas ' +
         'dos casos); un caso externo que cubra algo condicionado o una exclusion se ajusta a las reglas A y C de abajo.\n\n' + REGLAS_ALINEACION_CASOS
@@ -1753,6 +1853,7 @@ function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, en
     '   "Dejar vacio el campo NIT y dar clic en Guardar >> El sistema no guarda el proveedor y muestra el mensaje de',
     '   campos obligatorios".',
     '8. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
+    '8.1 ' + ORTOGRAFIA_DOC_CLIENTE,
     '9. Si al revisar los casos existentes concluyes que NINGUN item faltante necesita un caso nuevo (ya lo cubren, o',
     '   el analisis no da informacion suficiente para disenar un caso ejecutable), NO inventes casos: responde',
     '   unicamente con la linea ---CASOS_DE_PRUEBA--- seguida de la linea SIN_CASOS_NUEVOS.',
@@ -1812,8 +1913,13 @@ function buildComplexityPrompt(analysisRaw) {
 var ORTOGRAFIA_DOC_CLIENTE =
   'ORTOGRAFIA (obligatorio): redacta en espanol de Colombia/Latinoamerica con ortografia impecable: todas las tildes ' +
   '(ej. "integración", "regresión", "aceptación", "también", "módulo", "validación", "información"), la letra ñ, ' +
-  'signos de apertura ¿ y ¡, y mayusculas/puntuacion correctas. Estas instrucciones vienen escritas sin tildes; NO ' +
-  'copies esa forma en tu respuesta. Antes de entregar, relee todo el texto y corrige cualquier falta.';
+  'signos de apertura ¿ y ¡, y mayusculas/puntuacion correctas. PUNTUACION (revisala con cuidado, norma del espanol de ' +
+  'Colombia): coma en enumeraciones, incisos, vocativos y antes de "pero", "sino" y "aunque"; nunca coma entre el ' +
+  'sujeto y su verbo ni antes de "que" cuando es completivo; punto final en cada oracion o item que lo requiera; dos ' +
+  'puntos antes de una lista o aclaracion, y punto y coma solo para separar elementos largos; sin espacio antes de ' +
+  'coma, punto, dos puntos o punto y coma, y un espacio despues; comillas y parentesis siempre cerrados, sin parentesis ' +
+  'dentro de parentesis; sin puntos ni comas dobles. Estas instrucciones vienen escritas sin tildes; NO ' +
+  'copies esa forma en tu respuesta. Antes de entregar, relee todo el texto y corrige cualquier falta ortografica o de puntuacion.';
 
 // Reglas de alineacion del Plan con el requerimiento (brief de M3). Genericas: los
 // ejemplos son neutros. Se validan despues con validators/planValidator.js.
@@ -1824,11 +1930,19 @@ var REGLAS_ALINEACION_PLAN = [
   '   ALCANCE_DENTRO terminado en "(condicionado a <Ref>)" (para una contradiccion, "(condicionado a confirmar <tema>)"),',
   '   con TODAS las Ref que apliquen ("(condicionado a DEP-01 y DEP-03)"). NUNCA va en ALCANCE_FUERA. En ALCANCE_FUERA',
   '   solo van las exclusiones explicitas del requerimiento (Tipo EXCLUSION del inventario).',
+  '   Si un item de ALCANCE_DENTRO reune comportamiento DEFINIDO y comportamiento PENDIENTE, la condicion "(condicionado',
+  '   a <Ref>)" va SOLO en la parte pendiente: redactalo como una frase para lo definido (sin condicion) y otra frase,',
+  '   o un item aparte, para lo pendiente (con la condicion). No condiciones todo el item por una parte pendiente.',
+  '   Un item de Tipo EXCLUSION, o cuyo texto del analisis diga que queda fuera del alcance, va SIEMPRE en',
+  '   ALCANCE_FUERA, aunque cite una dependencia o un pendiente: la dependencia se cita en SUPUESTOS, RIESGOS o',
+  '   CRITERIOS_ENTRADA, nunca para meterlo en ALCANCE_DENTRO.',
   'B. FIDELIDAD: ninguna afirmacion puede ser mas fuerte que su fuente. Conserva los modales ("puede", "podria",',
   '   "si ..., entonces ..."): si la fuente es condicional, escribe la condicion. No inventes plazos, "tiempo real",',
   '   obligaciones ("exige") ni consecuencias que la fuente no declara; si las infieres, escribelas con "puede" o',
   '   "posible". Distingue un dano comercial de uno legal o normativo: no hables de incumplimiento normativo, multas o',
-  '   sanciones si la fuente no lo dice.',
+  '   sanciones si la fuente no lo dice. Al parafrasear conserva los interrogativos indirectos de la fuente ("cada',
+  '   cuanto", "cuando", "como", "quien", "que") y no los sustituyas por expresiones vagas ("cada cierto tiempo") que',
+  '   cambian el sentido. Cada frase debe ser gramatical y completa, sin palabras faltantes.',
   'C. NOMBRES PROPIOS: usa los terminos y nombres del GLOSARIO tal como los escribe el documento. Prohibido cambiarlos',
   '   por genericos ("terceros", "desarrollo de terceros", "el proveedor", "proveedor externo") cuando la fuente los',
   '   nombra. "Proveedor de Desarrollo" (equipo de la plantilla) si se permite.',
@@ -1981,11 +2095,13 @@ function buildPlanAuditorPrompt(inventoryPath, analysisPath, planPath, findingsP
     '- INCOHERENCIA: Objetivo, Alcance, Estrategia, Tipos y Niveles o Criterios de salida no dicen lo mismo (un item que',
     '  esta en un apartado y no en Alcance, o condicionado en uno y no en otro).',
     '- SIN_SUSTENTO: afirmaciones o nombres que el requerimiento no respalda, o un nombre propio cambiado por un generico.',
+    '- REDACCION: una frase agramatical o con palabras faltantes, o que cambia el sentido de un interrogativo indirecto',
+    '  ("cada cuanto", "cuando", "como", "quien", "que") o de un modal frente al item de origen.',
     'No reportes estilo ni cosas que la fuente si respalda. Si no hay defectos, responde [].',
     '',
     'Responde SOLO con un arreglo JSON, sin texto adicional ni bloque de codigo:',
     '[{"seccion":"<OBJETIVO|ALCANCE_DENTRO|...>","frase":"<frase exacta del plan>","tipo":"<MAS_FUERTE_QUE_FUENTE|PREMISA_COMO_HECHO|',
-    'CONSECUENCIA_INFERIDA|INCOHERENCIA|SIN_SUSTENTO>","motivo":"<que dice la fuente>","correccion":"<como deberia quedar>"}]',
+    'CONSECUENCIA_INFERIDA|INCOHERENCIA|SIN_SUSTENTO|REDACCION>","motivo":"<que dice la fuente>","correccion":"<como deberia quedar>"}]',
   ].join('\n');
 }
 
@@ -2520,6 +2636,7 @@ function buildEvidenceVerdictPrompt(caseData, filePaths, engine, textEvidence) {
     '   si compara el dato literal, porque en ese caso el dato ES la funcionalidad bajo prueba.',
     '4. El veredicto general es BINARIO: PASS solo si TODOS los pasos se cumplieron. Si algun paso fallo o la evidencia es',
     '   insuficiente/ambigua para confirmarlo, el veredicto general es FAIL -- no existe un tercer estado ambiguo.',
+    '4.1 ' + ORTOGRAFIA_DOC_CLIENTE,
     '5. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional. Decide cada paso ANTES de escribir su renglon y',
     '   escribe solo la conclusion final: el PASS/FAIL del inicio del renglon debe ser coherente con su razon y nunca te corrijas',
     '   dentro de la respuesta ("corrijo", "en realidad", "este paso es PASS"). Incluye siempre las 4 secciones, completas.',
@@ -3201,9 +3318,16 @@ function buildCasesAuditorPrompt(inventoryPath, analysisPath, planPath, casesPat
     '- RELLENO: un caso que no cubre ningun CA, RN, ESC o item del plan que no este ya cubierto, agregado solo por cantidad,',
     '  o que prueba algo que no es comportamiento del sistema (una tarea del proyecto, un acceso, una estimacion, el pais',
     '  o ambiente de despliegue).',
-    '- FALTA_NEGATIVO_ENTRADA: un dato que el usuario digita o escanea en el flujo no tiene caso negativo con sus clases',
-    '  invalidas (vacio, cero, negativo, mayor al disponible, inexistente, igual al origen...). En "caso" pon el CP_N del',
-    '  flujo donde se digita, en "frase" el nombre del dato y en "correccion" las clases invalidas que aplican.',
+    '- FALTA_NEGATIVO_ENTRADA: un dato que el usuario digita o escanea en el flujo y sobre el cual un CA/RN/ESC o el',
+    '  inventario DEFINE una restriccion (rango, formato, igualdad con otro dato, obligatoriedad, existencia en una tabla)',
+    '  no tiene caso negativo con las clases invalidas que esa restriccion implica. Sin restriccion definida NO es defecto.',
+    '  En "caso" pon el CP_N del flujo donde se digita, en "frase" el nombre del dato y en "correccion" las clases',
+    '  invalidas que aplican.',
+    '- VARIANTE_FUSIONABLE: dos o mas casos que son un solo flujo con variantes (la misma accion sobre un documento tipo A',
+    '  y tipo B, o sobre un registro en estado X y en estado Y, o el mismo flujo con una linea o dato adicional, o una',
+    '  revision de pantalla que ya ocurre en los pasos de otro caso) y NO tienen condiciones distintas ni exigen',
+    '  exactitud propia. En "caso" pon el CP_N que se mantiene y en "correccion": "fusionar en CP_N como pasos". El caso',
+    '  negativo de una exclusion NUNCA es VARIANTE_FUSIONABLE ni RELLENO.',
     'NO es defecto: el caso NEGATIVO que verifica que una EXCLUSION del inventario no ocurre (por ejemplo, que no existe la',
     'opcion o la integracion excluida). Ese caso es obligatorio para cubrir la exclusion; no lo reportes como INCOHERENCIA,',
     'RELLENO ni "prueba algo excluido". Solo es defecto si EJECUTA la funcionalidad excluida.',
@@ -3211,7 +3335,7 @@ function buildCasesAuditorPrompt(inventoryPath, analysisPath, planPath, casesPat
     '',
     'Responde SOLO con un arreglo JSON, sin texto adicional ni bloque de codigo:',
     '[{"caso":"CP_N","frase":"<frase exacta del caso>","tipo":"<MAS_FUERTE_QUE_FUENTE|PREMISA_COMO_HECHO|CONSECUENCIA_INFERIDA|',
-    'INCOHERENCIA|RELLENO|FALTA_NEGATIVO_ENTRADA>","motivo":"<que dice la fuente>","correccion":"<como deberia quedar, o',
+    'INCOHERENCIA|RELLENO|FALTA_NEGATIVO_ENTRADA|VARIANTE_FUSIONABLE>","motivo":"<que dice la fuente>","correccion":"<como deberia quedar, o',
     'ELIMINAR si es relleno>"}]',
   ].filter(function(l){ return l !== null; }).join('\n');
 }
@@ -3234,6 +3358,12 @@ function buildCasesRepairPrompt(inventoryPath, analysisPath, planPath, casesPath
     '2. Si un hallazgo dice que un caso es RELLENO o que hay que eliminarlo, devuelvelo con la linea "Eliminar: SI" debajo',
     '   del ID y nada mas. Nunca elimines el unico caso que cubre un CA_N, RN_N o ESC_N (corrigelo en su lugar), ni el caso',
     '   negativo que verifica que una EXCLUSION no ocurre.',
+    '2.0 CONDICION_AJENA: quita del caso el "Condicionado a <Ref>" que no sale de los items que cubre; si el caso mezcla',
+    '   una parte definida y una pendiente, dejalo con lo definido y la parte pendiente va en un caso aparte con su',
+    '   condicion. VALIDACION_NO_DEFINIDA: el resultado no puede afirmar que el sistema rechaza o no permite un valor que',
+    '   la fuente no define: reescribe el paso como "Condicionado a confirmar la validacion de <dato>" o quitalo.',
+    '   VARIANTE_FUSIONABLE: devuelve el caso que se mantiene con las variantes como pasos (Requisito y [cubre] = la union,',
+    '   un resultado esperado por paso) y los demas con "Eliminar: SI" (regla K).',
     '2.1 V11 (casos con la misma preparacion): devuelve el PRIMER caso del grupo con la preparacion una sola vez y un paso',
     '   de verificacion por cada caso del grupo, con Requisito y [cubre] = la union de todos; los demas del grupo van con',
     '   "Eliminar: SI". Si un caso del grupo necesita OTROS datos u otra precondicion (por ejemplo, un registro con un',
@@ -4076,6 +4206,39 @@ function evidenceUpload(req, res, next) {
     return res.status(400).json({ error: msg });
   });
 }
+// ── Copia en disco de los adjuntos de evidencia ───────────────────────────────
+// El navegador guarda el original en IndexedDB; esta copia en data/evidencias/ (ignorada por git)
+// protege el archivo aunque se borren los datos del navegador. Se identifica por un uid que genera el cliente.
+var EVIDENCE_BACKUP_DIR = path.join(__dirname, 'data', 'evidencias');
+var ATT_UID_RE = /^att_[a-z0-9_]{5,60}$/;
+app.put('/api/evidence-backup/:uid', express.raw({ type: function(){ return true; }, limit: '300mb' }), function(req, res) {
+  var uid = req.params.uid;
+  if (!ATT_UID_RE.test(uid)) return res.status(400).json({ error: 'Identificador de adjunto invalido.' });
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'Archivo vacio.' });
+  try {
+    fs.mkdirSync(EVIDENCE_BACKUP_DIR, { recursive: true });
+    var name = 'adjunto', type = '';
+    try { name = decodeURIComponent(req.get('X-File-Name') || 'adjunto'); } catch (e) {}
+    try { type = decodeURIComponent(req.get('X-File-Type') || ''); } catch (e) {}
+    fs.writeFileSync(path.join(EVIDENCE_BACKUP_DIR, uid + '.bin'), req.body);
+    fs.writeFileSync(path.join(EVIDENCE_BACKUP_DIR, uid + '.json'), JSON.stringify({ name: name, type: type, size: req.body.length, savedAt: Date.now() }));
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('[/api/evidence-backup PUT]', e.message);
+    return res.status(500).json({ error: 'No se pudo guardar la copia del adjunto.' });
+  }
+});
+app.get('/api/evidence-backup/:uid', function(req, res) {
+  var uid = req.params.uid;
+  if (!ATT_UID_RE.test(uid)) return res.status(400).json({ error: 'Identificador de adjunto invalido.' });
+  var bin = path.join(EVIDENCE_BACKUP_DIR, uid + '.bin');
+  if (!fs.existsSync(bin)) return res.status(404).json({ error: 'No hay copia de este adjunto.' });
+  var meta = {};
+  try { meta = JSON.parse(fs.readFileSync(path.join(EVIDENCE_BACKUP_DIR, uid + '.json'), 'utf-8')); } catch (e) {}
+  res.set('Content-Type', meta.type || 'application/octet-stream');
+  return res.send(fs.readFileSync(bin));
+});
+
 app.post('/api/verify-evidence', evidenceUpload, async function(req, res) {
   if (!req.files || !req.files.length) return res.status(400).json({ error: 'No se recibio ninguna evidencia.' });
   var engine = (req.body.engine === 'gemini' || req.body.engine === 'claude') ? req.body.engine : ENGINE_DEFAULT;
@@ -4118,6 +4281,10 @@ app.post('/api/verify-evidence', evidenceUpload, async function(req, res) {
         var extracted = await extractDocx(docxPath, { imageMarkers: true, markerOffset: docxImageCount, imgDir: evidenceDir });
         var docxImages = extracted.imagePaths.map(function(p, k){ return { n: docxImageCount + k + 1, path: p }; });
         docxImageCount += docxImages.length;
+        if (!docxImages.length && !String(extracted.text || '').replace(/\[IMAGEN \d+\]/g, '').trim()) {
+          throw Object.assign(new Error('No se pudo leer ninguna imagen ni texto de "' + f.originalname + '"' +
+            (extracted.unsupportedImages ? ': trae ' + extracted.unsupportedImages + ' imagen(es) en un formato que la IA no lee (EMF, WMF o SVG). Pega las capturas de nuevo como PNG o JPG.' : '. Revisa que el Word tenga capturas o texto y vuelve a subirlo.')), { userError: true });
+        }
         if (docxImageCount > MAX_DOCX_IMAGES) {
           // Aviso explicito, sin recortar en silencio: la IA debe ver TODAS las capturas o ninguna.
           throw Object.assign(new Error('La evidencia en Word trae ' + docxImageCount + ' imagenes y el maximo por caso es ' + MAX_DOCX_IMAGES + '. Divide la evidencia en menos capturas por caso o sube un Word mas corto.'), { userError: true });

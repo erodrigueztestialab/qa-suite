@@ -162,3 +162,43 @@ test('V10: caso que no aporta cobertura (lo que cubre y verifica ya esta en otro
   var distinto = '\n' + caso('CP_7', ['CA_1'], 'Monto dentro del límite', 'Monto igual al máximo', ['Registrar una solicitud con monto igual al máximo >> La solicitud queda en estado pendiente de revisión']);
   assert.ok(!has(validate(CASES_OK + distinto), 'V10', 'CP_7'), 'verifica algo distinto: no es duplicado');
 });
+
+// ── Ajustes M4: condicion ajena, validaciones no definidas, variantes, exclusiones ──
+test('CONDICION_AJENA: "Condicionado a DEP-X" que ningun item del [cubre] tiene -> error; el set limpio pasa', function(){
+  assert.ok(!has(validate(CASES_OK), 'CONDICION_AJENA'));
+  var res = validate(seed('Caso: Adjuntar el máximo de soportes permitido', 'Caso: Adjuntar el máximo de soportes permitido. Condicionado a DEP-07'));
+  assert.ok(has(res, 'CONDICION_AJENA', 'CP_5'));
+  assert.strictEqual(res.hallazgos.filter(function(h){ return h.codigo === 'CONDICION_AJENA'; })[0].severidad, 'error');
+  // La condicion legitima (CP_4 cubre CA_4, condicionado a DEP-01) no se marca.
+  assert.ok(!has(res, 'CONDICION_AJENA', 'CP_4'));
+});
+
+test('VALIDACION_NO_DEFINIDA: "no permite" sobre un dato sin restriccion -> advertencia; con restriccion -> pasa', function(){
+  var sin = seed('2. Adjuntar X soportes con X igual al máximo permitido >> Los soportes quedan adjuntos a la solicitud',
+    '2. Ingresar un código postal no numérico en el campo de dirección >> El sistema no permite continuar con el valor');
+  assert.ok(has(validate(sin), 'VALIDACION_NO_DEFINIDA', 'CP_5'));
+  var con = seed('2. Adjuntar X soportes con X igual al máximo permitido >> Los soportes quedan adjuntos a la solicitud',
+    '2. Adjuntar un soporte adicional al máximo de soportes por solicitud >> El sistema no permite adjuntar el soporte adicional');
+  assert.ok(!has(validate(con), 'VALIDACION_NO_DEFINIDA'));
+  assert.ok(!has(validate(CASES_OK), 'VALIDACION_NO_DEFINIDA'));
+});
+
+test('VARIANTE_FUSIONABLE: misma condicion y [cubre] solapado con pasos casi iguales -> advertencia; condiciones distintas -> no', function(){
+  var pasosA = ['Abrir el detalle de una solicitud de reembolso en el Portal de Reembolsos >> Se muestra el detalle de la solicitud',
+    'Adjuntar un soporte de tipo factura a la solicitud >> El soporte queda adjunto y se muestra su nombre'];
+  var pasosB = ['Abrir el detalle de una solicitud de reembolso en el Portal de Reembolsos >> Se muestra el detalle de la solicitud',
+    'Adjuntar un soporte de tipo recibo a la solicitud >> El soporte queda adjunto y se muestra su fecha de carga'];
+  var a = caso('CP_7', ['RN_4'], 'Soporte tipo factura', 'Adjuntar soporte factura', pasosA);
+  var b = caso('CP_8', ['RN_4'], 'Soporte tipo recibo', 'Adjuntar soporte recibo', pasosB);
+  assert.ok(has(validate([CASES_OK, a, b].join('\n')), 'VARIANTE_FUSIONABLE', 'CP_8'));
+  var bCond = b.replace('Caso: Adjuntar soporte recibo', 'Caso: Adjuntar soporte recibo. Condicionado a DEP-01');
+  assert.ok(!has(validate([CASES_OK, a, bCond].join('\n')), 'VARIANTE_FUSIONABLE'));
+});
+
+test('exclusion: el caso negativo de una exclusion nunca se marca fusionable ni como relleno (V10)', function(){
+  var otraExcl = '### CP_7 [src: RN_5] [cubre: RN_5]\nRequisito: RN_5\nTipo: Funcional\nComplejidad: Bajo\nEscenario: Integración contable fuera del alcance\n' +
+    'Caso: La solicitud aprobada no genera integración con el sistema contable (otra revisión)\nObjetivo: Verificar que la aprobación no genera integración con el sistema contable.\nPasos:\n' +
+    '1. Aprobar una solicitud de reembolso >> La solicitud queda aprobada\n2. Revisar el menú de la solicitud aprobada >> No se genera ninguna integración con el sistema contable';
+  var res = validate(CASES_OK + '\n' + otraExcl);
+  assert.ok(!res.hallazgos.some(function(h){ return (h.codigo === 'VARIANTE_FUSIONABLE' || h.codigo === 'V10' || h.codigo === 'V11') && (h.ids.indexOf('CP_6') >= 0 || h.ids.indexOf('CP_7') >= 0); }));
+});
