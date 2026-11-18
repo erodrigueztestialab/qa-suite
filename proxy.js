@@ -1485,6 +1485,7 @@ function buildCasesPrompt(analysisRaw, m2Context, engine, transcripts, ctx) {
     '   (j) Ningun caso es de carga, estres, volumen masivo u otra prueba que el QA no pueda ejecutar en el ambiente (regla',
     '   5.1) -- si encuentras alguno, conviertelo en lo que el usuario puede observar o quitalo.',
     '10. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
+    '11. ' + ORTOGRAFIA_DOC_CLIENTE,
     ctx.inventoryPath ? '\n' + REGLAS_ALINEACION_CASOS : null,
     '',
     '---CASOS_DE_PRUEBA---',
@@ -1575,6 +1576,7 @@ function buildConsolidateCasesPrompt(analysisRaw, existingCases, sources, m2Cont
     '   archivos o personas): el origen va SOLO en las lineas Origen/Accion/Detalle. Los IDs CA_N/RN_N van SOLO en',
     '   "Requisito".',
     '10. Responde UNICAMENTE con las dos secciones delimitadas. Sin texto adicional.',
+    '10.1 ' + ORTOGRAFIA_DOC_CLIENTE,
     ctx.inventoryPath
       ? '11. Al fusionar o mejorar un caso, CONSERVA su "Condicionado a <Ref>" y sus marcas [src]/[cubre] (unelas si fusionas ' +
         'dos casos); un caso externo que cubra algo condicionado o una exclusion se ajusta a las reglas A y C de abajo.\n\n' + REGLAS_ALINEACION_CASOS
@@ -1753,6 +1755,7 @@ function buildGapCasesPrompt(analysisRaw, existingCases, gapItems, m2Context, en
     '   "Dejar vacio el campo NIT y dar clic en Guardar >> El sistema no guarda el proveedor y muestra el mensaje de',
     '   campos obligatorios".',
     '8. Responde UNICAMENTE con la seccion delimitada. Sin texto adicional.',
+    '8.1 ' + ORTOGRAFIA_DOC_CLIENTE,
     '9. Si al revisar los casos existentes concluyes que NINGUN item faltante necesita un caso nuevo (ya lo cubren, o',
     '   el analisis no da informacion suficiente para disenar un caso ejecutable), NO inventes casos: responde',
     '   unicamente con la linea ---CASOS_DE_PRUEBA--- seguida de la linea SIN_CASOS_NUEVOS.',
@@ -1812,8 +1815,13 @@ function buildComplexityPrompt(analysisRaw) {
 var ORTOGRAFIA_DOC_CLIENTE =
   'ORTOGRAFIA (obligatorio): redacta en espanol de Colombia/Latinoamerica con ortografia impecable: todas las tildes ' +
   '(ej. "integración", "regresión", "aceptación", "también", "módulo", "validación", "información"), la letra ñ, ' +
-  'signos de apertura ¿ y ¡, y mayusculas/puntuacion correctas. Estas instrucciones vienen escritas sin tildes; NO ' +
-  'copies esa forma en tu respuesta. Antes de entregar, relee todo el texto y corrige cualquier falta.';
+  'signos de apertura ¿ y ¡, y mayusculas/puntuacion correctas. PUNTUACION (revisala con cuidado, norma del espanol de ' +
+  'Colombia): coma en enumeraciones, incisos, vocativos y antes de "pero", "sino" y "aunque"; nunca coma entre el ' +
+  'sujeto y su verbo ni antes de "que" cuando es completivo; punto final en cada oracion o item que lo requiera; dos ' +
+  'puntos antes de una lista o aclaracion, y punto y coma solo para separar elementos largos; sin espacio antes de ' +
+  'coma, punto, dos puntos o punto y coma, y un espacio despues; comillas y parentesis siempre cerrados, sin parentesis ' +
+  'dentro de parentesis; sin puntos ni comas dobles. Estas instrucciones vienen escritas sin tildes; NO ' +
+  'copies esa forma en tu respuesta. Antes de entregar, relee todo el texto y corrige cualquier falta ortografica o de puntuacion.';
 
 // Reglas de alineacion del Plan con el requerimiento (brief de M3). Genericas: los
 // ejemplos son neutros. Se validan despues con validators/planValidator.js.
@@ -2520,6 +2528,7 @@ function buildEvidenceVerdictPrompt(caseData, filePaths, engine, textEvidence) {
     '   si compara el dato literal, porque en ese caso el dato ES la funcionalidad bajo prueba.',
     '4. El veredicto general es BINARIO: PASS solo si TODOS los pasos se cumplieron. Si algun paso fallo o la evidencia es',
     '   insuficiente/ambigua para confirmarlo, el veredicto general es FAIL -- no existe un tercer estado ambiguo.',
+    '4.1 ' + ORTOGRAFIA_DOC_CLIENTE,
     '5. Responde UNICAMENTE con las secciones delimitadas. Sin texto adicional. Decide cada paso ANTES de escribir su renglon y',
     '   escribe solo la conclusion final: el PASS/FAIL del inicio del renglon debe ser coherente con su razon y nunca te corrijas',
     '   dentro de la respuesta ("corrijo", "en realidad", "este paso es PASS"). Incluye siempre las 4 secciones, completas.',
