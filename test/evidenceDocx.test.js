@@ -139,3 +139,65 @@ async function buildImageOnlyDocx(file, floating) {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });
+
+// ── Orden y marcadores junto a su leyenda ─────────────────────────────────────
+var JSZip = require('jszip');
+// Caso real de un Word de evidencias: mammoth no ve las imagenes (aqui, dentro de un bloque
+// alternativo mc:Choice) y extractDocx tiene que rehacer el contenido en el orden del documento.
+async function buildCaptionedDocx(file, hideFromMammoth) {
+  var children = [];
+  LEYENDAS.forEach(function(txt, i) {
+    children.push(new docx.Paragraph({ children: [new docx.TextRun('Paso ' + (i + 1) + '. ' + txt)] }));
+    children.push(new docx.Paragraph({ children: [new docx.ImageRun({ type: 'png', data: solidPng.apply(null, COLORS[i]), transformation: { width: 40, height: 40 } })] }));
+    children.push(new docx.Paragraph({ children: [new docx.TextRun('Imagen ' + (i + 1) + ' de 3. Leyenda de la captura ' + (i + 1))] }));
+  });
+  var buf = await docx.Packer.toBuffer(new docx.Document({ sections: [{ children: children }] }));
+  if (hideFromMammoth) {
+    var zip = await JSZip.loadAsync(buf);
+    var xml = await zip.file('word/document.xml').async('string');
+    // la libreria docx ya declara el espacio de nombres mc en la raiz
+    xml = xml.replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, function(d) { return '<mc:AlternateContent><mc:Choice Requires="wps">' + d + '</mc:Choice></mc:AlternateContent>'; });
+    zip.file('word/document.xml', xml);
+    buf = await zip.generateAsync({ type: 'nodebuffer' });
+  }
+  fs.writeFileSync(file, buf);
+}
+test('Word con imagenes que mammoth no ve: cada [IMAGEN N] queda junto a su paso y su leyenda, en orden', async function() {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evtest-'));
+  try {
+    var f = path.join(dir, 'caso.docx');
+    await buildCaptionedDocx(f, true);
+    var r = await proxy.extractDocx(f, { imageMarkers: true, imgDir: dir });
+    assert.strictEqual(r.imagePaths.length, 3);
+    var lines = r.text.split('\n');
+    [1, 2, 3].forEach(function(n) {
+      var at = lines.indexOf('[IMAGEN ' + n + ']');
+      assert.ok(at > 0, 'falta [IMAGEN ' + n + '] en: ' + r.text);
+      assert.ok(lines[at - 1].indexOf('Paso ' + n + '.') === 0, 'el marcador ' + n + ' debe ir despues de su paso: ' + lines[at - 1]);
+      assert.ok(lines[at + 1].indexOf('Imagen ' + n + ' de 3') === 0, 'la leyenda ' + n + ' debe ir justo despues: ' + lines[at + 1]);
+      assert.ok(fs.readFileSync(r.imagePaths[n - 1]).equals(solidPng.apply(null, COLORS[n - 1])), 'imagen ' + n + ' fuera de orden');
+    });
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+test('Word normal (mammoth ve las imagenes): no cambia nada, sin imagenes duplicadas', async function() {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evtest-'));
+  try {
+    var f = path.join(dir, 'caso.docx');
+    await buildCaptionedDocx(f, false);
+    var r = await proxy.extractDocx(f, { imageMarkers: true, imgDir: dir });
+    assert.strictEqual(r.imagePaths.length, 3);
+    assert.strictEqual(fs.readdirSync(dir).filter(function(n) { return /^img_/.test(n); }).length, 3);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+test('docxOrderedContent: tablas por fila y sin marcadores cuando no se piden', async function() {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evtest-'));
+  try {
+    var f = path.join(dir, 'tabla.docx');
+    function cells(a) { return new docx.TableRow({ children: a.map(function(t) { return new docx.TableCell({ children: [new docx.Paragraph(t)] }); }) }); }
+    var doc = new docx.Document({ sections: [{ children: [new docx.Paragraph('Titulo'), new docx.Table({ rows: [cells(['Paso', 'Esperado']), cells(['1', 'Se muestra la pantalla'])] })] }] });
+    fs.writeFileSync(f, await docx.Packer.toBuffer(doc));
+    var r = await proxy.docxOrderedContent(f, { imgDir: dir, markers: false });
+    assert.strictEqual(r.text, 'Titulo\nPaso | Esperado\n1 | Se muestra la pantalla');
+    assert.strictEqual(r.imagePaths.length, 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
