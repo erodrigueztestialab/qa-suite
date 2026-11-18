@@ -112,3 +112,30 @@ test('el prompt sin imagenes de Word no cambia: sin bloque de IMAGEN ni instrucc
   assert.strictEqual(p.indexOf('Leyendas sin respaldo visual'), -1);
   assert.strictEqual(p.indexOf('Contrasta la leyenda'), -1);
 });
+
+// Word que SOLO tiene capturas, sin una sola linea de texto, y con las imagenes flotantes
+// (ancladas): mammoth las puede perder, pero extractDocx las debe recuperar del paquete.
+async function buildImageOnlyDocx(file, floating) {
+  var children = COLORS.map(function(c) {
+    var opts = { type: 'png', data: solidPng.apply(null, c), transformation: { width: 40, height: 40 } };
+    if (floating) opts.floating = { horizontalPosition: { offset: 100000 }, verticalPosition: { offset: 100000 } };
+    return new docx.Paragraph({ children: [new docx.ImageRun(opts)] });
+  });
+  var doc = new docx.Document({ sections: [{ children: children }] });
+  fs.writeFileSync(file, await docx.Packer.toBuffer(doc));
+}
+[false, true].forEach(function(floating) {
+  test('Word solo con imagenes (' + (floating ? 'flotantes' : 'en linea') + '): extractDocx devuelve las 3 y sus marcadores', async function() {
+    var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evtest-'));
+    try {
+      var f = path.join(dir, 'solo-imagenes.docx');
+      await buildImageOnlyDocx(f, floating);
+      var r = await proxy.extractDocx(f, { imageMarkers: true, imgDir: dir });
+      assert.strictEqual(r.imagePaths.length, 3);
+      [1, 2, 3].forEach(function(n) { assert.ok(r.text.indexOf('[IMAGEN ' + n + ']') >= 0, 'falta [IMAGEN ' + n + ']'); });
+      COLORS.forEach(function(c, i) {
+        assert.ok(fs.readFileSync(r.imagePaths[i]).equals(solidPng.apply(null, c)), 'imagen ' + (i + 1) + ' distinta o fuera de orden');
+      });
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
