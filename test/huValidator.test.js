@@ -275,3 +275,44 @@ test('applyContradictions: descarta citas inventadas, items inexistentes y lo qu
   var ya = V.applyContradictions(INVENTORY, [Object.assign({ items: [4], cita2: 'otra frase cualquiera' }, base)], null).inventory;
   assert.strictEqual(V.applyContradictions(ya, [Object.assign({ items: [4], cita2: 'otra frase cualquiera' }, base)], null).aplicadas.length, 0);
 });
+
+// ── Ajustes M1: contradicciones, herencia de condiciones, autorreferencia, estilo ──
+test('applyContradictions: dos frases que se matizan en el mismo parrafo NO son contradiccion', function(){
+  var fuentes = ['El Solicitante puede adjuntar hasta 3 soportes por solicitud, aunque no todos son obligatorios.\nOtro parrafo distinto.'];
+  var r = V.applyContradictions(INVENTORY, [{ items: [4], tema: 'Soportes', version1: 'puede adjuntar hasta 3',
+    version2: 'no todos son obligatorios', cita1: 'puede adjuntar hasta 3 soportes por solicitud', cita2: 'no todos son obligatorios' }], fuentes);
+  assert.strictEqual(r.aplicadas.length, 0);
+  assert.ok(/mismo parrafo/.test(r.descartadas[0].motivo));
+  // Las mismas citas en parrafos distintos si se aplican.
+  var otras = ['El Solicitante puede adjuntar hasta 3 soportes por solicitud.\nEn la reunion: no todos son obligatorios.'];
+  assert.strictEqual(V.applyContradictions(INVENTORY, [{ items: [4], tema: 'Soportes', version1: 'a', version2: 'b',
+    cita1: 'puede adjuntar hasta 3 soportes por solicitud', cita2: 'no todos son obligatorios' }], otras).aplicadas.length, 1);
+});
+
+test('V18: un ESC no hereda una condicion ajena (advertencia); el HU limpio no la dispara', function(){
+  assert.ok(!hasFinding(validate(HU_OK), 'V18'));
+  var ajeno = seed('ESC_5 | Borde | Máximo de soportes | Adjuntar X soportes con X igual al máximo permitido y verificar que se aceptan. [src: 4]',
+    'ESC_5 | Borde | Máximo de soportes | Adjuntar X soportes con X igual al máximo permitido y verificar que se aceptan. Condicionado a DEP-01 [src: 4]');
+  assert.ok(hasFinding(validate(ajeno), 'V18', 'ESC_5'));
+  assert.strictEqual(validate(ajeno).hallazgos.filter(function(h){ return h.codigo === 'V18'; })[0].severidad, 'advertencia');
+});
+
+test('V18: un ESC que nombra el prerrequisito de una dependencia y no la cita (advertencia)', function(){
+  var sin = seed('Aprobar una solicitud y verificar la notificación por el canal móvil de NotiPlus. Condicionado a DEP-01 [src: 5]',
+    'Aprobar una solicitud y verificar la notificación al Aprobador por el canal móvil con la integración de NotiPlus. [src: 5]');
+  assert.ok(hasFinding(validate(sin), 'V18', 'ESC_4'));
+});
+
+test('V17: un item condicionado a su propia Ref da error (inventario y HU)', function(){
+  var inv = INVENTORY.replace('por definir. Criticidad: Alta.', 'por definir. Condicionado a DEP-01. Criticidad: Alta.');
+  assert.ok(hasFinding(validate(HU_OK, { inventory: inv }), 'V17'));
+  assert.strictEqual(validate(HU_OK, { inventory: inv }).hallazgos.filter(function(h){ return h.codigo === 'V17'; })[0].severidad, 'error');
+  assert.ok(!hasFinding(validate(HU_OK), 'V17'));
+  assert.ok(hasFinding(validate(seed('Condicionado a DEP-01 [src: 5] [cubre: CA_4]', 'Condicionado a ESC_4 [src: 5] [cubre: CA_4]')), 'V17', 'ESC_4'));
+});
+
+test('V13: mayusculas del glosario y dos parentesis seguidos en la HU', function(){
+  assert.ok(hasFinding(validate(seed('Como Solicitante, quiero', 'Como solicitante, quiero')), 'V13'));
+  assert.ok(hasFinding(validate(seed('para recibir la devolución de mis gastos.', 'para recibir la devolución (gastos) (reembolso).')), 'V13'));
+  assert.ok(!hasFinding(validate(HU_OK), 'V13'));
+});
