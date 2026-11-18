@@ -287,6 +287,57 @@ function validateCases(opts) {
       (c.cubre.join(', ') || 'sin requisito') + '): esos casos solo van si el requisito pide exactitud. Eliminarlo (lo que cubre ya lo cubren los demas casos).');
   });
 
+  // CONDICION_AJENA (error): el caso dice "Condicionado a <Ref>" y esa Ref no es la condicion de ningun item de su
+  // [cubre] (ni del inventario para esos items): la condicion se contagio por vecindad.
+  cases.forEach(function(c){
+    var conds = [], re = /condicionad[oa]s?\s+a\s+([^.;\n]+)/gi, m, txt = caseText(c);
+    while ((m = re.exec(txt))) conds = conds.concat(m[1].match(CODE_RE) || []);
+    if (!conds.length) return;
+    var allowed = c.cubre.map(function(id){ return huById[id]; }).filter(Boolean).reduce(function(acc, it){
+      return acc.concat(it.condicion.match(CODE_RE) || [], it.src.map(function(n){ return invByN[n] && invByN[n].ref ? invByN[n].ref.toUpperCase() : ''; }));
+    }, []).concat(c.srcNums.map(function(n){ return invByN[n] && invByN[n].ref ? invByN[n].ref.toUpperCase() : ''; }));
+    uniq(conds).forEach(function(r){
+      if (allowed.indexOf(r.toUpperCase()) < 0) add('CONDICION_AJENA', 'error', [c.id], c.id + ' esta "Condicionado a ' + r + '" pero ningun item que cubre (' +
+        (c.cubre.join(', ') || 'sin [cubre]') + ') tiene esa condicion: quitala o separa lo que si depende de ' + r + ' en otro caso.');
+    });
+  });
+
+  // VALIDACION_NO_DEFINIDA (advertencia, heuristica): el resultado esperado dice "rechaza", "no permite" o "no guarda"
+  // y ningun item del [cubre] contiene una restriccion sobre ese dato (comparten al menos 2 raices con alguna frase
+  // que restringe). El auditor decide el caso dudoso.
+  var REJECT_RE = /\b(rechaza|rechazan|no permite|no permiten|no guarda|no guardan)\b/;
+  var RESTRICT_RE = /(obligatori|debe ser|deben ser|maxim|minim|hasta|igual|formato|existe|catalogo|tabla|rango|entre |mayor|menor|coincid|unic|numeric|longitud|caracter|no puede|solo |solamente|unicamente|rechaz|no permit|valid)/;
+  cases.forEach(function(c){
+    if (isExclCase(c)) return;
+    var sourceSentences = c.cubre.map(function(id){ return huById[id]; }).filter(Boolean).map(function(it){ return it.text; })
+      .concat(invNumsOfCase(c).map(function(n){ return invByN[n] ? invByN[n].condicion : ''; }))
+      .join('\n').split(/[.;\n]/).map(norm).filter(function(s){ return RESTRICT_RE.test(s); }).map(stems);
+    var flagged = false;
+    c.steps.forEach(function(s, i){
+      if (flagged || !REJECT_RE.test(norm(s.resultado))) return;
+      var mine = stems(s.paso + ' ' + s.resultado);
+      var defined = sourceSentences.some(function(sent){ return sent.filter(function(x){ return mine.indexOf(x) >= 0; }).length >= 2; });
+      if (!defined) { flagged = true; add('VALIDACION_NO_DEFINIDA', 'advertencia', [c.id], c.id + ' paso ' + (i + 1) +
+        ': el resultado dice que el sistema rechaza o no permite el valor y ningun item que cubre define esa validacion. No la inventes: usa "Condicionado a confirmar la validacion de <dato>".'); }
+    });
+  });
+
+  // VARIANTE_FUSIONABLE (advertencia, heuristica): misma condicion, [cubre] solapado y pasos casi iguales: es un solo
+  // flujo con variantes (pasos de UN caso). Un caso negativo de exclusion nunca se marca. Lo que V10/V11 ya agrupan, no se repite.
+  var condKey = function(c){ return uniq((caseText(c).match(CODE_RE) || []).map(function(r){ return r.toUpperCase(); })).sort().join(','); };
+  var allStems = cases.map(function(c){ return stems(c.steps.map(function(s){ return s.paso + ' ' + s.resultado; }).join(' ')); });
+  cases.forEach(function(c, i){
+    cases.forEach(function(o, j){
+      if (j <= i || isExclCase(c) || isExclCase(o) || dupIds[c.id] || dupIds[o.id]) return;
+      if (root(i) === root(j) && groups[root(i)].length > 1) return;
+      if (condKey(c) !== condKey(o)) return;
+      if (!c.cubre.some(function(id){ return o.cubre.indexOf(id) >= 0; })) return;
+      if (jaccard(allStems[i], allStems[j]) < 0.6) return;
+      add('VARIANTE_FUSIONABLE', 'advertencia', [c.id, o.id], c.id + ' y ' + o.id + ' tienen la misma condicion, cubren lo mismo y casi los mismos pasos: parecen un solo flujo con variantes. Fusionar en ' +
+        c.id + ' como pasos.');
+    });
+  });
+
   return { hallazgos: hallazgos, cobertura: cobertura, cases: cases };
 }
 
