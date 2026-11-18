@@ -1531,7 +1531,7 @@ function analysisHashOf(text) {
 var AUDIT_CODE_LABELS = {
   V1:'IDs', V2:'Referencia', V3:'Cobertura', V4:'Pendiente', V4b:'Condicion heredada', V5:'Cifra fija', V6:'Criticidad',
   V7:'Absoluto', V8:'Modal o premisa', V9:'Calificativo', V10:'Meta-cita', V11:'Impacto inferido', V12:'Alternativas',
-  V13:'Convencion', V14:'Contexto como regla', V15:'RN repite un CA', CONTRADICCION:'Contradiccion', SIN_SUSTENTO:'Sin sustento', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
+  V13:'Convencion', V14:'Contexto como regla', V15:'RN repite un CA', V16:'RN sin definicion', V17:'Autorreferencia', V18:'Condicion heredada de mas', CONTRADICCION:'Contradiccion', SIN_SUSTENTO:'Sin sustento', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
   PENDIENTE_NO_MARCADO:'Pendiente no marcado', AUDITOR:'Auditor', REPARACION:'Reparacion'
 };
 // Llamar siempre con un solo argumento o con un diccionario: map(auditItemHtml) pasaba el
@@ -2701,7 +2701,8 @@ var CASES_AUDIT_LABELS = {
   V8:'Pasos y resultados', V9:'Marca [src]', V10:'Duplicado', V11:'Casos fragmentados', V12:'Exactitud sin requisito',
   FALTA_NEGATIVO_ENTRADA:'Falta negativo de una entrada', MAS_FUERTE_QUE_FUENTE:'Mas fuerte que la fuente',
   PREMISA_COMO_HECHO:'Premisa como hecho', CONSECUENCIA_INFERIDA:'Consecuencia inferida', INCOHERENCIA:'Incoherencia',
-  RELLENO:'Relleno', AUDITOR:'Auditor', REPARACION:'Reparacion'
+  RELLENO:'Relleno', CONDICION_AJENA:'Condicion ajena', VALIDACION_NO_DEFINIDA:'Validacion no definida', VARIANTE_FUSIONABLE:'Variante fusionable',
+  AUDITOR:'Auditor', REPARACION:'Reparacion'
 };
 function toggleCasesAuditDetail() {
   var d = document.getElementById('cases-audit-det'), t = document.getElementById('cases-audit-toggle');
@@ -3154,6 +3155,8 @@ function syncEditDraftFromDOM() {
   if (steps.length) _caseEditDraft.steps = steps;
 }
 function addEditStep() { syncEditDraftFromDOM(); _caseEditDraft.steps.push({paso:'',resultado:''}); renderCaseEditModal(); }
+// Inserta un paso nuevo justo debajo del paso i (o al inicio con i = -1); los numeros se recalculan solos.
+function insertEditStepAfter(i) { syncEditDraftFromDOM(); _caseEditDraft.steps.splice(i+1,0,{paso:'',resultado:''}); renderCaseEditModal(); setTimeout(function(){ var rows=document.querySelectorAll('#case-edit-modal .step-row [data-step]'); if (rows[i+1]) rows[i+1].focus(); }, 0); }
 function removeEditStep(i) { syncEditDraftFromDOM(); _caseEditDraft.steps.splice(i,1); if (!_caseEditDraft.steps.length) _caseEditDraft.steps=[{paso:'',resultado:''}]; renderCaseEditModal(); }
 function clearEditStepResult(i) { syncEditDraftFromDOM(); _caseEditDraft.steps[i].resultado = ''; renderCaseEditModal(); }
 function closeCaseEditModal() {
@@ -3200,6 +3203,7 @@ function renderCaseEditModal() {
           '<button class="btn btn-ghost" style="padding:4px 7px;font-size:10px" onclick="clearEditStepResult('+i+')" title="Vaciar solo el resultado esperado">&times;</button>' +
         '</div>' +
       '</div>' +
+      '<button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="insertEditStepAfter('+i+')" title="Insertar un paso nuevo debajo de este (los pasos se renumeran solos)">+&darr;</button>' +
       '<button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="removeEditStep('+i+')" title="Eliminar este paso completo">&times;</button></div>';
   }).join('');
   var html =
@@ -3214,7 +3218,8 @@ function renderCaseEditModal() {
         '<label>Escenario</label><input type="text" id="edit-escenario" value="'+esc(d.escenario)+'">' +
         '<label>Caso</label><input type="text" id="edit-caso" value="'+esc(d.caso)+'">' +
         '<label>Objetivo</label><textarea id="edit-objetivo">'+esc(d.objetivo)+'</textarea>' +
-        '<label>Paso a paso (con su resultado esperado)</label>' + stepsHtml +
+        '<label>Paso a paso (con su resultado esperado)</label>' +
+          '<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-bottom:4px" onclick="insertEditStepAfter(-1)" title="Insertar un paso al inicio">+ Paso al inicio</button>' + stepsHtml +
         '<button class="btn btn-ghost" style="font-size:11px;padding:5px 10px;margin-top:2px" onclick="addEditStep()">+ Agregar paso</button>' +
         '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">' +
           '<button class="btn btn-ghost" onclick="closeCaseEditModal()">Cancelar</button>' +
