@@ -175,3 +175,25 @@ test('fixPorEjemploComma: ", por ejemplo, X" -> " (por ejemplo, X)" sin cambiar 
   assert.strictEqual(fixed.count, 1);
   assert.ok(!has(validate(fixed.text), 'V7'), 'y despues de la correccion ya no');
 });
+
+// ── Ajustes M3: mezcla de definido y pendiente, y exclusiones ─────────────────
+test('V1: un item de Dentro que mezcla definido y pendiente y esta condicionado completo -> advertencia', function(){
+  var mezcla = seed('- Adjuntar soportes hasta el máximo permitido por solicitud. [src: 4]',
+    '- Adjuntar soportes hasta el máximo permitido por solicitud y notificar al Aprobador por el canal móvil (condicionado a DEP-01). [src: 4,5]');
+  var res = validate(mezcla);
+  assert.ok(res.hallazgos.some(function(h){ return h.codigo === 'V1' && h.severidad === 'advertencia' && /definidas/.test(h.mensaje); }));
+  // El plan limpio (la condicion solo en lo pendiente) no la dispara.
+  assert.ok(!validate(PLAN_OK).hallazgos.some(function(h){ return /definidas/.test(h.mensaje); }));
+});
+
+test('V1: una EXCLUSION dentro del alcance -> error', function(){
+  var res = validate(seed('- Registro de solicitudes de reembolso con el monto máximo definido por solicitud. [src: 1]',
+    '- Registro de solicitudes de reembolso con el monto máximo definido por solicitud. [src: 1]\n- Integración con el sistema contable (condicionado a DEP-01). [src: 7,5]'));
+  assert.ok(res.hallazgos.some(function(h){ return h.codigo === 'V1' && h.severidad === 'error' && /exclusion/.test(h.mensaje); }));
+});
+
+test('V1: una EXCLUSION del inventario ausente de Fuera del Alcance -> error', function(){
+  var res = validate(seed('---ALCANCE_FUERA---\n- Integración con el sistema contable. [src: 7]\n', '---ALCANCE_FUERA---\n- Cambios en el diseño visual del Portal de Reembolsos.\n'));
+  assert.ok(res.hallazgos.some(function(h){ return h.codigo === 'V1' && h.severidad === 'error' && /no aparece en Fuera/.test(h.mensaje); }));
+  assert.ok(!validate(PLAN_OK).hallazgos.some(function(h){ return /no aparece en Fuera/.test(h.mensaje); }));
+});
